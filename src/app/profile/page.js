@@ -10,12 +10,23 @@ export default function ProfilePage() {
   if (Object.keys(prices).length === 0) return <p>Loading...</p>;
 
   return (
-    <ul>
-      {Object.entries(tokenMap).map(([id, symbol]) => (
-        <li key={id}>
-          {symbol}: ${prices[id] ? prices[id].toFixed(4) : "N/A"}
-        </li>
-      ))}
-    </ul>
+    <>
+     <table>
+        <thead>
+          <tr>
+            <th>Crypto</th>
+            <th>Valeur</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.entries(tokenMap).map(([id, symbol]) => (
+            <tr key={id}>
+              <td>{symbol}:</td>
+              <td>{prices[id] ? prices[id].toFixed(2) : "N/A"} $</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
