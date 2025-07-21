@@ -3,8 +3,8 @@
   "short_name": "CYT",
   "display": "standalone", // or "fullscreen"
   "start_url": "/",
-  "background_color": "#4608ad",  // Match your main background color
-  "theme_color": "#4608ad",       // Match your header/main theme
+  "background_color": "#0A0F1A",  // Match your main background color
+  "theme_color": "#0A0F1A",       // Match your header/main theme
   "orientation": "any",
   "display": "standalone"
 }
