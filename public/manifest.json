@@ -1,6 +1,6 @@
 {
-  "name": "The Crypto Athletes Club",
-  "short_name": "CAC",
+  "name": "Crypto Yield Tracker",
+  "short_name": "CYT",
   "display": "standalone", // or "fullscreen"
   "start_url": "/",
   "background_color": "#4608ad",  // Match your main background color

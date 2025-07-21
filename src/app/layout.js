@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "The Crypto Athletes Club",
-  description: "Sport for Crypto",
+  title: "Crypto Yield Tracker",
+  description: "Crypto Yield Tracking",
   manifest: "/manifest.json",
 };
 
