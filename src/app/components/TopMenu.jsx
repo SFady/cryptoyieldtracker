@@ -8,7 +8,7 @@ export default function TopMenu({ selected, onSelect }) {
     <header className="header">
       <div className="logo">
         <img src="/images/CAC.png" alt="Logo CAC" className="logo-icon" />
-        <h1 className="crypto-title">The Crypto Athletes Club</h1>
+        <h1 className="crypto-title">Crypto Yield Tracker</h1>
       </div>
       <nav className="nav-top-menu">
         <Link

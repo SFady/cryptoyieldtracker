@@ -1,5 +1,5 @@
 :root {
-  --background: #4608ad;
+  --background: #0D1117;
   --foreground: white;
   --hover-color: #a477ff;
   --active-color: #00ffcc;
@@ -30,7 +30,7 @@ html, body {
 .background-image {
   position: fixed;
   inset: 0;
-  background-image: url("/images/banner.webp");
+  /* background-image: url("/images/banner.webp"); */
   background-repeat: no-repeat;
   background-position: center;
   background-size: cover;
@@ -49,7 +49,7 @@ html, body {
 .header {
   position: fixed;
   top: 0; left: 0; right: 0;
-  background: rgba(70, 8, 173, 0.95);
+  /* background: rgba(70, 8, 173, 0.95); */
   backdrop-filter: blur(5px);
   color: var(--foreground);
   display: flex;
