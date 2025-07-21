@@ -1,10 +1,9 @@
 {
   "name": "Crypto Yield Tracker",
   "short_name": "CYT",
-  "display": "standalone", // or "fullscreen"
+  "display": "standalone", 
   "start_url": "/",
-  "background_color": "#0A0F1A",  // Match your main background color
-  "theme_color": "#0A0F1A",       // Match your header/main theme
-  "orientation": "any",
-  "display": "standalone"
+  "background_color": "#0A0F1A",
+  "theme_color": "#0A0F1A",     
+  "orientation": "any"
 }
