@@ -26,6 +26,8 @@ const TOKEN_IDS = {
   coredaoorg: "Core",                  // CORE
   ankr: "ankr",                        // ANKR
   "qubic-network": "qubic-network",
+  nosana: "nosana",
+  hatom: "hatom",
 };
 
 export function useCryptoPrices() {
@@ -52,7 +54,7 @@ export function useCryptoPrices() {
           }
         );
         const data = await res.json();
-        console.log(data);
+        // console.log(data);
 
         const newPrices = {};
         for (const [id, info] of Object.entries(data)) {
@@ -74,6 +76,19 @@ export function useCryptoPrices() {
         if (!stxRes.ok) throw new Error("Erreur réseau Binance STX");
         const stxData = await stxRes.json();
         newPrices["stacks"] = parseFloat(stxData.price);
+
+        // Fetch meme price from Trakx
+        // const memeRes = await fetch(
+        //  "https://marketdata.trakx.io/Prices/Current?keys=l1meme&quoteCurrency=usdc"
+        // );
+        // if (!memeRes.ok) throw new Error("Erreur réseau Trakx MEME");
+        // const memeData = await memeRes.json();
+        // console.log(memeData);
+
+        // if (memeData && memeData.length > 0 && memeData[0].l1meme) {
+        //   newPrices["memes"] = parseFloat(memeData[0].l1meme);
+        // }
+        
 
         setPrices(newPrices);
       } catch (err) {
