@@ -1,10 +1,31 @@
-"use client";
-
 import { useEffect, useState } from "react";
 
+// A quoi sert la 2 eme partie ?
 const TOKEN_IDS = {
-  bitcoin: "BTC",
-  ethereum: "ETH",
+  bitcoin: "bitcoin",
+  ethereum: "ethereum",
+  "usd-coin": "usd-coin",
+  chainlink: "chainlink",
+  aave: "aave",
+  "yearn-finance": "yearn-finance",
+  injective: "INJ",       // spécial Binance
+  pendle: "pendle",
+  "render-token": "render-token",
+  stacks: "STX",           // spécial Binance
+  "fetch-ai": "fetch-ai",
+  bittensor: "bittensor",
+  "reserve-rights-token": "reserve-rights-token",  // RSR
+  syrup: "syrup",                       // SYRUP (vérifier ID exact)
+  "akash-network": "akash-network",    // AKT
+  "nervos-network": "nervos-network",  // CKB
+  "gamercoin": "ghx",          // GHX (vérifier ID exact)
+   "aerodrome-finance": "aerodrome-finance", // AERO
+  kaspa: "kaspa",                      // KAS
+  "io": "io",                  // IO
+  alephium: "alephium",                // ALPH
+  coredaoorg: "Core",                  // CORE
+  ankr: "ankr",                        // ANKR
+  "qubic-network": "qubic-network",
 };
 
 export function useCryptoPrices() {
@@ -14,23 +35,49 @@ export function useCryptoPrices() {
   useEffect(() => {
     async function fetchPrices() {
       try {
+        // IDs CoinGecko sauf INJ et STX
+        const coingeckoIds = Object.keys(TOKEN_IDS).filter(
+          (id) => id !== "injective" && id !== "stacks"
+        );
+
+        // Fetch CoinGecko prices
         const res = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${Object.keys(TOKEN_IDS).join(",")}&vs_currencies=usd`,
-          {
+          `https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoIds.join(
+            ","
+          )}&vs_currencies=usd`,
+            {
             headers: {
               "x-cg-demo-api-key": process.env.NEXT_PUBLIC_COINGECKO_API_KEY,
             },
           }
         );
         const data = await res.json();
+        console.log(data);
 
         const newPrices = {};
         for (const [id, info] of Object.entries(data)) {
           newPrices[id] = info.usd || null;
         }
+
+        // Fetch INJ price from Binance
+        const injRes = await fetch(
+          "https://api.binance.com/api/v3/ticker/price?symbol=INJUSDT"
+        );
+        if (!injRes.ok) throw new Error("Erreur réseau Binance INJ");
+        const injData = await injRes.json();
+        newPrices["injective"] = parseFloat(injData.price);
+
+        // Fetch STX price from Binance
+        const stxRes = await fetch(
+          "https://api.binance.com/api/v3/ticker/price?symbol=STXUSDT"
+        );
+        if (!stxRes.ok) throw new Error("Erreur réseau Binance STX");
+        const stxData = await stxRes.json();
+        newPrices["stacks"] = parseFloat(stxData.price);
+
         setPrices(newPrices);
-      } catch {
-        setError("Error loading prices");
+      } catch (err) {
+        setError(err.message || "Erreur chargement des prix");
       }
     }
 
