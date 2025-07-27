@@ -31,6 +31,18 @@ export default function ProfilePage() {
     return sum + total;
   }, 0);
 
+  const totalInvesti = cryptos.reduce((sum, item) => {
+    const total = item.investi;
+    return sum + total;
+  }, 0);
+
+  const pourcentage = ((totalGlobal - totalInvesti) / totalInvesti) * 100;
+  const signe = pourcentage >= 0 ? "+ " : "- ";
+  const formattedPourcentage = `${signe}${pourcentage.toLocaleString("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
   return (
     <>
       {/* Affichage de l'erreur en haut de page, si elle existe */}
@@ -57,6 +69,9 @@ export default function ProfilePage() {
           })}{" "}
           $
         </strong>
+        <strong style={{ color: pourcentage >= 0 ? "green" : "red" }}>
+            &nbsp;&nbsp;&nbsp;{formattedPourcentage} %
+          </strong>
       </h2>
 
       <br />
