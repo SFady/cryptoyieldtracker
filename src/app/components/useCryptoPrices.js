@@ -77,19 +77,26 @@ export function useCryptoPrices() {
         const stxData = await stxRes.json();
         newPrices["stacks"] = parseFloat(stxData.price);
 
-        // Fetch meme price from Trakx
-        // const memeRes = await fetch(
-        //  "https://marketdata.trakx.io/Prices/Current?keys=l1meme&quoteCurrency=usdc"
-        // );
-        // if (!memeRes.ok) throw new Error("Erreur réseau Trakx MEME");
-        // const memeData = await memeRes.json();
-        // console.log(memeData);
+        try {
+        const trakxMemesRes = await fetch("/api/trakxMemes");
+        const trakxMemesData = await trakxMemesRes.json();
+        if (trakxMemesData && trakxMemesData.l1meme) {
+          newPrices["trakxMemes"] = parseFloat(trakxMemesData.l1meme);
+        }
+        } catch (e) {
+          console.warn("Erreur fetch trakxMemes via API route:", e.message);
+        }
 
-        // if (memeData && memeData.length > 0 && memeData[0].l1meme) {
-        //   newPrices["memes"] = parseFloat(memeData[0].l1meme);
-        // }
+        try {
+        const trakxGamingRes = await fetch("/api/trakxGaming");
+        const trakxGamingData = await trakxGamingRes.json();
+        if (trakxGamingData && trakxGamingData.l1game) {
+          newPrices["trakxGaming"] = parseFloat(trakxGamingData.l1game);
+        }
+        } catch (e) {
+          console.warn("Erreur fetch trakxGaming via API route:", e.message);
+        }
         
-
         setPrices(newPrices);
       } catch (err) {
         setError(err.message || "Erreur chargement des prix");
