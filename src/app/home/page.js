@@ -4,14 +4,20 @@ import React from "react";
 import { useCryptoPrices } from "../components/useCryptoPrices";
 import { cryptos } from '../cryptos';
 
+// function formatPrice(price) {
+//   if (price >= 1) {
+//     return price.toFixed(2);
+//   } else if (price >= 0.0001) {
+//     return price.toFixed(6);
+//   } else {
+//     return price.toExponential(2); // notation scientifique pour très petit prix
+//   }
+// }
 function formatPrice(price) {
-  if (price >= 1) {
-    return price.toFixed(2);
-  } else if (price >= 0.0001) {
-    return price.toFixed(6);
-  } else {
-    return price.toExponential(2); // notation scientifique pour très petit prix
-  }
+  return price.toLocaleString("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 export default function ProfilePage() {
@@ -43,7 +49,7 @@ export default function ProfilePage() {
       )}
 
       <h2>
-        💰 Valeur totale du portefeuille :{" "}
+        💰 {" "}
         <strong>
           {totalGlobal.toLocaleString("fr-FR", {
             minimumFractionDigits: 2,
@@ -59,9 +65,9 @@ export default function ProfilePage() {
         <thead>
           <tr>
             <th>Crypto</th>
-            <th>Montant</th>
-            <th>Prix ($)</th>
-            <th>Valeur ($)</th>
+            <th style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>Investi ($)</th>
+            {/* <th>Prix ($)</th> */}
+            <th style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>Valeur ($)</th>
           </tr>
         </thead>
         <tbody>
@@ -71,9 +77,10 @@ export default function ProfilePage() {
             return (
               <tr key={index}>
                 <td>{item.symbol}</td>
-                <td>{item.montant}</td>
-                <td>{price ? formatPrice(price) : "N/A"}</td>
-                <td>{price ? formatPrice(total) : "N/A"}</td>
+                {/* <td>{item.montant}</td> */}
+                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{item.investi}</td>
+                {/* <td>{price ? formatPrice(price) : "N/A"}</td> */}
+                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{price ? formatPrice(total) : "N/A"}</td>
               </tr>
             );
           })}
