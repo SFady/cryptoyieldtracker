@@ -23,8 +23,7 @@ export const cryptos = [
   { crypto: "coredaoorg", symbol: "CORE", montant: 1118.21067, investi: 500 },
   { crypto: "ankr", symbol: "ANKR", montant: 29623.6593873, investi: 500 },
   { crypto: "qubic-network", symbol: "QUBIC", montant: 482537356.46745, investi: 1000 },
-  { crypto: "nosana", symbol: "NOS", montant: 699.09, investi: 500 },
-  { crypto: "hatom", symbol: "HTM", montant: 474.65, investi: 500 },
+  { crypto: "nosana", symbol: "NOS", montant: 805.08, investi: 500 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
 
