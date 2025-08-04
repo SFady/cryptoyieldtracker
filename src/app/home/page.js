@@ -4,15 +4,6 @@ import React from "react";
 import { useCryptoPrices } from "../components/useCryptoPrices";
 import { cryptos } from '../cryptos';
 
-// function formatPrice(price) {
-//   if (price >= 1) {
-//     return price.toFixed(2);
-//   } else if (price >= 0.0001) {
-//     return price.toFixed(6);
-//   } else {
-//     return price.toExponential(2); // notation scientifique pour très petit prix
-//   }
-// }
 function formatPrice(price) {
   return price.toLocaleString("fr-FR", {
     minimumFractionDigits: 2,
@@ -36,12 +27,16 @@ export default function ProfilePage() {
     return sum + total;
   }, 0);
 
-  const pourcentage = ((totalGlobal - totalInvesti) / totalInvesti) * 100;
-  const signe = pourcentage >= 0 ? "+ " : "- ";
+  const rawPourcentage = ((totalGlobal - totalInvesti) / totalInvesti) * 100;
+  const signe = rawPourcentage >= 0 ? "+ " : "- ";
+  const pourcentage = Math.abs(rawPourcentage);
+
   const formattedPourcentage = `${signe}${pourcentage.toLocaleString("fr-FR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+  
 
   return (
     <>
@@ -69,7 +64,7 @@ export default function ProfilePage() {
           })}{" "}
           $
         </strong>
-        <strong style={{ color: pourcentage >= 0 ? "green" : "red" }}>
+        <strong style={{ color: rawPourcentage >= 0 ? "green" : "red" }}>
             &nbsp;&nbsp;&nbsp;{formattedPourcentage} %
           </strong>
       </h2>
