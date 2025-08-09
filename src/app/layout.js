@@ -2,6 +2,8 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import LayoutClient from "./components/LayoutClient"; // <-- wrapper with usePathname
+import checkAuthent from "./lib/checkAuthent";
+import InitSession from "./components/InitSession";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,14 +21,18 @@ export const metadata = {
   manifest: "/manifest.json",
 };
 
-export default function RootLayout({ children }) {
+
+
+export default async function RootLayout({ children }) {
+  const shouldShow = await checkAuthent();
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
       <div className="background-image" />
         <div className="gradient-overlay" />
         <main>
-          <LayoutClient>{children}</LayoutClient>
+          <InitSession />
+          <LayoutClient>{shouldShow ? children : <p>Accès refusé</p>}</LayoutClient>
         </main>
       </body>
     </html>
