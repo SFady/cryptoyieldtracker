@@ -7,7 +7,7 @@ export async function login(formData) {
   const password = formData.get("password");
 
   // 🔒 Ici tu mets ta logique de vérification
-  if (username === "bmenez" && password === "bm190283@#") {
+  if (username === "Bmenez" && password === "bm190283@#") {
     cookies().set({
       name: "session",
       value: "set1",
@@ -20,7 +20,7 @@ export async function login(formData) {
     return { success: true };
   }
 
-  if (username === "sab" && password === "sb250472@#") {
+  if (username === "Sab" && password === "sb250472@#") {
     cookies().set({
       name: "session",
       value: "set2",
