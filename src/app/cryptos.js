@@ -1,5 +1,5 @@
-export const cryptos = [
-  { crypto: "bitcoin", symbol: "BTC", montant: 0.00971974, investi: 1000 },
+export const cryptosSet1 = [
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.00784833, investi: 1000 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.79967354, investi: 2000 },
   { crypto: "usd-coin", symbol: "USDC", montant: 2500, investi: 0 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
@@ -26,5 +26,18 @@ export const cryptos = [
   { crypto: "nosana", symbol: "NOS", montant: 805.08, investi: 500 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
-
 ];
+
+export const cryptosSet2 = [
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.00187141, investi: 200 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.04324785, investi: 100 },
+];
+
+export function getCryptos(param) {
+  if (param === "set1") {
+    return cryptosSet1;
+  } else if (param === "set2") {
+    return cryptosSet2;
+  }
+  return []; // default empty array if no match
+}

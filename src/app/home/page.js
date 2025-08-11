@@ -2,7 +2,10 @@
 
 import React from "react";
 import { useCryptoPrices } from "../components/useCryptoPrices";
-import { cryptos } from '../cryptos';
+import { getCryptos  } from '../cryptos';
+import { useAuth } from "../context/AuthContext";
+
+import { useEffect } from "react";
 
 function formatPrice(price) {
   return price.toLocaleString("fr-FR", {
@@ -11,7 +14,16 @@ function formatPrice(price) {
   });
 }
 
-export default function ProfilePage() {
+export default function HomePage() {
+  
+  const { activeUser } = useAuth();
+  //console.log(shouldShow);
+// useEffect(() => {
+//   console.log("Auth status from context:", activeUser);
+// }, [activeUser]);
+
+const cryptos = getCryptos(activeUser);
+
   const { prices, error, tokenMap } = useCryptoPrices();
 
   if (Object.keys(prices).length === 0) return <p>Loading...</p>;

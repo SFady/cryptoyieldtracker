@@ -3,7 +3,10 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import LayoutClient from "./components/LayoutClient"; // <-- wrapper with usePathname
 import checkAuthent from "./lib/checkAuthent";
-import InitSession from "./components/InitSession";
+import { AuthProvider } from "./context/AuthContext";
+import LogoutButton from "./components/LogoutButton"; // ⬅ new component
+import LoginForm from "./components/LoginForm";
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,15 +27,26 @@ export const metadata = {
 
 
 export default async function RootLayout({ children }) {
-  const shouldShow = await checkAuthent();
+  const activeUser = await checkAuthent();
+
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
       <div className="background-image" />
         <div className="gradient-overlay" />
         <main>
-          <InitSession />
-          <LayoutClient>{shouldShow ? children : <p>Accès refusé</p>}</LayoutClient>
+          <AuthProvider value={{ activeUser }}>
+          <LayoutClient>
+            {activeUser ? (
+                <>
+                  {children}
+                  <br></br><LogoutButton /> {/* seulement si connecté */}
+                </>
+              ) : (
+                <LoginForm />
+              )}
+          </LayoutClient>
+          </AuthProvider>
         </main>
       </body>
     </html>
