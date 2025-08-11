@@ -20,7 +20,7 @@ export const cryptos = [
   { crypto: "kaspa", symbol: "KAS", montant: 11150.838, investi: 1000 },
   { crypto: "io", symbol: "IO", montant: 1479.14765937, investi: 1000 },
   { crypto: "alephium", symbol: "ALPH", montant: 1646.31145, investi: 500 },
-  { crypto: "coredaoorg", symbol: "CORE", montant: 1118.21067, investi: 500 },
+  { crypto: "coredaoorg", symbol: "CORE", montant: 1866.56067, investi: 1000 },
   { crypto: "ankr", symbol: "ANKR", montant: 29623.6593873, investi: 500 },
   { crypto: "qubic-network", symbol: "QUBIC", montant: 482537356.46745, investi: 1000 },
   { crypto: "nosana", symbol: "NOS", montant: 805.08, investi: 500 },
