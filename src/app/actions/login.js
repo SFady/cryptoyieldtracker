@@ -13,7 +13,7 @@ export async function login(formData) {
       value: "set1",
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: 365 * 60 * 60 * 24, // 365 jours
     });
@@ -26,7 +26,7 @@ export async function login(formData) {
       value: "set2",
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: 365 * 60 * 60 * 24, // 365 jours
     });
