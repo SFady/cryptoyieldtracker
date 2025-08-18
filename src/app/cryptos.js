@@ -26,6 +26,7 @@ export const cryptosSet1 = [
   { crypto: "nosana", symbol: "NOS", montant: 1799.69, investi: 1000 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
+  { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 0 },
 ];
 
 export const cryptosSet2 = [

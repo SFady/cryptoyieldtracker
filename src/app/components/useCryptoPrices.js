@@ -28,6 +28,7 @@ const TOKEN_IDS = {
   "qubic-network": "qubic-network",
   nosana: "nosana",
   hatom: "hatom",
+  defit: "defit",
 };
 
 export function useCryptoPrices() {
