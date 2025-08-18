@@ -93,19 +93,25 @@ const cryptos = getCryptos(activeUser);
           </tr>
         </thead>
         <tbody>
-          {cryptos.map((item, index) => {
-            const price = prices[item.crypto];
-            const total = price ? item.montant * price : 0;
-            return (
+          {cryptos
+            .map((item) => {
+              const price = prices[item.crypto];
+              const total = price ? item.montant * price : 0;
+              const diff = total - item.investi; // on calcule le gain/perte
+              return { ...item, total, diff };
+            })
+            .sort((a, b) => b.diff - a.diff) // tri décroissant
+            .map((item, index) => (
               <tr key={index}>
                 <td>{item.symbol}</td>
-                {/* <td>{item.montant}</td> */}
-                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{item.investi}</td>
-                {/* <td>{price ? formatPrice(price) : "N/A"}</td> */}
-                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{price ? formatPrice(total) : "N/A"}</td>
+                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                  {item.investi}
+                </td>
+                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                  {item.total ? formatPrice(item.total) : "N/A"}
+                </td>
               </tr>
-            );
-          })}
+            ))}
         </tbody>
       </table>
     </>
