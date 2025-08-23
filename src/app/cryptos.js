@@ -1,5 +1,5 @@
 export const cryptosSet1 = [
-  { crypto: "bitcoin", symbol: "BTC", montant: 0.00784833, investi: 1000 },
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.01095294, investi: 1000 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.79967354, investi: 2000 },
   { crypto: "usd-coin", symbol: "USDC", montant: 2500, investi: 0 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
@@ -23,10 +23,11 @@ export const cryptosSet1 = [
   { crypto: "coredaoorg", symbol: "CORE", montant: 1866.56067, investi: 1000 },
   { crypto: "ankr", symbol: "ANKR", montant: 29623.6593873, investi: 500 },
   { crypto: "qubic-network", symbol: "QUBIC", montant: 482537356.46745, investi: 1000 },
-  { crypto: "nosana", symbol: "NOS", montant: 1799.69, investi: 1000 },
+  { crypto: "nosana", symbol: "NOS", montant: 1841.28, investi: 1000 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
   { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 0 },
+  { crypto: "jito-governance-token", symbol: "JTO", montant: 520.46, investi: 1000 },
 ];
 
 export const cryptosSet2 = [

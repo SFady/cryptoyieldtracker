@@ -29,6 +29,7 @@ const TOKEN_IDS = {
   nosana: "nosana",
   hatom: "hatom",
   defit: "defit",
+  "jito-governance-token": "jito-governance-token",
 };
 
 export function useCryptoPrices() {
@@ -55,7 +56,7 @@ export function useCryptoPrices() {
           }
         );
         const data = await res.json();
-        // console.log(data);
+        //console.log(data);
 
         const newPrices = {};
         for (const [id, info] of Object.entries(data)) {
