@@ -1,7 +1,7 @@
 export const cryptosSet1 = [
   { crypto: "bitcoin", symbol: "BTC", montant: 0.01095294, investi: 1000 },
-  { crypto: "ethereum", symbol: "ETH", montant: 0.79967354, investi: 2000 },
-  { crypto: "usd-coin", symbol: "USDC", montant: 2500, investi: 0 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.74730703, investi: 2000 },
+  { crypto: "usd-coin", symbol: "USDC", montant: 2750, investi: 0 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
   { crypto: "aave", symbol: "AAVE", montant: 6.25493528, investi: 1000 },
   { crypto: "yearn-finance", symbol: "YFI", montant: 0.0421, investi: 300 },
