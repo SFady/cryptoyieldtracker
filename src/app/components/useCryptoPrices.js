@@ -8,10 +8,10 @@ const TOKEN_IDS = {
   chainlink: "chainlink",
   aave: "aave",
   "yearn-finance": "yearn-finance",
-  injective: "INJ",       // spécial Binance
+  "injective-protocol": "inj",       // spécial Binance
   pendle: "pendle",
   "render-token": "render-token",
-  stacks: "STX",           // spécial Binance
+  "blockstack": "stx",           // spécial Binance
   "fetch-ai": "fetch-ai",
   bittensor: "bittensor",
   "reserve-rights-token": "reserve-rights-token",  // RSR
@@ -40,9 +40,9 @@ export function useCryptoPrices() {
     async function fetchPrices() {
       try {
         // IDs CoinGecko sauf INJ et STX
-        const coingeckoIds = Object.keys(TOKEN_IDS).filter(
-          (id) => id !== "injective" && id !== "stacks"
-        );
+        const coingeckoIds = Object.keys(TOKEN_IDS);//.filter(
+        //   (id) => id !== "stacks"
+        // );
 
         // Fetch CoinGecko prices
         const res = await fetch(
@@ -64,20 +64,20 @@ export function useCryptoPrices() {
         }
 
         // Fetch INJ price from Binance
-        const injRes = await fetch(
-          "https://api.binance.com/api/v3/ticker/price?symbol=INJUSDT"
-        );
-        if (!injRes.ok) throw new Error("Erreur réseau Binance INJ");
-        const injData = await injRes.json();
-        newPrices["injective"] = parseFloat(injData.price);
+        // const injRes = await fetch(
+        //   "https://api.binance.com/api/v3/ticker/price?symbol=INJUSDT"
+        // );
+        // if (!injRes.ok) throw new Error("Erreur réseau Binance INJ");
+        // const injData = await injRes.json();
+        // newPrices["injective"] = parseFloat(injData.price);
 
         // Fetch STX price from Binance
-        const stxRes = await fetch(
-          "https://api.binance.com/api/v3/ticker/price?symbol=STXUSDT"
-        );
-        if (!stxRes.ok) throw new Error("Erreur réseau Binance STX");
-        const stxData = await stxRes.json();
-        newPrices["stacks"] = parseFloat(stxData.price);
+        // const stxRes = await fetch(
+        //   "https://api.binance.com/api/v3/ticker/price?symbol=STXUSDT"
+        // );
+        // if (!stxRes.ok) throw new Error("Erreur réseau Binance STX");
+        // const stxData = await stxRes.json();
+        // newPrices["stacks"] = parseFloat(stxData.price);
 
         try {
         const trakxMemesRes = await fetch("/api/trakxMemes");
