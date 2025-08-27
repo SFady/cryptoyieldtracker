@@ -1,7 +1,7 @@
 export const cryptosSet1 = [
   { crypto: "bitcoin", symbol: "BTC", montant: 0.01095294, investi: 1000 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.74730703, investi: 2000 },
-  { crypto: "usd-coin", symbol: "USDC", montant: 2750, investi: 0 },
+  { crypto: "usd-coin", symbol: "USDC", montant: 2750, investi: 1 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
   { crypto: "aave", symbol: "AAVE", montant: 6.25493528, investi: 1000 },
   { crypto: "yearn-finance", symbol: "YFI", montant: 0.0421, investi: 300 },
@@ -26,7 +26,7 @@ export const cryptosSet1 = [
   { crypto: "nosana", symbol: "NOS", montant: 1841.28, investi: 1000 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
-  { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 0 },
+  { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 1 },
   { crypto: "jito-governance-token", symbol: "JTO", montant: 520.46, investi: 1000 },
 ];
 
