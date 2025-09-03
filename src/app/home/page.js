@@ -91,7 +91,7 @@ export default function HomePage() {
           <tr>
             <th>Bot</th>
             <th>Description</th>
-            <th>Gain</th>
+            <th style={{ width: "120px" }}>Gain</th>
           </tr>
         </thead>
         <tbody>
