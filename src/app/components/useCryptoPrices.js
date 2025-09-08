@@ -30,6 +30,7 @@ const TOKEN_IDS = {
   hatom: "hatom",
   defit: "defit",
   "jito-governance-token": "jito-governance-token",
+  "ondo-finance": "ondo"
 };
 
 export function useCryptoPrices() {

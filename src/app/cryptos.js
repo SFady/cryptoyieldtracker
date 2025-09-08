@@ -28,6 +28,7 @@ export const cryptosSet1 = [
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
   { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 0 },
   { crypto: "jito-governance-token", symbol: "JTO", montant: 520.46, investi: 1000 },
+  { crypto: "ondo-finance", symbol: "ONDO", montant: 968.97792815, investi: 1000 },
 ];
 
 export const cryptosSet2 = [
