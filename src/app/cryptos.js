@@ -21,7 +21,7 @@ export const cryptosSet1 = [
   { crypto: "io", symbol: "IO", montant: 1479.14765937, investi: 1000 },
   { crypto: "alephium", symbol: "ALPH", montant: 3583.61221, investi: 1000 },
   { crypto: "coredaoorg", symbol: "CORE", montant: 1866.56067, investi: 1000 },
-  { crypto: "ankr", symbol: "ANKR", montant: 29623.6593873, investi: 500 },
+  { crypto: "ankr", symbol: "ANKR", montant: 55073.1678039, investi: 1000 },
   { crypto: "qubic-network", symbol: "QUBIC", montant: 482537356.46745, investi: 1000 },
   { crypto: "nosana", symbol: "NOS", montant: 1841.28, investi: 1000 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
