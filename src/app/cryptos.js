@@ -1,11 +1,11 @@
 export const cryptosSet1 = [
   { crypto: "bitcoin", symbol: "BTC", montant: 0.01095294, investi: 1000 },
-  { crypto: "ethereum", symbol: "ETH", montant: 0.74730703, investi: 2000 },
-  { crypto: "usd-coin", symbol: "USDC", montant: 2750, investi: 0 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.47071980, investi: 2000 },
+  { crypto: "usd-coin", symbol: "USDC", montant: 2765, investi: 0 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
   { crypto: "aave", symbol: "AAVE", montant: 6.25493528, investi: 1000 },
   { crypto: "yearn-finance", symbol: "YFI", montant: 0.16498436, investi: 1000 },
-  { crypto: "injective-protocol", symbol: "INJ", montant: 116.73430108, investi: 2000 },
+  { crypto: "injective-protocol", symbol: "INJ", montant: 115.73430108, investi: 2000 },
   { crypto: "pendle", symbol: "PENDLE", montant: 222.90514024, investi: 1000 },
   { crypto: "render-token", symbol: "RNDR", montant: 226.08495259, investi: 1000 },
   { crypto: "blockstack", symbol: "STX", montant: 746.99357, investi: 500 },
@@ -29,6 +29,7 @@ export const cryptosSet1 = [
   { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 0 },
   { crypto: "jito-governance-token", symbol: "JTO", montant: 520.46, investi: 1000 },
   { crypto: "ondo-finance", symbol: "ONDO", montant: 968.97792815, investi: 1000 },
+  { crypto: "solana", symbol: "SOL", montant: 3.84404163, investi: 1000 },
 ];
 
 export const cryptosSet2 = [
