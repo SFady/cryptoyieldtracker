@@ -8,7 +8,7 @@ export const cryptosSet1 = [
   { crypto: "injective-protocol", symbol: "INJ", montant: 115.73430108, investi: 2000 },
   { crypto: "pendle", symbol: "PENDLE", montant: 222.90514024, investi: 1000 },
   { crypto: "render-token", symbol: "RNDR", montant: 226.08495259, investi: 1000 },
-  { crypto: "blockstack", symbol: "STX", montant: 746.99357, investi: 500 },
+  { crypto: "blockstack", symbol: "STX", montant: 1030.267761, investi: 1000 },
   { crypto: "fetch-ai", symbol: "FET", montant: 1539.37313712, investi: 1500 },
   { crypto: "bittensor", symbol: "TAO", montant: 10.21288743, investi: 3000 },
   { crypto: "reserve-rights-token", symbol: "RSR", montant: 392530.6252, investi: 3000 },    // RSR
