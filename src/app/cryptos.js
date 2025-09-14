@@ -1,7 +1,7 @@
 export const cryptosSet1 = [
   { crypto: "bitcoin", symbol: "BTC", montant: 0.01095294, investi: 1000 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.47071980, investi: 2000 },
-  { crypto: "usd-coin", symbol: "USDC", montant: 2765, investi: 0 },
+  { crypto: "usd-coin", symbol: "USDC", montant: 3265, investi: 0 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
   { crypto: "aave", symbol: "AAVE", montant: 6.25493528, investi: 1000 },
   { crypto: "yearn-finance", symbol: "YFI", montant: 0.16498436, investi: 1000 },
@@ -23,7 +23,7 @@ export const cryptosSet1 = [
   { crypto: "coredaoorg", symbol: "CORE", montant: 1866.56067, investi: 1000 },
   { crypto: "ankr", symbol: "ANKR", montant: 55073.1678039, investi: 1000 },
   { crypto: "qubic-network", symbol: "QUBIC", montant: 482537356.46745, investi: 1000 },
-  { crypto: "nosana", symbol: "NOS", montant: 1841.28, investi: 1000 },
+  { crypto: "nosana", symbol: "NOS", montant: 1381.28, investi: 1000 },
   { crypto: "trakxMemes", symbol: "TRAKX-MEMES", montant: 4.03, investi: 1000 },
   { crypto: "trakxGaming", symbol: "TRAKX-GAMING", montant: 13.27, investi: 500 },
   { crypto: "defit", symbol: "DEFIT", montant: 4500, investi: 0 },
