@@ -5,7 +5,7 @@ export const cryptosSet1 = [
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
   { crypto: "aave", symbol: "AAVE", montant: 6.25493528, investi: 1000 },
   { crypto: "yearn-finance", symbol: "YFI", montant: 0.16498436, investi: 1000 },
-  { crypto: "injective-protocol", symbol: "INJ", montant: 115.73430108, investi: 2000 },
+  { crypto: "injective-protocol", symbol: "INJ", montant: 135.82718541, investi: 2000 },
   { crypto: "pendle", symbol: "PENDLE", montant: 222.90514024, investi: 1000 },
   { crypto: "render-token", symbol: "RNDR", montant: 226.08495259, investi: 1000 },
   { crypto: "blockstack", symbol: "STX", montant: 1351.485032, investi: 1000 },
