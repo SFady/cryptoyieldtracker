@@ -1,14 +1,14 @@
 export const cryptosSet1 = [
   { crypto: "bitcoin", symbol: "BTC", montant: 0.01095294, investi: 1000 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.47071980, investi: 2000 },
-  { crypto: "usd-coin", symbol: "USDC", montant: 3265, investi: 0 },
+  { crypto: "usd-coin", symbol: "USDC", montant: 3294.331200, investi: 0 },
   { crypto: "chainlink", symbol: "LINK", montant: 89.10561383, investi: 1500 },
   { crypto: "aave", symbol: "AAVE", montant: 6.25493528, investi: 1000 },
   { crypto: "yearn-finance", symbol: "YFI", montant: 0.16498436, investi: 1000 },
   { crypto: "injective-protocol", symbol: "INJ", montant: 115.73430108, investi: 2000 },
   { crypto: "pendle", symbol: "PENDLE", montant: 222.90514024, investi: 1000 },
   { crypto: "render-token", symbol: "RNDR", montant: 226.08495259, investi: 1000 },
-  { crypto: "blockstack", symbol: "STX", montant: 1030.267761, investi: 1000 },
+  { crypto: "blockstack", symbol: "STX", montant: 1351.485032, investi: 1000 },
   { crypto: "fetch-ai", symbol: "FET", montant: 1539.37313712, investi: 1500 },
   { crypto: "bittensor", symbol: "TAO", montant: 10.21288743, investi: 3000 },
   { crypto: "reserve-rights-token", symbol: "RSR", montant: 392530.6252, investi: 3000 },    // RSR
