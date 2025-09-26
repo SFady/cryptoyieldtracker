@@ -31,7 +31,8 @@ const TOKEN_IDS = {
   defit: "defit",
   "jito-governance-token": "jito-governance-token",
   "ondo-finance": "ondo",
-  solana: "solana"
+  solana: "solana",
+  "pyth" : "pyth"
 };
 
 export function useCryptoPrices() {
