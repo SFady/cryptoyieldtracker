@@ -30,7 +30,7 @@ export const cryptosSet1 = [
   { crypto: "jito-governance-token", symbol: "JTO", montant: 520.46, investi: 1000 },
   { crypto: "ondo-finance", symbol: "ONDO", montant: 968.97792815, investi: 1000 },
   { crypto: "solana", symbol: "SOL", montant: 3.84404163, investi: 1000 },
-  { crypto: "pyth", symbol: "PYTH", montant: 2808.5886, investi: 500 },
+  { crypto: "pyth-network", symbol: "PYTH", montant: 2808.5886, investi: 500 },
 ];
 
 export const cryptosSet2 = [
