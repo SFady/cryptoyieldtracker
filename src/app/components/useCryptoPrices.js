@@ -12,7 +12,6 @@ const TOKEN_IDS = {
   pendle: "pendle",
   "render-token": "render-token",
   "blockstack": "stx",           // spécial Binance
-  "fetch-ai": "fetch-ai",
   bittensor: "bittensor",
   "reserve-rights-token": "reserve-rights-token",  // RSR
   syrup: "syrup",                       // SYRUP (vérifier ID exact)
