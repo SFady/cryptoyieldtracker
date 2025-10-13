@@ -33,8 +33,9 @@ export const cryptosSet1 = [
 ];
 
 export const cryptosSet2 = [
-  { crypto: "bitcoin", symbol: "BTC", montant: 0.00187141, investi: 200 },
-  { crypto: "ethereum", symbol: "ETH", montant: 0.04324785, investi: 100 },
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.00187141, investi: 116 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.02414785, investi: 116 },
+  { crypto: "bittensor", symbol: "TAO", montant: 0.3, investi: 116 },
 ];
 
 export function getCryptos(param) {
