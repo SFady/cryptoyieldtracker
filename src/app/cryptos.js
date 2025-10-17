@@ -16,7 +16,7 @@ export const cryptosSet1 = [
   { crypto: "nervos-network", symbol: "CKB", montant: 182658.32731328, investi: 1000 },    // CKB
   { crypto: "gamercoin", symbol: "GHX", montant: 5282.63, investi: 500 },          // GHX (à vérifier)
   { crypto: "aerodrome-finance", symbol: "AERO", montant: 1247.21443, investi: 1000},
-  { crypto: "kaspa", symbol: "KAS", montant: 11150.838, investi: 1000 },
+  { crypto: "kaspa", symbol: "KAS", montant: 14958.027, investi: 1000 },
   { crypto: "io", symbol: "IO", montant: 1479.14765937, investi: 1000 },
   { crypto: "alephium", symbol: "ALPH", montant: 3583.61221, investi: 1000 },
   { crypto: "coredaoorg", symbol: "CORE", montant: 1866.56067, investi: 1000 },
