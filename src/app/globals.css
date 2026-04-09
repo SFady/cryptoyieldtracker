@@ -310,6 +310,35 @@ tr:hover {
   margin-bottom: 4px;
 }
 
+.table-large th,
+.table-large td {
+  padding: 16px 20px;
+  font-size: 1rem;
+}
+
+@keyframes flash {
+  0%   { box-shadow: 0 0 0px transparent; }
+  30%  { box-shadow: 0 0 14px 4px rgba(0, 255, 180, 0.7); }
+  100% { box-shadow: 0 0 0px transparent; }
+}
+
+.bot-flash {
+  animation: flash 0.6s ease-out;
+}
+
+.table-with-icons {
+  display: flex;
+  flex-direction: row;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+@media (max-width: 900px) {
+  .table-with-icons {
+    flex-direction: column;
+  }
+}
+
 /* Utility sections spacing */
 .activities-section,
 .utilisateurs-section {

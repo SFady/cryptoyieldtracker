@@ -41,22 +41,11 @@ export function useCryptoPrices() {
   useEffect(() => {
     async function fetchPrices() {
       try {
-        // IDs CoinGecko sauf INJ et STX
-        const coingeckoIds = Object.keys(TOKEN_IDS);//.filter(
-        //   (id) => id !== "stacks"
-        // );
-
-        // Fetch CoinGecko prices
-        const res = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoIds.join(
-            ","
-          )}&vs_currencies=usd`,
-            {
-            headers: {
-              "x-cg-demo-api-key": process.env.NEXT_PUBLIC_COINGECKO_API_KEY,
-            },
-          }
-        );
+        const res = await fetch("/api/cryptoPrices");
+        if (!res.ok) {
+          const json = await res.json();
+          throw new Error(json.error || `Erreur ${res.status}`);
+        }
         const data = await res.json();
         //console.log(data);
 

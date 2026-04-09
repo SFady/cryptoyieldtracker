@@ -20,7 +20,7 @@ export async function login(formData) {
     return { success: true };
   }
 
-  if (username === "Sab" && password === "sb250472@#") {
+  if (username.toLowerCase() === "sab" && password === "sb250472@#") {
     cookies().set({
       name: "session",
       value: "set2",
@@ -33,7 +33,7 @@ export async function login(formData) {
     return { success: true };
   }
 
-  if (username === "test" && password === "test") {
+  if (username === "supervisorsfy" && password === "Sup102456@#") {
     cookies().set({
       name: "session",
       value: "set3",
