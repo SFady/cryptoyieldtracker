@@ -13,6 +13,59 @@ function formatPrice(price) {
   });
 }
 
+function RobotIcon({ active = true, positive = true }) {
+  const eyeColor = !active ? "#3a3a5a" : positive ? "#00e5a0" : "#ff4d6d";
+  const headFill = active ? "#1e1e4a" : "#18182e";
+  const headStroke = active ? "#7c4dff" : "#3a3a5a";
+  const stripeFill = active ? "#2a2a60" : "#222240";
+  const grillFill = active ? "#4a4a80" : "#2a2a44";
+  const accentColor = active ? "#a477ff" : "#3a3a5a";
+  return (
+    <svg width="62" height="72" viewBox="0 0 62 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Antenna stem */}
+      <rect x="29" y="1" width="4" height="11" rx="2" fill={headStroke}/>
+      {/* Antenna tip */}
+      <circle cx="31" cy="1.5" r="4" fill={accentColor}/>
+      <circle cx="31" cy="1.5" r="2" fill={active ? "white" : "#555577"} opacity="0.6"/>
+      {/* Ear connectors */}
+      <rect x="0" y="22" width="5" height="13" rx="2.5" fill={headStroke} opacity="0.8"/>
+      <rect x="57" y="22" width="5" height="13" rx="2.5" fill={headStroke} opacity="0.8"/>
+      {/* Head body */}
+      <rect x="5" y="12" width="52" height="42" rx="10" fill={headFill} stroke={headStroke} strokeWidth="2"/>
+      {/* Header stripe */}
+      <rect x="5" y="12" width="52" height="12" rx="10" fill={stripeFill}/>
+      <rect x="5" y="20" width="52" height="4" fill={stripeFill}/>
+      {/* Header dots */}
+      <circle cx="14" cy="18" r="2.5" fill={accentColor}/>
+      <circle cx="48" cy="18" r="2.5" fill={accentColor}/>
+      <rect x="21" y="16" width="20" height="4" rx="2" fill={active ? "#3a3a70" : "#222240"}/>
+      {/* Eye sockets */}
+      <rect x="9" y="30" width="17" height="10" rx="5" fill="#0a0a1e"/>
+      <rect x="36" y="30" width="17" height="10" rx="5" fill="#0a0a1e"/>
+      {/* Eyes */}
+      <rect x="10" y="31" width="15" height="8" rx="4" fill={eyeColor}/>
+      <rect x="37" y="31" width="15" height="8" rx="4" fill={eyeColor}/>
+      {/* Eye shine */}
+      <rect x="12" y="32.5" width="6" height="3" rx="1.5" fill="white" opacity={active ? "0.35" : "0.08"}/>
+      <rect x="39" y="32.5" width="6" height="3" rx="1.5" fill="white" opacity={active ? "0.35" : "0.08"}/>
+      {/* Mouth grill bars */}
+      <rect x="15" y="46" width="4" height="5" rx="2" fill={grillFill}/>
+      <rect x="21" y="46" width="4" height="5" rx="2" fill={grillFill}/>
+      <rect x="27" y="46" width="4" height="5" rx="2" fill={grillFill}/>
+      <rect x="33" y="46" width="4" height="5" rx="2" fill={grillFill}/>
+      <rect x="39" y="46" width="4" height="5" rx="2" fill={grillFill}/>
+      {/* Neck */}
+      <rect x="21" y="54" width="20" height="8" rx="4" fill={headFill} stroke={headStroke} strokeWidth="1.5"/>
+      <rect x="26" y="57" width="10" height="2.5" rx="1.25" fill={grillFill}/>
+      {/* Shoulders */}
+      <rect x="9" y="62" width="44" height="9" rx="4.5" fill={headFill} stroke={headStroke} strokeWidth="1.5"/>
+      <rect x="18" y="65" width="5" height="3" rx="1.5" fill={grillFill}/>
+      <rect x="26" y="65" width="5" height="3" rx="1.5" fill={grillFill}/>
+      <rect x="34" y="65" width="5" height="3" rx="1.5" fill={grillFill}/>
+    </svg>
+  );
+}
+
 export default function HomePage() {
 
   const { activeUser } = useAuth();
@@ -232,22 +285,37 @@ export default function HomePage() {
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  padding: "20px 14px",
-                  borderRadius: "12px",
-                  backgroundColor: disabled ? "#111118" : "#1a1a2e",
-                  border: `1px solid ${disabled ? "#333" : "#2a2a4a"}`,
-                  gap: "8px",
+                  padding: "14px 10px 12px",
+                  borderRadius: "14px",
+                  backgroundColor: disabled ? "rgba(12,12,28,0.6)" : "rgba(15,15,35,0.85)",
+                  border: `1px solid ${disabled ? "rgba(255,255,255,0.04)" : "rgba(124,77,255,0.22)"}`,
+                  gap: "7px",
                   minWidth: "90px",
-                  opacity: disabled ? 0.4 : 1,
-                  filter: disabled ? "grayscale(1)" : "none",
+                  opacity: disabled ? 0.35 : 1,
+                  backdropFilter: "blur(6px)",
+                  position: "relative",
+                  overflow: "hidden",
+                  transition: "box-shadow 0.2s",
                 }}>
-                  <span style={{ fontSize: "3rem" }}>🤖</span>
-                  <span style={{ fontSize: "0.85rem", textAlign: "center", color: "#ccc" }}>{name}</span>
+                  {!disabled && (
+                    <div style={{
+                      position: "absolute",
+                      top: 0, left: 0, right: 0,
+                      height: "1px",
+                      background: "linear-gradient(90deg, transparent, rgba(164,119,255,0.5), transparent)",
+                    }}/>
+                  )}
+                  <RobotIcon active={!disabled} positive={isPos} />
+                  <span style={{ fontSize: "0.72rem", textAlign: "center", color: disabled ? "#444466" : "#9999cc", fontWeight: "500", letterSpacing: "0.4px", textTransform: "uppercase" }}>{name}</span>
                   {disabled
-                    ? <span style={{ fontSize: "0.8rem", color: "#666" }}>● Inactif</span>
-                    : <span style={{ fontSize: "0.85rem", fontWeight: "bold", color: isPos ? "green" : "red" }}>
-                      {isPos ? "+" : ""}{val.toFixed(2)} %
-                    </span>
+                    ? <span style={{ fontSize: "0.68rem", color: "#33334d", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#222238", display: "inline-block" }}/>
+                        Inactif
+                      </span>
+                    : <span style={{ fontSize: "0.82rem", fontWeight: "700", color: isPos ? "#00e5a0" : "#ff4d6d", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "3px" }}>
+                        <span style={{ fontSize: "0.65rem" }}>{isPos ? "▲" : "▼"}</span>
+                        {Math.abs(val).toFixed(2)}%
+                      </span>
                   }
                 </div>
               );
