@@ -308,8 +308,8 @@ export default function HomePage() {
                   <RobotIcon active={!disabled} positive={isPos} />
                   <span style={{ fontSize: "0.72rem", textAlign: "center", color: disabled ? "#8888bb" : "#9999cc", fontWeight: "500", letterSpacing: "0.4px", textTransform: "uppercase" }}>{name}</span>
                   {disabled
-                    ? <span style={{ fontSize: "0.68rem", color: "#7777aa", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#5555888", display: "inline-block" }}/>
+                    ? <span style={{ fontSize: "0.68rem", color: "#7777aa", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", width: "100%" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#555588", display: "inline-block" }}/>
                         Inactif
                       </span>
                     : <span style={{ fontSize: "0.82rem", fontWeight: "700", color: isPos ? "#00e5a0" : "#ff4d6d", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "3px" }}>
