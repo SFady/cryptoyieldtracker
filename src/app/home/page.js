@@ -14,14 +14,14 @@ function formatPrice(price) {
 }
 
 function RobotIcon({ active = true, positive = true }) {
-  const eyeColor = !active ? "#3a3a5a" : positive ? "#00e5a0" : "#ff4d6d";
-  const headFill = active ? "#1e1e4a" : "#18182e";
-  const headStroke = active ? "#7c4dff" : "#3a3a5a";
-  const stripeFill = active ? "#2a2a60" : "#222240";
-  const grillFill = active ? "#4a4a80" : "#2a2a44";
-  const accentColor = active ? "#a477ff" : "#3a3a5a";
+  const eyeColor = !active ? "#55557a" : positive ? "#00e5a0" : "#ff4d6d";
+  const headFill = active ? "#1e1e4a" : "#252545";
+  const headStroke = active ? "#7c4dff" : "#6060a0";
+  const stripeFill = active ? "#2a2a60" : "#30305a";
+  const grillFill = active ? "#4a4a80" : "#484878";
+  const accentColor = active ? "#a477ff" : "#7070b0";
   return (
-    <svg width="62" height="72" viewBox="0 0 62 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="46" height="54" viewBox="0 0 62 72" fill="none" xmlns="http://www.w3.org/2000/svg">
       {/* Antenna stem */}
       <rect x="29" y="1" width="4" height="11" rx="2" fill={headStroke}/>
       {/* Antenna tip */}
@@ -287,11 +287,11 @@ export default function HomePage() {
                   alignItems: "center",
                   padding: "14px 10px 12px",
                   borderRadius: "14px",
-                  backgroundColor: disabled ? "rgba(12,12,28,0.6)" : "rgba(15,15,35,0.85)",
-                  border: `1px solid ${disabled ? "rgba(255,255,255,0.04)" : "rgba(124,77,255,0.22)"}`,
+                  backgroundColor: disabled ? "rgba(25,25,55,0.75)" : "rgba(15,15,35,0.85)",
+                  border: `1px solid ${disabled ? "rgba(100,100,160,0.35)" : "rgba(124,77,255,0.22)"}`,
                   gap: "7px",
                   minWidth: "90px",
-                  opacity: disabled ? 0.35 : 1,
+                  opacity: 1,
                   backdropFilter: "blur(6px)",
                   position: "relative",
                   overflow: "hidden",
@@ -306,10 +306,10 @@ export default function HomePage() {
                     }}/>
                   )}
                   <RobotIcon active={!disabled} positive={isPos} />
-                  <span style={{ fontSize: "0.72rem", textAlign: "center", color: disabled ? "#444466" : "#9999cc", fontWeight: "500", letterSpacing: "0.4px", textTransform: "uppercase" }}>{name}</span>
+                  <span style={{ fontSize: "0.72rem", textAlign: "center", color: disabled ? "#8888bb" : "#9999cc", fontWeight: "500", letterSpacing: "0.4px", textTransform: "uppercase" }}>{name}</span>
                   {disabled
-                    ? <span style={{ fontSize: "0.68rem", color: "#33334d", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#222238", display: "inline-block" }}/>
+                    ? <span style={{ fontSize: "0.68rem", color: "#7777aa", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#5555888", display: "inline-block" }}/>
                         Inactif
                       </span>
                     : <span style={{ fontSize: "0.82rem", fontWeight: "700", color: isPos ? "#00e5a0" : "#ff4d6d", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "3px" }}>
