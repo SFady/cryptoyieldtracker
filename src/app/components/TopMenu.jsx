@@ -31,10 +31,10 @@ export default function TopMenu({ selected, onSelect }) {
             onClick={() => onSelect && onSelect("activities")}
             aria-current={selected === "activities" ? "page" : undefined}
           >
-            Menu2
+            Bots
           </Link>
           <Link
-            href="/home"
+            href="/profile"
             className={selected === "profile" ? "active" : ""}
             onClick={() => onSelect && onSelect("profile")}
             aria-current={selected === "profile" ? "page" : undefined}

@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 
-const BottomMenu = ({ onSelect, selected }) => {
+const BottomMenu = ({ selected }) => {
   return (
     <nav className="bottom-menu">
       <Link
@@ -25,11 +25,11 @@ const BottomMenu = ({ onSelect, selected }) => {
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16a6.471 6.471 0 004.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5z" />
         </svg>
-        Menu 2
+        Bots
       </Link>
 
       <Link
-        href="/home"
+        href="/profile"
         aria-label="Divers"
         className={`button ${selected === "profile" ? "active" : ""}`}
       >

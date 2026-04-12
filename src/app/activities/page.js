@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
 function BotIcon({ active = true, positive = true }) {
-  const accent   = active ? (positive ? "#00e5a0" : "#ff4d6d") : "#444466";
+  const accent   = active ? (positive ? "#00e5a0" : "#ff1744") : "#444466";
   const base     = active ? "#1a1a40" : "#16162e";
   const border   = active ? (positive ? "rgba(0,229,160,0.5)" : "rgba(255,77,109,0.5)") : "rgba(80,80,140,0.4)";
   const glow     = active ? (positive ? "rgba(0,229,160,0.18)" : "rgba(255,77,109,0.18)") : "transparent";
@@ -54,7 +54,7 @@ function BotIcon({ active = true, positive = true }) {
       )}
 
       {/* Status dot — top right */}
-      <circle cx="38" cy="14" r="3.5" fill={active ? (positive ? "#00e5a0" : "#ff4d6d") : "#333355"} stroke={base} strokeWidth="1"/>
+      <circle cx="38" cy="14" r="3.5" fill={active ? (positive ? "#00e5a0" : "#ff1744") : "#333355"} stroke={base} strokeWidth="1"/>
 
       {/* Corner circuit nodes */}
       <circle cx="26" cy="6"  r="1.5" fill={accent} opacity="0.5"/>
@@ -144,8 +144,8 @@ export default function ActivitiesPage() {
                 <span className="pulse-dot" />
                 LIVE
               </span>
-            : <span className="bots-header-value" style={{ color: "#ff4d6d" }}>
-                <span className="pulse-dot" style={{ background: "#ff4d6d" }} />
+            : <span className="bots-header-value" style={{ color: "#ff1744" }}>
+                <span className="pulse-dot" style={{ background: "#ff1744" }} />
                 RECONNECTING
               </span>
           }
@@ -163,12 +163,12 @@ export default function ActivitiesPage() {
           const val      = gainsDynamic[i];
           const isPos    = val >= 0;
           const disabled = i === 9;
-          const accent   = disabled ? "#555588" : isPos ? "#00e5a0" : "#ff4d6d";
+          const accent   = disabled ? "#555588" : isPos ? "#00e5a0" : "#ff1744";
 
           return (
             <div
               key={i}
-              className={`bot-card${flashing[i] ? " bot-flash" : ""}${disabled ? " bot-card--offline" : ""}`}
+              className={`bot-card${flashing[i] ? (isPos ? " bot-flash" : " bot-flash--neg") : ""}${disabled ? " bot-card--offline" : ""}`}
             >
               <div className="bot-card__accent" style={{ backgroundColor: accent }} />
 

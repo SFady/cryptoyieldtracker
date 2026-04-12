@@ -1,8 +1,10 @@
 :root {
   --background: #0A0F1A;
   --foreground: #EAF6FF;
-  --hover-color: ##0D1117;
+  --hover-color: #a477ff;
   --active-color: #00ffcc;
+  --red-vivid: #ff0033;
+  --red-glow:  rgba(255, 0, 51, 0.6);
 }
 
 html, body {
@@ -154,6 +156,52 @@ html, body {
   .logout-btn {
     padding: 7px 10px;
   }
+
+  /* Logo + titre sur une ligne en mobile */
+  .logo {
+    gap: 0.5rem;
+    flex-shrink: 1;
+    min-width: 0;
+    align-items: center;
+  }
+
+  .logo-icon {
+    width: 91px;
+    height: 91px;
+    flex-shrink: 0;
+    display: block;
+  }
+
+  .header {
+    height: 100px;
+    padding-left: 6px;
+    padding-right: 8px;
+  }
+
+  main {
+    padding-top: 160px !important;
+  }
+
+  .crypto-title {
+    font-size: 1.2rem;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: unset;
+    margin: 0;
+    line-height: 91px;
+  }
+
+  /* Laisser le logo prendre tout l'espace disponible */
+  .logo {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Logout fixe à droite, ne compresse pas le logo */
+  .header-right {
+    flex-shrink: 0;
+    margin-left: 12px;
+  }
 }
 
 /* Mobile nav toggle (burger) */
@@ -212,7 +260,7 @@ html, body {
   }
 
   main {
-    padding-top: 110px !important;/* ajuste si ton header est plus ou moins haut */
+    padding-top: 136px !important; /* header 75px + ligne de respiration ~28px + marge */
   }
 }
 
@@ -255,7 +303,7 @@ th {
 }
 
 tr:hover {
-  background-color: var(--hover-color);
+  background-color: rgba(164, 119, 255, 0.07);
   color: var(--foreground);
 }
 
@@ -367,15 +415,26 @@ tr:hover {
   }
 }
 
-@keyframes flash {
+@keyframes flash-pos {
   0%   { box-shadow: 0 0 0px transparent; border-color: rgba(124,77,255,0.22); }
   25%  { box-shadow: 0 0 18px 5px rgba(0, 229, 160, 0.5), inset 0 0 12px rgba(0,229,160,0.08); border-color: rgba(0,229,160,0.6); }
   60%  { box-shadow: 0 0 10px 2px rgba(0, 229, 160, 0.25); border-color: rgba(0,229,160,0.35); }
   100% { box-shadow: 0 0 0px transparent; border-color: rgba(124,77,255,0.22); }
 }
 
+@keyframes flash-neg {
+  0%   { box-shadow: 0 0 0px transparent; border-color: rgba(255,0,51,0.25); }
+  25%  { box-shadow: 0 0 28px 8px rgba(255,0,51,0.75), inset 0 0 16px rgba(255,0,51,0.18); border-color: rgba(255,0,51,1); }
+  60%  { box-shadow: 0 0 14px 4px rgba(255,0,51,0.45); border-color: rgba(255,0,51,0.6); }
+  100% { box-shadow: 0 0 0px transparent; border-color: rgba(255,0,51,0.25); }
+}
+
 .bot-flash {
-  animation: flash 0.6s ease-out;
+  animation: flash-pos 0.6s ease-out;
+}
+
+.bot-flash--neg {
+  animation: flash-neg 0.6s ease-out;
 }
 
 .table-with-icons {
@@ -435,9 +494,11 @@ tr:hover {
 }
 
 .perf-badge--neg {
-  background: rgba(255, 77, 109, 0.1);
-  border: 1px solid rgba(255, 77, 109, 0.35);
-  color: #ff4d6d;
+  background: rgba(255, 0, 51, 0.15);
+  border: 1px solid rgba(255, 0, 51, 0.65);
+  color: var(--red-vivid);
+  box-shadow: 0 0 12px rgba(255, 0, 51, 0.4), inset 0 0 8px rgba(255, 0, 51, 0.08);
+  text-shadow: 0 0 8px rgba(255, 0, 51, 0.6);
 }
 
 .perf-badge__arrow {
