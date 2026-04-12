@@ -125,7 +125,7 @@ export default function HomePage() {
                       <span style={{
                         marginLeft: "8px",
                         fontSize: "0.72rem",
-                        color: dailyDelta[i] > 0 ? "#00e5a0" : "#ff1744",
+                        color: dailyDelta[i] > 0 ? "#00e5a0" : "#ff3366",
                         opacity: dailyDelta[i] < 0 ? 1 : 0.75,
                         fontWeight: dailyDelta[i] < 0 ? 700 : 400,
                       }}>
