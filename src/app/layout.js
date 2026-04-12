@@ -4,7 +4,6 @@ import "./globals.css";
 import LayoutClient from "./components/LayoutClient"; // <-- wrapper with usePathname
 import checkAuthent from "./lib/checkAuthent";
 import { AuthProvider } from "./context/AuthContext";
-import LogoutButton from "./components/LogoutButton"; // ⬅ new component
 import LoginForm from "./components/LoginForm";
 
 
@@ -37,14 +36,7 @@ export default async function RootLayout({ children }) {
         <main>
           <AuthProvider value={{ activeUser }}>
           <LayoutClient>
-            {activeUser ? (
-                <>
-                  {children}
-                  <br></br><LogoutButton /> {/* seulement si connecté */}
-                </>
-              ) : (
-                <LoginForm />
-              )}
+            {activeUser ? children : <LoginForm />}
           </LayoutClient>
           </AuthProvider>
         </main>

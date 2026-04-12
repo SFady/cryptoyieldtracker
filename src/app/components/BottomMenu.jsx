@@ -18,7 +18,7 @@ const BottomMenu = ({ onSelect, selected }) => {
       </Link>
 
       <Link
-        href="/home"
+        href="/activities"
         aria-label="Activités"
         className={`button ${selected === "activities" ? "active" : ""}`}
       >

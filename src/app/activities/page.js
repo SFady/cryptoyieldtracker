@@ -1,92 +1,202 @@
-// // export default function ActivitiesPage() {
-// //   return <p><br />Voici les activités</p>;
-// // }
+"use client";
 
-// // /app/activities/page.jsx
-// "use client";
+import React, { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
-// import { useState, useEffect } from "react";
-// import { BarChart2 } from "lucide-react";
-// import { useDefitPrice } from "../components/useDefitPrice"; // adapte le chemin selon ton arborescence
-// import { activities } from "../activities";
+function BotIcon({ active = true, positive = true }) {
+  const accent   = active ? (positive ? "#00e5a0" : "#ff4d6d") : "#444466";
+  const base     = active ? "#1a1a40" : "#16162e";
+  const border   = active ? (positive ? "rgba(0,229,160,0.5)" : "rgba(255,77,109,0.5)") : "rgba(80,80,140,0.4)";
+  const glow     = active ? (positive ? "rgba(0,229,160,0.18)" : "rgba(255,77,109,0.18)") : "transparent";
 
-// export default function ActivitiesPage() {
-//   const { price: defitPrice, error } = useDefitPrice();
-//   const [userFilter, setUserFilter] = useState("Tous");
-//   const [open, setOpen] = useState(false);
+  return (
+    <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Outer glow ring */}
+      <circle cx="26" cy="26" r="25" fill={glow} stroke={border} strokeWidth="1"/>
 
-//   const uniqueUsers = ["Tous", ...new Set(activities.map((a) => a.utilisateur))];
-//   const filteredActivities = activities.filter(
-//     (a) => userFilter === "Tous" || a.utilisateur === userFilter
-//   );
+      {/* Inner hex base */}
+      <polygon
+        points="26,6 43,16 43,36 26,46 9,36 9,16"
+        fill={base}
+        stroke={border}
+        strokeWidth="1.2"
+      />
 
-//   useEffect(() => {
-//     const savedFilter = localStorage.getItem("userFilter");
-//     if (savedFilter) setUserFilter(savedFilter);
-//   }, []);
+      {/* Circuit lines */}
+      <line x1="26" y1="6"  x2="26" y2="13" stroke={accent} strokeWidth="1" opacity="0.4"/>
+      <line x1="43" y1="16" x2="37" y2="20" stroke={accent} strokeWidth="1" opacity="0.4"/>
+      <line x1="43" y1="36" x2="37" y2="32" stroke={accent} strokeWidth="1" opacity="0.4"/>
+      <line x1="26" y1="46" x2="26" y2="39" stroke={accent} strokeWidth="1" opacity="0.4"/>
+      <line x1="9"  y1="36" x2="15" y2="32" stroke={accent} strokeWidth="1" opacity="0.4"/>
+      <line x1="9"  y1="16" x2="15" y2="20" stroke={accent} strokeWidth="1" opacity="0.4"/>
 
-//   useEffect(() => {
-//     localStorage.setItem("userFilter", userFilter);
-//   }, [userFilter]);
+      {/* Inner ring */}
+      <circle cx="26" cy="26" r="11" fill="none" stroke={accent} strokeWidth="0.8" opacity="0.35" strokeDasharray="3 2"/>
 
-//   return (
-//     <>
-      
+      {/* Center core */}
+      <circle cx="26" cy="26" r="7" fill={active ? "rgba(26,26,64,0.9)" : "rgba(20,20,46,0.9)"} stroke={accent} strokeWidth="1.2"/>
 
+      {/* Center symbol: chart up / chart down / pause */}
+      {active ? (
+        positive ? (
+          /* up arrow */
+          <polyline points="21,30 26,21 31,30" fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        ) : (
+          /* down arrow */
+          <polyline points="21,22 26,31 31,22" fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        )
+      ) : (
+        /* pause bars */
+        <>
+          <rect x="23" y="22" width="2" height="8" rx="1" fill={accent}/>
+          <rect x="27" y="22" width="2" height="8" rx="1" fill={accent}/>
+        </>
+      )}
 
-      
-// {/* <br/>
-// <br/> */}
-//           <h2 className="ombre">
-//             <BarChart2 size={20} style={{ marginRight: "3px", verticalAlign: "middle", marginBottom: "-1px" }} />
-//             <span>Liste des activités</span>
-//           </h2>
-//           <div style={{ marginBottom: "1rem", display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-//             {uniqueUsers.map((user) => (
-//               <button key={user} onClick={() => setUserFilter(user)} className={`filter-button ${userFilter === user ? "active" : ""}`}>
-//                 {user}
-//               </button>
-//             ))}
-//           </div>
+      {/* Status dot — top right */}
+      <circle cx="38" cy="14" r="3.5" fill={active ? (positive ? "#00e5a0" : "#ff4d6d") : "#333355"} stroke={base} strokeWidth="1"/>
 
-//           <section className="activities-section">
-//             {error ? (
-//               <p className="price-error">{error}</p>
-//             ) : defitPrice === null ? (
-//               <p className="price-loading">Chargement prix DEFIT...</p>
-//             ) : (
-//               <table>
-//                 <thead>
-//                   <tr>
-//                     <th>Date</th>
-//                     <th>Utilisateur</th>
-//                     <th>Activité</th>
-//                     <th>Gain Brut (Defit)</th>
-//                     <th>Participation</th>
-//                     <th>Gain Net (Defit)</th>
-//                     <th>Gain Net ($)</th>
-//                   </tr>
-//                 </thead>
-//                 <tbody>
-//                   {filteredActivities.map(({ id, date, utilisateur, activite, defit, participation, defitnet }) => (
-//                     <tr key={id}>
-//                       <td>{date}</td>
-//                       <td>{utilisateur}</td>
-//                       <td>{activite}</td>
-//                       <td>{defit}</td>
-//                       <td>{participation}</td>
-//                       <td>{defitnet}</td>
-//                       <td>{(defitnet * defitPrice).toFixed(2)}</td>
-//                     </tr>
-//                   ))}
-//                 </tbody>
-//               </table>
-//             )}
-//           </section>
-     
+      {/* Corner circuit nodes */}
+      <circle cx="26" cy="6"  r="1.5" fill={accent} opacity="0.5"/>
+      <circle cx="26" cy="46" r="1.5" fill={accent} opacity="0.5"/>
+      <circle cx="9"  cy="16" r="1.5" fill={accent} opacity="0.5"/>
+      <circle cx="43" cy="16" r="1.5" fill={accent} opacity="0.5"/>
+      <circle cx="9"  cy="36" r="1.5" fill={accent} opacity="0.5"/>
+      <circle cx="43" cy="36" r="1.5" fill={accent} opacity="0.5"/>
+    </svg>
+  );
+}
 
-     
-     
-//     </>
-//   );
-// }
+const BOT_NAMES = [
+  "Grid 1", "Grid 2", "Grid 3", "Indicators 1", "Indicators 2",
+  "ML 1", "ML 2", "Basic 1", "Basic 2", "Rebalance",
+  "Grid Futures", "Algo 1", "Algo 2", "Martingale", "Algo 3",
+];
+
+export default function ActivitiesPage() {
+  const { activeUser } = useAuth();
+
+  const [gainsDynamic, setGainsDynamic] = useState(() => Array(15).fill(0));
+  const [flashing,     setFlashing]     = useState(() => Array(15).fill(false));
+  const [connected,    setConnected]    = useState(false);
+
+  useEffect(() => {
+    const es = new EventSource("/api/bots");
+
+    es.onopen = () => setConnected(true);
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      if (data.type === "init") {
+        setGainsDynamic(data.gains);
+        setConnected(true);
+        return;
+      }
+
+      if (data.type === "update") {
+        const { botIndex, gain } = data;
+
+        setGainsDynamic(prev => {
+          const next = [...prev];
+          next[botIndex] = gain;
+          return next;
+        });
+
+        setFlashing(prev => {
+          const next = [...prev];
+          next[botIndex] = true;
+          return next;
+        });
+
+        setTimeout(() => {
+          setFlashing(prev => {
+            const next = [...prev];
+            next[botIndex] = false;
+            return next;
+          });
+        }, 600);
+      }
+    };
+
+    es.onerror = () => setConnected(false);
+
+    return () => es.close();
+  }, []);
+
+  if (activeUser !== "set3") {
+    return <p>Accès non autorisé.</p>;
+  }
+
+  const activeBots = BOT_NAMES.filter((_, i) => i !== 9).length;
+
+  return (
+    <>
+      <div className="bots-header">
+        <div className="bots-header-stat">
+          <span className="bots-header-label">BOTS ACTIFS</span>
+          <span className="bots-header-value">{activeBots} / {BOT_NAMES.length}</span>
+        </div>
+        <div className="bots-header-stat">
+          <span className="bots-header-label">STATUT</span>
+          {connected
+            ? <span className="bots-header-value bots-status-live">
+                <span className="pulse-dot" />
+                LIVE
+              </span>
+            : <span className="bots-header-value" style={{ color: "#ff4d6d" }}>
+                <span className="pulse-dot" style={{ background: "#ff4d6d" }} />
+                RECONNECTING
+              </span>
+          }
+        </div>
+        <div className="bots-header-stat">
+          <span className="bots-header-label">SESSION P&L</span>
+          <span className="bots-header-value" style={{ color: "#00e5a0" }}>
+            +{gainsDynamic.filter((_, i) => i !== 9).reduce((a, b) => a + b, 0).toFixed(3)}%
+          </span>
+        </div>
+      </div>
+
+      <div className="bots-grid">
+        {BOT_NAMES.map((name, i) => {
+          const val      = gainsDynamic[i];
+          const isPos    = val >= 0;
+          const disabled = i === 9;
+          const accent   = disabled ? "#555588" : isPos ? "#00e5a0" : "#ff4d6d";
+
+          return (
+            <div
+              key={i}
+              className={`bot-card${flashing[i] ? " bot-flash" : ""}${disabled ? " bot-card--offline" : ""}`}
+            >
+              <div className="bot-card__accent" style={{ backgroundColor: accent }} />
+
+              <div className="bot-card__header">
+                <span className="bot-card__name">{name}</span>
+                {disabled
+                  ? <span className="bot-badge bot-badge--off">OFF</span>
+                  : <span className="bot-badge bot-badge--live">
+                      <span className="pulse-dot pulse-dot--sm" />
+                      LIVE
+                    </span>
+                }
+              </div>
+
+              <div className="bot-card__robot">
+                <BotIcon active={!disabled} positive={isPos} />
+              </div>
+
+              {disabled
+                ? <span className="bot-card__gain bot-card__gain--off">INACTIF</span>
+                : <span className="bot-card__gain" style={{ color: accent }}>
+                    {isPos ? "▲" : "▼"} {Math.abs(val).toFixed(3)}%
+                  </span>
+              }
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
