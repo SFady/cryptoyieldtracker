@@ -157,7 +157,7 @@ function PositionCard({ pos, simple = false }) {
       {/* Fees */}
       <Section label="Frais non collectés">
         {pos.fees.map((t) => <TokenRow key={t.symbol} token={t} accent="#f0b429" showUsd={!simple} />)}
-        {!simple && <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} />}
+        {!simple && <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} highlight />}
       </Section>
 
       {/* Footer */}
@@ -219,15 +219,32 @@ function TokenRow({ token, accent, showUsd }) {
   );
 }
 
-function TotalRow({ label, value }) {
+function TotalRow({ label, value, highlight }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
-      padding: "8px 18px",
-      fontSize: "0.75rem", fontFamily: "monospace", color: "#6666aa",
+      padding: highlight ? "10px 18px" : "8px 18px",
+      background: highlight ? "rgba(240,180,41,0.07)" : "transparent",
+      borderTop: highlight ? "1px solid rgba(240,180,41,0.2)" : "none",
     }}>
-      <span>{label}</span>
-      <span style={{ fontWeight: 700, color: "#eaf6ff" }}>{value}</span>
+      <span style={{
+        fontSize: highlight ? "0.8rem" : "0.75rem",
+        fontFamily: "monospace",
+        color: highlight ? "#f0b429" : "#6666aa",
+        fontWeight: highlight ? 700 : 400,
+        letterSpacing: highlight ? "0.5px" : 0,
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontWeight: 700,
+        fontFamily: "monospace",
+        fontSize: highlight ? "1rem" : "0.88rem",
+        color: highlight ? "#f0b429" : "#eaf6ff",
+        textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
+      }}>
+        {value}
+      </span>
     </div>
   );
 }
