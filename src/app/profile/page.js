@@ -23,7 +23,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
@@ -64,16 +64,19 @@ export default function ProfilePage() {
         }}>
           {WALLET2_SHORT}
         </span>
-        {pos2 && (
+        {pos2 && pos2.length > 0 && (
           <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
-            ${pos2.totalUSD}
+            ${pos2.reduce((s, p) => s + parseFloat(p.totalUSD), 0).toFixed(2)}
           </span>
         )}
       </div>
 
-      {loading2 && <Spinner label="Lecture du contrat…" />}
+      {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
-      {pos2     && <PositionCard pos={pos2} />}
+      {pos2 && pos2.length === 0 && !loading2 && (
+        <p style={{ color: "#6666aa", fontFamily: "monospace", fontSize: "0.85rem" }}>Aucune position active.</p>
+      )}
+      {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
     </>
   );
 }
