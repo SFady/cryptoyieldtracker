@@ -39,7 +39,7 @@ export default function TopMenu({ selected, onSelect }) {
             onClick={() => onSelect && onSelect("profile")}
             aria-current={selected === "profile" ? "page" : undefined}
           >
-            Menu3
+            Pools
           </Link>
         </nav>
 
