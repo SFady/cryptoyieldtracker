@@ -16,30 +16,40 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ];
 
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 120_000; // 2 minutes
 global._cytPos2Cache = { data: null, time: 0 };
 
-// ── RPC ───────────────────────────────────────────────────────────────────────
+// ── RPC — un seul nœud sélectionné par requête ────────────────────────────────
 
-async function rpc(method, params) {
-  let last;
+async function pickRpc() {
   for (const url of RPC_URLS) {
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-        signal: AbortSignal.timeout(6000),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+        signal: AbortSignal.timeout(4000),
       });
       const json = await res.json();
-      if (json.error) throw new Error(json.error.message);
-      return json.result;
-    } catch (e) { last = e; }
+      if (json.result) return url;
+    } catch { /* essayer le suivant */ }
   }
-  throw last;
+  throw new Error("Aucun RPC disponible");
 }
 
-const ethCall = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);
+function makeRpc(rpcUrl) {
+  return async (method, params) => {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message);
+    return json.result;
+  };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +68,8 @@ const ZERO_TOPIC     = "0x000000000000000000000000000000000000000000000000000000
 
 // ── Découverte des tokenIds ───────────────────────────────────────────────────
 
-async function discoverTokenIds() {
+// rpc et ethCall sont injectés par le handler pour garantir un seul nœud
+async function discoverTokenIds(rpc, ethCall) {
   // 1. Le NFT est dans le wallet (non staké)
   const countHex = await ethCall(NFPM, "0x70a08231" + walletPad);
   const count = Number(toUint(countHex));
@@ -124,7 +135,7 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
-async function buildPosition(tokenId) {
+async function buildPosition(tokenId, ethCall) {
   const posHex = await ethCall(NFPM, "0x99fbab88" + pad64(tokenId));
 
   const token0Addr    = toAddr(word(posHex, 2));
@@ -217,7 +228,12 @@ export async function GET() {
   if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
 
   try {
-    const tokenIds = await discoverTokenIds();
+    // Un seul RPC pour toute la requête → données cohérentes (même bloc)
+    const rpcUrl  = await pickRpc();
+    const rpc     = makeRpc(rpcUrl);
+    const ethCall = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);
+
+    const tokenIds = await discoverTokenIds(rpc, ethCall);
 
     if (tokenIds.length === 0) {
       const data = { positions: [] };
@@ -225,7 +241,7 @@ export async function GET() {
       return Response.json(data);
     }
 
-    const results = await Promise.allSettled(tokenIds.map(buildPosition));
+    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall)));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
       .map((r) => r.value);

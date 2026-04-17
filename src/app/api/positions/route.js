@@ -15,7 +15,7 @@ const TOKENS = {
   "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { symbol: "USDC", decimals: 6 },
 };
 
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 120_000; // 2 minutes
 global._cytPositionsCache = { data: null, time: 0 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -28,22 +28,36 @@ function toInt(w) { const n = toUint(w); return n >= M256 / 2n ? n - M256 : n; }
 function toAddr(w) { return "0x" + w.slice(24).toLowerCase(); }
 function mod256(n) { return ((n % M256) + M256) % M256; }
 
-async function call(to, data) {
-  let last;
+// Sélectionne un seul RPC fonctionnel — toutes les calls de la requête l'utilisent
+// → données cohérentes car issues du même nœud/bloc
+async function pickRpc() {
   for (const url of RPC_URLS) {
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
-        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+        signal: AbortSignal.timeout(4000),
       });
       const json = await res.json();
-      if (json.error) throw new Error(json.error.message);
-      return json.result;
-    } catch (e) { last = e; }
+      if (json.result) return url;
+    } catch { /* essayer le suivant */ }
   }
-  throw last;
+  throw new Error("Aucun RPC disponible");
+}
+
+function makeCall(rpcUrl) {
+  return async function call(to, data) {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message);
+    return json.result;
+  };
 }
 
 // ── CL math ──────────────────────────────────────────────────────────────────
@@ -74,6 +88,8 @@ export async function GET() {
   if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
 
   try {
+    const call = makeCall(await pickRpc()); // un seul RPC pour toute la requête
+
     // 1. Position data
     const posHex = await call(NFPM, "0x99fbab88" + pad64(POSITION_ID));
     const token0     = toAddr(word(posHex, 2));
