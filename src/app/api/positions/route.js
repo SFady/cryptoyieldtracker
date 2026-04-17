@@ -1,13 +1,18 @@
+export const runtime    = "nodejs";
+export const maxDuration = 30; // secondes — nécessaire sur Vercel (défaut 10s insuffisant)
+
 // Aerodrome CL — WETH/USDC (Base)
 const POSITION_ID = 66576887n;
 const NFPM = "0x827922686190790b37229fd06084350E74485b72";
 const POOL = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 
+// RPCs fiables depuis les IPs cloud (AWS/Vercel) — ordered by cloud reliability
 const RPC_URLS = [
-  "https://base-rpc.publicnode.com",
   "https://base.drpc.org",
-  "https://1rpc.io/base",
+  "https://base-rpc.publicnode.com",
   "https://mainnet.base.org",
+  "https://base.gateway.tenderly.co",
+  "https://1rpc.io/base",
 ];
 
 const TOKENS = {
@@ -78,7 +83,10 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
 
 function calcFees(liquidity, fgInside, fgInsideLast, owed) {
   const Q128 = 1n << 128n;
-  return owed + (liquidity * mod256(fgInside - fgInsideLast)) / Q128;
+  const delta = mod256(fgInside - fgInsideLast);
+  // Si delta > 2^200, la soustraction a débordé (fgInside < fgInsideLast) → pas de nouveaux frais
+  if (delta > (1n << 200n)) return owed;
+  return owed + (liquidity * delta) / Q128;
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────────

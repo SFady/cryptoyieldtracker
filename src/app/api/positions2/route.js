@@ -1,8 +1,10 @@
+export const runtime     = "nodejs";
+export const maxDuration = 30;
+
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
-// Découverte automatique : balanceOf → logs récents (couvre les rebalances)
 const WALLET = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
-const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59"; // WETH/USDC tickSpacing=100
+const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 
 const TOKENS = {
   "0x4200000000000000000000000000000000000006": { symbol: "WETH", decimals: 18 },
@@ -10,10 +12,11 @@ const TOKENS = {
 };
 
 const RPC_URLS = [
-  "https://base-rpc.publicnode.com",
   "https://base.drpc.org",
-  "https://1rpc.io/base",
+  "https://base-rpc.publicnode.com",
   "https://mainnet.base.org",
+  "https://base.gateway.tenderly.co",
+  "https://1rpc.io/base",
 ];
 
 const CACHE_TTL_MS = 120_000; // 2 minutes
@@ -130,7 +133,10 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
 
 function calcFees(liq, fgInside, fgInsideLast, owed) {
   const Q128 = 1n << 128n;
-  return owed + (liq * mod256(fgInside - fgInsideLast)) / Q128;
+  const delta = mod256(fgInside - fgInsideLast);
+  // Si delta > 2^200, la soustraction a débordé (fgInside < fgInsideLast) → pas de nouveaux frais
+  if (delta > (1n << 200n)) return owed;
+  return owed + (liq * delta) / Q128;
 }
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────
