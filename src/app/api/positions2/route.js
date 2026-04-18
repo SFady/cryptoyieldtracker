@@ -29,19 +29,22 @@ function isRetryable(msg) {
 }
 
 async function pickRpc() {
-  for (const url of RPC_URLS) {
-    try {
-      const res  = await fetch(url, {
+  return new Promise((resolve) => {
+    let done = false;
+    let pending = RPC_URLS.length;
+    for (const url of RPC_URLS) {
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
         signal: AbortSignal.timeout(4000),
-      });
-      const json = await res.json();
-      if (json.result) return url;
-    } catch { /* essayer le suivant */ }
-  }
-  return RPC_URLS[0];
+      })
+        .then(r => r.json())
+        .then(json => { if (!done && json.result) { done = true; resolve(url); } })
+        .catch(() => {})
+        .finally(() => { if (--pending === 0 && !done) resolve(RPC_URLS[0]); });
+    }
+  });
 }
 
 function makeRpc(primaryUrl) {
@@ -56,7 +59,9 @@ function makeRpc(primaryUrl) {
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
           signal: AbortSignal.timeout(timeoutMs),
         });
-        const json = await res.json();
+        const text = await res.text();
+        if (!text) { lastErr = new Error("empty response"); continue; }
+        const json = JSON.parse(text);
         if (json.error) {
           const msg = json.error.message ?? "";
           if (isRetryable(msg)) { lastErr = new Error(msg); continue; }

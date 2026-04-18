@@ -22,7 +22,7 @@ const TOKENS = {
 const CACHE_TTL_MS = 120_000;
 
 global._cytPositionsCache = global._cytPositionsCache ?? { data: null, time: 0 };
-global._pos1ActiveId      = global._pos1ActiveId      ?? { id: 66576887n, time: 0 };
+global._pos1ActiveId      = global._pos1ActiveId      ?? { id: null, time: 0 };
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,9 @@ async function rpcFetch(urls, method, params, timeoutMs = 8000) {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      const json = await res.json();
+      const text = await res.text();
+      if (!text) { lastErr = new Error("empty response"); continue; }
+      const json = JSON.parse(text);
       if (json.error) {
         const msg = json.error.message ?? "";
         if (isRetryable(msg)) { lastErr = new Error(msg); continue; }
@@ -64,19 +66,22 @@ async function getLogs(primaryUrl, params) {
 }
 
 async function pickRpc() {
-  for (const url of RPC_URLS) {
-    try {
-      const res  = await fetch(url, {
+  return new Promise((resolve) => {
+    let done = false;
+    let pending = RPC_URLS.length;
+    for (const url of RPC_URLS) {
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
         signal: AbortSignal.timeout(4000),
-      });
-      const json = await res.json();
-      if (json.result) return url;
-    } catch { /* essayer le suivant */ }
-  }
-  return RPC_URLS[0];
+      })
+        .then(r => r.json())
+        .then(json => { if (!done && json.result) { done = true; resolve(url); } })
+        .catch(() => {})
+        .finally(() => { if (--pending === 0 && !done) resolve(RPC_URLS[0]); });
+    }
+  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -100,14 +105,9 @@ const ZERO_TOPIC     = "0x000000000000000000000000000000000000000000000000000000
 const WETH_ADDR = "0x4200000000000000000000000000000000000006";
 const USDC_ADDR = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
-async function isWethUsdc(call, id) {
-  const h = await call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null);
-  if (!h) return false;
-  return toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n;
-}
-
-async function scanActiveId(rpcUrl, call) {
-  // 1. NFTs directement dans le wallet — filtrer par paire WETH/USDC
+// Retourne [tokenId, posHex] pour éviter un double appel positions()
+async function scanActive(rpcUrl, call) {
+  // 1. NFTs dans le wallet — toutes les positions en parallèle
   const countHex = await call(NFPM, "0x70a08231" + walletPad);
   const count    = Number(toUint(countHex));
   if (count > 0) {
@@ -116,33 +116,42 @@ async function scanActiveId(rpcUrl, call) {
         call(NFPM, "0x2f745c59" + walletPad + pad64(i)).then(toUint)
       )
     );
-    for (const id of ids) {
-      if (await isWethUsdc(call, id)) return id;
+    const hexes = await Promise.all(ids.map(id =>
+      call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null)
+    ));
+    for (let i = 0; i < ids.length; i++) {
+      const h = hexes[i];
+      if (!h) continue;
+      if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
+        return [ids[i], h];
     }
   }
 
-  // 2. Scan des mints vers le wallet (5 derniers mois)
-  const latestRes  = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
-    signal: AbortSignal.timeout(5000),
-  });
-  const latest = Number(BigInt((await latestRes.json()).result));
-  const from   = "0x" + Math.max(1, latest - 5_000_000).toString(16);
+  // 2. Scan des mints (2 derniers mois)
+  const latestHex = await rpcFetch(
+    [rpcUrl, ...RPC_URLS.filter(u => u !== rpcUrl)],
+    "eth_blockNumber", [], 5000
+  );
+  const latest = Number(BigInt(latestHex));
+  const from   = "0x" + Math.max(1, latest - 2_000_000).toString(16);
 
   const logs = await getLogs(rpcUrl, [{
     address: NFPM,
     topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic],
-    fromBlock: from,
-    toBlock: "latest",
+    fromBlock: from, toBlock: "latest",
   }]).catch(() => []);
 
   const ids = logs.map(l => BigInt(l.topics[3])).reverse();
-  for (const id of ids) {
-    if (await isWethUsdc(call, id)) return id;
+  const hexes = await Promise.all(ids.map(id =>
+    call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null)
+  ));
+  for (let i = 0; i < ids.length; i++) {
+    const h = hexes[i];
+    if (!h) continue;
+    if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
+      return [ids[i], h];
   }
-  return null;
+  return [null, null];
 }
 
 // ── CL math ───────────────────────────────────────────────────────────────────
@@ -174,19 +183,28 @@ export async function GET() {
     const call   = makeCall(rpcUrl);
 
     let tokenId = global._pos1ActiveId.id;
-    const origId = tokenId;
+    let posHex  = null;
 
-    let posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
+    if (!tokenId) {
+      [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
+      if (tokenId) global._pos1ActiveId = { id: tokenId, time: Date.now() };
+    }
+
+    if (!tokenId) {
+      const data = { positions: [] };
+      global._cytPositionsCache = { data, time: Date.now() };
+      return Response.json(data);
+    }
+
+    if (!posHex) posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
     const liquidity  = toUint(word(posHex, 7));
     const owed0check = toUint(word(posHex, 10));
     const owed1check = toUint(word(posHex, 11));
 
     if (liquidity === 0n && owed0check === 0n && owed1check === 0n) {
-      // Position fermée → rebalance détecté → scanner pour le nouveau tokenId
-      const newId = await scanActiveId(rpcUrl, call).catch(() => null);
-      if (newId) {
-        tokenId = newId;
-        global._pos1ActiveId = { id: newId, time: Date.now() };
+      [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
+      if (tokenId) {
+        global._pos1ActiveId = { id: tokenId, time: Date.now() };
       } else {
         const data = { positions: [] };
         global._cytPositionsCache = { data, time: Date.now() };
@@ -194,8 +212,7 @@ export async function GET() {
       }
     }
 
-    // Si le tokenId a changé (rebalance), re-fetch les données de la nouvelle position
-    const pHex = tokenId === origId ? posHex : await call(NFPM, "0x99fbab88" + pad64(tokenId));
+    const pHex = posHex;
 
     const t0addr     = toAddr(word(pHex, 2));
     const t1addr     = toAddr(word(pHex, 3));

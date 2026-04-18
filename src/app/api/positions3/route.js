@@ -24,8 +24,8 @@ const RPC_URLS = [
 
 const CACHE_TTL_MS = 120_000;
 
-global._cytPos3Cache  = global._cytPos3Cache  ?? { data: null, time: 0 };
-global._pos3ActiveId  = global._pos3ActiveId  ?? { id: 66470172n, time: 0 };
+global._cytPos3Cache2 = global._cytPos3Cache2 ?? { data: null, time: 0 };
+global._pos3ActiveId2 = global._pos3ActiveId2 ?? { id: null, time: 0 };
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
@@ -43,7 +43,9 @@ async function rpcFetch(urls, method, params, timeoutMs = 8000) {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      const json = await res.json();
+      const text = await res.text();
+      if (!text) { lastErr = new Error("empty response"); continue; }
+      const json = JSON.parse(text);
       if (json.error) {
         const msg = json.error.message ?? "";
         if (isRetryable(msg)) { lastErr = new Error(msg); continue; }
@@ -56,19 +58,22 @@ async function rpcFetch(urls, method, params, timeoutMs = 8000) {
 }
 
 async function pickRpc() {
-  for (const url of RPC_URLS) {
-    try {
-      const res  = await fetch(url, {
+  return new Promise((resolve) => {
+    let done = false;
+    let pending = RPC_URLS.length;
+    for (const url of RPC_URLS) {
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
         signal: AbortSignal.timeout(4000),
-      });
-      const json = await res.json();
-      if (json.result) return url;
-    } catch { /* essayer le suivant */ }
-  }
-  return RPC_URLS[0];
+      })
+        .then(r => r.json())
+        .then(json => { if (!done && json.result) { done = true; resolve(url); } })
+        .catch(() => {})
+        .finally(() => { if (--pending === 0 && !done) resolve(RPC_URLS[0]); });
+    }
+  });
 }
 
 function makeCall(primaryUrl) {
@@ -99,21 +104,32 @@ const ZERO_TOPIC     = "0x000000000000000000000000000000000000000000000000000000
 // ── Rebalance detection ───────────────────────────────────────────────────────
 
 async function scanActiveId(rpcUrl, call) {
-  // 1. NFTs directement dans le wallet
+  // 1. NFTs directement dans le wallet — toutes les positions en parallèle
   const countHex = await call(NFPM, "0x70a08231" + walletPad);
   const count    = Number(toUint(countHex));
   if (count > 0) {
-    return call(NFPM, "0x2f745c59" + walletPad + pad64(0)).then(toUint);
+    const ids = await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        call(NFPM, "0x2f745c59" + walletPad + pad64(i)).then(toUint)
+      )
+    );
+    const hexes = await Promise.all(ids.map(id =>
+      call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null)
+    ));
+    for (let i = 0; i < ids.length; i++) {
+      const h = hexes[i];
+      if (!h) continue;
+      if (toAddr(word(h, 2)) === USDC_ADDR && toAddr(word(h, 3)) === CBBTC_ADDR && toUint(word(h, 7)) > 0n)
+        return ids[i];
+    }
   }
 
   // 2. Scan des mints vers le wallet (5 derniers mois)
-  const latestRes  = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
-    signal: AbortSignal.timeout(5000),
-  });
-  const latest = Number(BigInt((await latestRes.json()).result));
+  const latestHex = await rpcFetch(
+    [rpcUrl, ...RPC_URLS.filter(u => u !== rpcUrl)],
+    "eth_blockNumber", [], 5000
+  );
+  const latest = Number(BigInt(latestHex));
   const from   = "0x" + Math.max(1, latest - 5_000_000).toString(16);
 
   const logs = await getLogs(rpcUrl, [{
@@ -156,35 +172,46 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const c = global._cytPos3Cache;
+  const c = global._cytPos3Cache2;
   if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
 
   try {
     const rpcUrl = await pickRpc();
     const call   = makeCall(rpcUrl);
 
-    let tokenId = global._pos3ActiveId.id;
-    const origId = tokenId;
+    let tokenId = global._pos3ActiveId2.id;
+
+    if (!tokenId) {
+      tokenId = await scanActiveId(rpcUrl, call).catch(() => null);
+      if (tokenId) global._pos3ActiveId2 = { id: tokenId, time: Date.now() };
+    }
+
+    if (!tokenId) {
+      const data = { positions: [] };
+      global._cytPos3Cache2 = { data, time: Date.now() };
+      return Response.json(data);
+    }
 
     let posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
-
+    const pairOk = toAddr(word(posHex, 2)) === USDC_ADDR && toAddr(word(posHex, 3)) === CBBTC_ADDR;
     const liquidity  = toUint(word(posHex, 7));
     const owed0check = toUint(word(posHex, 10));
     const owed1check = toUint(word(posHex, 11));
 
-    if (liquidity === 0n && owed0check === 0n && owed1check === 0n) {
+    if (!pairOk || (liquidity === 0n && owed0check === 0n && owed1check === 0n)) {
       const newId = await scanActiveId(rpcUrl, call).catch(() => null);
       if (newId) {
         tokenId = newId;
-        global._pos3ActiveId = { id: newId, time: Date.now() };
+        global._pos3ActiveId2 = { id: newId, time: Date.now() };
+        posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
       } else {
         const data = { positions: [] };
-        global._cytPos3Cache = { data, time: Date.now() };
+        global._cytPos3Cache2 = { data, time: Date.now() };
         return Response.json(data);
       }
     }
 
-    const pHex = tokenId === origId ? posHex : await call(NFPM, "0x99fbab88" + pad64(tokenId));
+    const pHex = posHex;
 
     const t0addr    = toAddr(word(pHex, 2));
     const t1addr    = toAddr(word(pHex, 3));
@@ -264,12 +291,12 @@ export async function GET() {
     };
 
     const data = { positions: [payload] };
-    global._cytPos3Cache = { data, time: Date.now() };
+    global._cytPos3Cache2 = { data, time: Date.now() };
     return Response.json(data);
 
   } catch (err) {
     console.error("positions3 error:", err.message);
-    if (global._cytPos3Cache.data) return Response.json(global._cytPos3Cache.data);
+    if (global._cytPos3Cache2.data) return Response.json(global._cytPos3Cache2.data);
     return Response.json({ error: err.message }, { status: 500 });
   }
 }
