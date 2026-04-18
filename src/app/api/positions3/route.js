@@ -1,10 +1,18 @@
 export const runtime     = "nodejs";
 export const maxDuration = 30;
 
-// Aerodrome CL — WETH/USDC — wallet 0xaf96ca0b19b3966105bf2f28a05c10d586692499
-const WALLET = "0xaf96ca0b19b3966105bf2f28a05c10d586692499";
-const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
-const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
+// Aerodrome CL — USDC/cbBTC — wallet 0xaf96ca0b19b3966105bf2f28a05c10d586692499
+const WALLET  = "0xaf96ca0b19b3966105bf2f28a05c10d586692499";
+const NFPM    = "0x827922686190790b37229fd06084350E74485b72";
+const POOL    = "0x4e962bb3889bf030368f56810a9c96b83cb3e778";
+
+const USDC_ADDR  = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const CBBTC_ADDR = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf";
+
+const TOKENS = {
+  [USDC_ADDR]:  { symbol: "USDC",  decimals: 6 },
+  [CBBTC_ADDR]: { symbol: "cbBTC", decimals: 8 },
+};
 
 const RPC_URLS = [
   "https://base.drpc.org",
@@ -14,15 +22,10 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ];
 
-const TOKENS = {
-  "0x4200000000000000000000000000000000000006": { symbol: "WETH", decimals: 18 },
-  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { symbol: "USDC", decimals: 6 },
-};
-
 const CACHE_TTL_MS = 120_000;
 
-global._cytPositionsCache = global._cytPositionsCache ?? { data: null, time: 0 };
-global._pos1ActiveId      = global._pos1ActiveId      ?? { id: 66576887n, time: 0 };
+global._cytPos3Cache  = global._cytPos3Cache  ?? { data: null, time: 0 };
+global._pos3ActiveId  = global._pos3ActiveId  ?? { id: 66470172n, time: 0 };
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
@@ -52,17 +55,6 @@ async function rpcFetch(urls, method, params, timeoutMs = 8000) {
   throw lastErr ?? new Error("Aucun RPC disponible");
 }
 
-function makeCall(primaryUrl) {
-  // Essaie le RPC principal en premier, puis les autres en fallback
-  const urls = [primaryUrl, ...RPC_URLS.filter(u => u !== primaryUrl)];
-  return (to, data) => rpcFetch(urls, "eth_call", [{ to, data }, "latest"]);
-}
-
-async function getLogs(primaryUrl, params) {
-  const urls = [primaryUrl, ...RPC_URLS.filter(u => u !== primaryUrl)];
-  return rpcFetch(urls, "eth_getLogs", params, 15000);
-}
-
 async function pickRpc() {
   for (const url of RPC_URLS) {
     try {
@@ -77,6 +69,16 @@ async function pickRpc() {
     } catch { /* essayer le suivant */ }
   }
   return RPC_URLS[0];
+}
+
+function makeCall(primaryUrl) {
+  const urls = [primaryUrl, ...RPC_URLS.filter(u => u !== primaryUrl)];
+  return (to, data) => rpcFetch(urls, "eth_call", [{ to, data }, "latest"]);
+}
+
+async function getLogs(primaryUrl, params) {
+  const urls = [primaryUrl, ...RPC_URLS.filter(u => u !== primaryUrl)];
+  return rpcFetch(urls, "eth_getLogs", params, 15000);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -95,30 +97,13 @@ const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
 const ZERO_TOPIC     = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 // ── Rebalance detection ───────────────────────────────────────────────────────
-// Appelé uniquement si la position connue est fermée (liq=0 & owed=0)
-
-const WETH_ADDR = "0x4200000000000000000000000000000000000006";
-const USDC_ADDR = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-
-async function isWethUsdc(call, id) {
-  const h = await call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null);
-  if (!h) return false;
-  return toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n;
-}
 
 async function scanActiveId(rpcUrl, call) {
-  // 1. NFTs directement dans le wallet — filtrer par paire WETH/USDC
+  // 1. NFTs directement dans le wallet
   const countHex = await call(NFPM, "0x70a08231" + walletPad);
   const count    = Number(toUint(countHex));
   if (count > 0) {
-    const ids = await Promise.all(
-      Array.from({ length: count }, (_, i) =>
-        call(NFPM, "0x2f745c59" + walletPad + pad64(i)).then(toUint)
-      )
-    );
-    for (const id of ids) {
-      if (await isWethUsdc(call, id)) return id;
-    }
+    return call(NFPM, "0x2f745c59" + walletPad + pad64(0)).then(toUint);
   }
 
   // 2. Scan des mints vers le wallet (5 derniers mois)
@@ -134,13 +119,18 @@ async function scanActiveId(rpcUrl, call) {
   const logs = await getLogs(rpcUrl, [{
     address: NFPM,
     topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic],
-    fromBlock: from,
-    toBlock: "latest",
+    fromBlock: from, toBlock: "latest",
   }]).catch(() => []);
 
   const ids = logs.map(l => BigInt(l.topics[3])).reverse();
   for (const id of ids) {
-    if (await isWethUsdc(call, id)) return id;
+    const posHex = await call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null);
+    if (!posHex) continue;
+    const t0 = toAddr(word(posHex, 2));
+    const t1 = toAddr(word(posHex, 3));
+    if (t0 !== USDC_ADDR || t1 !== CBBTC_ADDR) continue;
+    const liq = toUint(word(posHex, 7));
+    if (liq > 0n) return id;
   }
   return null;
 }
@@ -156,59 +146,58 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
   if (sqrtP >= sqrtB) return { a0: 0n, a1: (liq * (sqrtB - sqrtA)) / Q96 };
   return { a0: (liq * Q96 * (sqrtB - sqrtP)) / (sqrtP * sqrtB), a1: (liq * (sqrtP - sqrtA)) / Q96 };
 }
-function calcFees(liquidity, fgInside, fgInsideLast, owed) {
+function calcFees(liq, fgInside, fgInsideLast, owed) {
   const Q128 = 1n << 128n;
   const delta = mod256(fgInside - fgInsideLast);
   if (delta > (1n << 200n)) return owed;
-  return owed + (liquidity * delta) / Q128;
+  return owed + (liq * delta) / Q128;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const c = global._cytPositionsCache;
+  const c = global._cytPos3Cache;
   if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
 
   try {
     const rpcUrl = await pickRpc();
     const call   = makeCall(rpcUrl);
 
-    let tokenId = global._pos1ActiveId.id;
+    let tokenId = global._pos3ActiveId.id;
     const origId = tokenId;
 
     let posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
+
     const liquidity  = toUint(word(posHex, 7));
     const owed0check = toUint(word(posHex, 10));
     const owed1check = toUint(word(posHex, 11));
 
     if (liquidity === 0n && owed0check === 0n && owed1check === 0n) {
-      // Position fermée → rebalance détecté → scanner pour le nouveau tokenId
       const newId = await scanActiveId(rpcUrl, call).catch(() => null);
       if (newId) {
         tokenId = newId;
-        global._pos1ActiveId = { id: newId, time: Date.now() };
+        global._pos3ActiveId = { id: newId, time: Date.now() };
       } else {
         const data = { positions: [] };
-        global._cytPositionsCache = { data, time: Date.now() };
+        global._cytPos3Cache = { data, time: Date.now() };
         return Response.json(data);
       }
     }
 
-    // Si le tokenId a changé (rebalance), re-fetch les données de la nouvelle position
     const pHex = tokenId === origId ? posHex : await call(NFPM, "0x99fbab88" + pad64(tokenId));
 
-    const t0addr     = toAddr(word(pHex, 2));
-    const t1addr     = toAddr(word(pHex, 3));
-    const tickLower  = Number(toInt(word(pHex, 5)));
-    const tickUpper  = Number(toInt(word(pHex, 6)));
-    const liq        = toUint(word(pHex, 7));
-    const fgLast0    = toUint(word(pHex, 8));
-    const fgLast1    = toUint(word(pHex, 9));
-    const owed0      = toUint(word(pHex, 10));
-    const owed1      = toUint(word(pHex, 11));
+    const t0addr    = toAddr(word(pHex, 2));
+    const t1addr    = toAddr(word(pHex, 3));
+    const tickLower = Number(toInt(word(pHex, 5)));
+    const tickUpper = Number(toInt(word(pHex, 6)));
+    const liq       = toUint(word(pHex, 7));
+    const fgLast0   = toUint(word(pHex, 8));
+    const fgLast1   = toUint(word(pHex, 9));
+    const owed0     = toUint(word(pHex, 10));
+    const owed1     = toUint(word(pHex, 11));
 
-    const t0 = TOKENS[t0addr] ?? { symbol: "TK0", decimals: 18 };
-    const t1 = TOKENS[t1addr] ?? { symbol: "TK1", decimals: 6  };
+    const t0 = TOKENS[t0addr] ?? { symbol: "TK0", decimals: 6 };
+    const t1 = TOKENS[t1addr] ?? { symbol: "TK1", decimals: 8 };
 
     const [s0Hex, fg0Hex, fg1Hex, tLowHex, tUpHex] = await Promise.all([
       call(POOL, "0x3850c7bd"),
@@ -238,16 +227,22 @@ export async function GET() {
     const totalOwed1 = calcFees(liq, fgInside1, fgLast1, owed1);
 
     const { a0, a1 } = getAmounts(sqrtP, tickToSqrtX96(tickLower), tickToSqrtX96(tickUpper), liq);
-    const bal0     = Number(a0) / 10 ** t0.decimals;
-    const bal1     = Number(a1) / 10 ** t1.decimals;
-    const fee0     = Number(totalOwed0) / 10 ** t0.decimals;
-    const fee1     = Number(totalOwed1) / 10 ** t1.decimals;
-    const ethPrice = Number((sqrtP * sqrtP * 10n ** 12n) / (1n << 192n));
-    const usd      = (sym, amt) => sym === "WETH" ? amt * ethPrice : amt;
-    const inRange  = currTick >= tickLower && currTick < tickUpper;
+    const bal0 = Number(a0) / 10 ** t0.decimals;
+    const bal1 = Number(a1) / 10 ** t1.decimals;
+    const fee0 = Number(totalOwed0) / 10 ** t0.decimals;
+    const fee1 = Number(totalOwed1) / 10 ** t1.decimals;
+    const inRange = currTick >= tickLower && currTick < tickUpper;
 
-    const totalPoolUSD = usd(t0.symbol, bal0) + usd(t1.symbol, bal1);
-    const totalFeesUSD = usd(t0.symbol, fee0) + usd(t1.symbol, fee1);
+    // Prix BTC depuis sqrtPriceX96 (token0=USDC d=6, token1=cbBTC d=8)
+    const btcPrice = Number((100n * (1n << 192n)) / (sqrtP * sqrtP));
+    const usd = (sym, amt) => sym === "cbBTC" ? amt * btcPrice : amt;
+
+    const poolUsd0 = usd(t0.symbol, bal0);
+    const poolUsd1 = usd(t1.symbol, bal1);
+    const feeUsd0  = usd(t0.symbol, fee0);
+    const feeUsd1  = usd(t1.symbol, fee1);
+    const totalPoolUSD = poolUsd0 + poolUsd1;
+    const totalFeesUSD = feeUsd0  + feeUsd1;
 
     const payload = {
       protocol: "Aerodrome CL", chain: "Base",
@@ -255,26 +250,26 @@ export async function GET() {
       pair: `${t0.symbol} / ${t1.symbol}`,
       inRange,
       pool: [
-        { symbol: t0.symbol, balance: bal0.toFixed(6), usd: usd(t0.symbol, bal0).toFixed(2) },
-        { symbol: t1.symbol, balance: bal1.toFixed(2), usd: usd(t1.symbol, bal1).toFixed(2) },
+        { symbol: t0.symbol, balance: bal0.toFixed(2), usd: poolUsd0.toFixed(2) },
+        { symbol: t1.symbol, balance: bal1.toFixed(8), usd: poolUsd1.toFixed(2) },
       ],
       fees: [
-        { symbol: t0.symbol, balance: fee0.toFixed(6), usd: usd(t0.symbol, fee0).toFixed(2) },
-        { symbol: t1.symbol, balance: fee1.toFixed(2), usd: usd(t1.symbol, fee1).toFixed(2) },
+        { symbol: t0.symbol, balance: fee0.toFixed(2), usd: feeUsd0.toFixed(2) },
+        { symbol: t1.symbol, balance: fee1.toFixed(8), usd: feeUsd1.toFixed(2) },
       ],
       totalPoolUSD: totalPoolUSD.toFixed(2),
       totalFeesUSD: totalFeesUSD.toFixed(2),
       totalUSD:     (totalPoolUSD + totalFeesUSD).toFixed(2),
-      ethPrice:     ethPrice.toFixed(2),
+      btcPrice:     btcPrice.toFixed(2),
     };
 
     const data = { positions: [payload] };
-    global._cytPositionsCache = { data, time: Date.now() };
+    global._cytPos3Cache = { data, time: Date.now() };
     return Response.json(data);
 
   } catch (err) {
-    console.error("positions error:", err.message);
-    if (global._cytPositionsCache.data) return Response.json(global._cytPositionsCache.data);
+    console.error("positions3 error:", err.message);
+    if (global._cytPos3Cache.data) return Response.json(global._cytPos3Cache.data);
     return Response.json({ error: err.message }, { status: 500 });
   }
 }

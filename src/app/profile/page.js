@@ -2,23 +2,28 @@
 
 import { useEffect, useState } from "react";
 
+const WALLET1_SHORT = "0xaf96…2499";
 const WALLET2_SHORT = "0xac38…2f6";
 
 export default function ProfilePage() {
-  const [pos, setPos]           = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
+  const [pos1, setPos1]           = useState(null);
+  const [loading1, setLoading1]   = useState(true);
+  const [error1, setError1]       = useState(null);
 
-  const [pos2, setPos2]         = useState(null);
-  const [loading2, setLoading2] = useState(true);
-  const [error2, setError2]     = useState(null);
+  const [pos2, setPos2]           = useState(null);
+  const [loading2, setLoading2]   = useState(true);
+  const [error2, setError2]       = useState(null);
+
+  const [pos3, setPos3]           = useState(null);
+  const [loading3, setLoading3]   = useState(true);
+  const [error3, setError3]       = useState(null);
 
   useEffect(() => {
     fetch("/api/positions")
       .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setPos(d); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .then((d) => { if (d.error) throw new Error(d.error); setPos1(d.positions ?? []); })
+      .catch((e) => setError1(e.message))
+      .finally(() => setLoading1(false));
 
     setTimeout(() => {
       fetch("/api/positions2")
@@ -27,57 +32,64 @@ export default function ProfilePage() {
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
+
+    setTimeout(() => {
+      fetch("/api/positions3")
+        .then((r) => r.json())
+        .then((d) => { if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); })
+        .catch((e) => setError3(e.message))
+        .finally(() => setLoading3(false));
+    }, 1400);
   }, []);
 
   return (
     <>
-      {/* ── Wallet 1 : position fixe #66576887 ── */}
-      <div className="section-header">
-        <h3 className="section-title">Pools de liquidité</h3>
-        {pos && (
-          <span style={{
-            fontSize: "0.72rem", color: "#6666aa", fontFamily: "monospace",
-            padding: "3px 8px", background: "rgba(124,77,255,0.08)",
-            border: "1px solid rgba(124,77,255,0.2)", borderRadius: 5,
-          }}>
-            #{pos.tokenId} · {pos.chain}
-          </span>
-        )}
-        {pos && (
-          <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
-            ${pos.totalUSD}
-          </span>
-        )}
-      </div>
+      {/* ── Wallet 1 : WETH/USDC ── */}
+      <SectionHeader label="WETH / USDC" wallet={WALLET1_SHORT} positions={pos1} />
+      {loading1 && <Spinner label="Lecture du contrat…" />}
+      {error1   && <ErrorBox msg={error1} />}
+      {pos1 && pos1.length === 0 && !loading1 && <Empty />}
+      {pos1 && pos1.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
 
-      {loading && <Spinner label="Lecture du contrat…" />}
-      {error   && <ErrorBox msg={error} />}
-      {pos     && <PositionCard pos={pos} />}
-
-      {/* ── Wallet 2 : 0xac38…2f6 ── */}
-      <div className="section-header" style={{ marginTop: 28 }}>
-        <h3 className="section-title">Pools de liquidité</h3>
-        <span style={{
-          fontSize: "0.72rem", color: "#6666aa", fontFamily: "monospace",
-          padding: "3px 8px", background: "rgba(124,77,255,0.08)",
-          border: "1px solid rgba(124,77,255,0.2)", borderRadius: 5,
-        }}>
-          {WALLET2_SHORT}
-        </span>
-        {pos2 && pos2.length > 0 && (
-          <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
-            ${pos2.reduce((s, p) => s + parseFloat(p.totalUSD), 0).toFixed(2)}
-          </span>
-        )}
-      </div>
-
+      {/* ── Wallet 2 : WETH/USDC ── */}
+      <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} mt />
       {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
-      {pos2 && pos2.length === 0 && !loading2 && (
-        <p style={{ color: "#6666aa", fontFamily: "monospace", fontSize: "0.85rem" }}>Aucune position active.</p>
-      )}
+      {pos2 && pos2.length === 0 && !loading2 && <Empty />}
       {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
+
+      {/* ── Wallet 1 : USDC/cbBTC ── */}
+      <SectionHeader label="USDC / cbBTC" wallet={WALLET1_SHORT} positions={pos3} mt />
+      {loading3 && <Spinner label="Lecture du contrat…" />}
+      {error3   && <ErrorBox msg={error3} />}
+      {pos3 && pos3.length === 0 && !loading3 && <Empty />}
+      {pos3 && pos3.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
     </>
+  );
+}
+
+// ── Composants ────────────────────────────────────────────────────────────────
+
+function SectionHeader({ label, wallet, positions, mt }) {
+  const total = positions && positions.length > 0
+    ? positions.reduce((s, p) => s + parseFloat(p.totalUSD), 0).toFixed(2)
+    : null;
+  return (
+    <div className="section-header" style={mt ? { marginTop: 28 } : {}}>
+      <h3 className="section-title">Pools de liquidité</h3>
+      <span style={{
+        fontSize: "0.72rem", color: "#6666aa", fontFamily: "monospace",
+        padding: "3px 8px", background: "rgba(124,77,255,0.08)",
+        border: "1px solid rgba(124,77,255,0.2)", borderRadius: 5,
+      }}>
+        {label} · {wallet}
+      </span>
+      {total && (
+        <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
+          ${total}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -101,8 +113,15 @@ function ErrorBox({ msg }) {
   );
 }
 
-// simple=true : pas de valeurs USD (wallet 2 sans prix)
-function PositionCard({ pos, simple = false }) {
+function Empty() {
+  return (
+    <p style={{ color: "#6666aa", fontFamily: "monospace", fontSize: "0.85rem" }}>
+      Aucune position active.
+    </p>
+  );
+}
+
+function PositionCard({ pos }) {
   return (
     <div style={{
       background: "rgba(20,26,36,0.95)",
@@ -150,14 +169,14 @@ function PositionCard({ pos, simple = false }) {
 
       {/* Pool amounts */}
       <Section label="En pool">
-        {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" showUsd={!simple} />)}
-        {!simple && <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />}
+        {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
+        <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />
       </Section>
 
       {/* Fees */}
       <Section label="Frais non collectés">
-        {pos.fees.map((t) => <TokenRow key={t.symbol} token={t} accent="#f0b429" showUsd={!simple} />)}
-        {!simple && <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} highlight />}
+        {pos.fees.map((t) => <TokenRow key={t.symbol} token={t} accent="#f0b429" />)}
+        <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} highlight />
       </Section>
 
       {/* Footer */}
@@ -169,12 +188,12 @@ function PositionCard({ pos, simple = false }) {
         fontSize: "0.72rem", fontFamily: "monospace", color: "#6666aa",
       }}>
         <span>#{pos.tokenId}</span>
-        {!simple && (
-          <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "#00e5a0" }}>
-            Total : ${pos.totalUSD}
-          </span>
-        )}
-        {pos.ethPrice && <span>ETH = ${pos.ethPrice}</span>}
+        <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "#00e5a0" }}>
+          Total : ${pos.totalUSD}
+        </span>
+        {pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
+        {pos.wethPrice && <span>ETH = ${pos.wethPrice}</span>}
+        {pos.btcPrice  && <span>BTC = ${pos.btcPrice}</span>}
       </div>
     </div>
   );
@@ -196,7 +215,7 @@ function Section({ label, children }) {
   );
 }
 
-function TokenRow({ token, accent, showUsd }) {
+function TokenRow({ token, accent }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -209,7 +228,7 @@ function TokenRow({ token, accent, showUsd }) {
         <span style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "#8888bb" }}>
           {token.balance}
         </span>
-        {showUsd && token.usd && (
+        {token.usd && (
           <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff", minWidth: 70, textAlign: "right" }}>
             ${token.usd}
           </span>

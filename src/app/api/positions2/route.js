@@ -14,9 +14,9 @@ const TOKENS = {
 const RPC_URLS = [
   "https://base.drpc.org",
   "https://base-rpc.publicnode.com",
+  "https://base.llamarpc.com",
+  "https://base.meowrpc.com",
   "https://mainnet.base.org",
-  "https://base.gateway.tenderly.co",
-  "https://1rpc.io/base",
 ];
 
 const CACHE_TTL_MS = 120_000; // 2 minutes
@@ -24,10 +24,14 @@ global._cytPos2Cache = { data: null, time: 0 };
 
 // ── RPC — un seul nœud sélectionné par requête ────────────────────────────────
 
+function isRetryable(msg) {
+  return /rate.?limit|too many|limit exceed|exceed.*capaci|compute unit|temporary internal|overload|usage.?limit|reached.*limit|upgrade|block range|range.*limit|limited to.*range/i.test(msg);
+}
+
 async function pickRpc() {
   for (const url of RPC_URLS) {
     try {
-      const res = await fetch(url, {
+      const res  = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
@@ -37,20 +41,31 @@ async function pickRpc() {
       if (json.result) return url;
     } catch { /* essayer le suivant */ }
   }
-  throw new Error("Aucun RPC disponible");
+  return RPC_URLS[0];
 }
 
-function makeRpc(rpcUrl) {
-  return async (method, params) => {
-    const res = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      signal: AbortSignal.timeout(6000),
-    });
-    const json = await res.json();
-    if (json.error) throw new Error(json.error.message);
-    return json.result;
+function makeRpc(primaryUrl) {
+  const urls = [primaryUrl, ...RPC_URLS.filter(u => u !== primaryUrl)];
+  return async (method, params, timeoutMs = 10000) => {
+    let lastErr;
+    for (const url of urls) {
+      try {
+        const res  = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const json = await res.json();
+        if (json.error) {
+          const msg = json.error.message ?? "";
+          if (isRetryable(msg)) { lastErr = new Error(msg); continue; }
+          throw new Error(msg);
+        }
+        return json.result;
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr ?? new Error("Aucun RPC disponible");
   };
 }
 
@@ -86,31 +101,21 @@ async function discoverTokenIds(rpc, ethCall) {
     return ids;
   }
 
-  // 2. Fallback : scan des mints récents vers ce wallet (~1 jour = 54 000 blocs)
+  // 2. Scan des mints vers ce wallet (~5 mois = 5 M blocs)
   const latestHex = await rpc("eth_blockNumber", []);
-  const latest = Number(BigInt(latestHex));
-  const LOOKBACK = 54_000;
-  const CHUNK    = 9_000;
-  const from     = Math.max(0, latest - LOOKBACK);
+  const latest    = Number(BigInt(latestHex));
+  const from      = "0x" + Math.max(1, latest - 5_000_000).toString(16);
 
-  const ranges = [];
-  for (let s = from; s < latest; s += CHUNK)
-    ranges.push({ f: s, t: Math.min(s + CHUNK - 1, latest) });
+  const ids  = new Set();
+  const logs = await rpc("eth_getLogs", [{
+    address: NFPM,
+    topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic],
+    fromBlock: from,
+    toBlock: "latest",
+  }], 20000).catch(() => []);
 
-  const ids = new Set();
-  await Promise.all(
-    ranges.map(({ f, t }) =>
-      rpc("eth_getLogs", [{
-        address: NFPM,
-        topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic], // mint → wallet
-        fromBlock: "0x" + f.toString(16),
-        toBlock:   "0x" + t.toString(16),
-      }]).then((logs) => {
-        if (Array.isArray(logs))
-          for (const log of logs) ids.add(BigInt(log.topics[3]));
-      }).catch(() => {})
-    )
-  );
+  if (Array.isArray(logs))
+    for (const log of logs) ids.add(BigInt(log.topics[3]));
 
   return [...ids];
 }
