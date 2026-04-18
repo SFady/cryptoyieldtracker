@@ -130,7 +130,7 @@ async function scanActiveId(rpcUrl, call) {
     "eth_blockNumber", [], 5000
   );
   const latest = Number(BigInt(latestHex));
-  const from   = "0x" + Math.max(1, latest - 5_000_000).toString(16);
+  const from   = "0x" + Math.max(1, latest - 2_000_000).toString(16);
 
   const logs = await getLogs(rpcUrl, [{
     address: NFPM,
@@ -182,12 +182,15 @@ export async function GET() {
     let tokenId = global._pos3ActiveId2.id;
 
     if (!tokenId) {
-      tokenId = await scanActiveId(rpcUrl, call).catch(() => null);
+      tokenId = await scanActiveId(rpcUrl, call).catch((e) => {
+        console.error("positions3 scanActiveId error:", e.message);
+        return null;
+      });
       if (tokenId) global._pos3ActiveId2 = { id: tokenId, time: Date.now() };
     }
 
     if (!tokenId) {
-      const data = { positions: [] };
+      const data = { positions: [], debug: "no active id found" };
       global._cytPos3Cache2 = { data, time: Date.now() };
       return Response.json(data);
     }
