@@ -132,30 +132,34 @@ function PositionCard({ pos }) {
     }}>
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "12px 18px",
         background: "rgba(10,10,30,0.7)",
         borderBottom: "1px solid rgba(124,77,255,0.12)",
       }}>
-        <span style={{ fontWeight: 700, fontSize: "1rem" }}>{pos.pair}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <span style={{ fontWeight: 700, fontSize: "1rem" }}>{pos.pair}</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <span style={{
+              fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+              padding: "2px 7px", borderRadius: 4,
+              background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
+            }}>
+              Base
+            </span>
+            {pos.protocol && (
+              <span style={{
+                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+                padding: "2px 7px", borderRadius: 4,
+                background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
+              }}>
+                {pos.protocol}
+              </span>
+            )}
+          </div>
+        </div>
         <span style={{
-          fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-          padding: "3px 8px", borderRadius: 4,
-          background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
-        }}>
-          Base
-        </span>
-        {pos.protocol && (
-          <span style={{
-            fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-            padding: "3px 8px", borderRadius: 4,
-            background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
-          }}>
-            {pos.protocol}
-          </span>
-        )}
-        <span style={{
-          marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6,
+          display: "inline-flex", alignItems: "center", gap: 6,
           fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
           padding: "3px 8px", borderRadius: 4,
           background: pos.inRange ? "rgba(0,229,160,0.1)" : "rgba(255,51,102,0.1)",
