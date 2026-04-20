@@ -67,7 +67,7 @@ html, body {
 .logo {
   display: flex;
   align-items: center;
-  gap: 0.15rem;
+  gap: 0rem;
 }
 
 .logo-icon {
@@ -80,19 +80,20 @@ html, body {
 }
 
 .crypto-title {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 1.55rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  background: linear-gradient(90deg, #00e5ff 0%, #00ff99 50%, #00e5ff 100%);
+  font-family: var(--font-geist-sans), 'Inter', sans-serif;
+  font-size: 1.35rem;
+  margin-top: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  background: linear-gradient(135deg, #e0f0ff 0%, #a0c8ff 50%, #7eb8f7 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: titleShimmer 4s linear infinite;
+  animation: titleShimmer 6s ease-in-out infinite;
   text-shadow: none;
-  filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.45));
+  filter: drop-shadow(0 0 12px rgba(120, 180, 255, 0.25));
 }
 
 @keyframes titleShimmer {
@@ -131,8 +132,10 @@ html, body {
 .nav-top-menu a[aria-current="page"],
 .nav-top-menu a.active {
   font-weight: 700;
-  color: var(--hover-color);
-  padding-bottom: 2px; /* pour ne pas que le texte soit collé à la bordure */
+  color: #00d4ff;
+  border-bottom: 2px solid #00d4ff;
+  padding-bottom: 2px;
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
 }
 
 /* Logout button in header */
@@ -169,13 +172,14 @@ html, body {
 
   /* Logo + titre sur une ligne en mobile */
   .logo {
-    gap: 0.5rem;
+    gap: 0rem;
     flex-shrink: 1;
     min-width: 0;
     align-items: center;
   }
 
   .logo-icon {
+    margin-right: -8px;
     width: 54px;
     height: 54px;
     flex-shrink: 0;
@@ -183,13 +187,13 @@ html, body {
   }
 
   .header {
-    height: 100px;
+    height: 32px;
     padding-left: 6px;
     padding-right: 8px;
   }
 
   main {
-    padding-top: 160px !important;
+    padding-top: 80px !important;
   }
 
   .crypto-title {
@@ -198,7 +202,8 @@ html, body {
     overflow: visible;
     text-overflow: unset;
     margin: 0;
-    line-height: 91px;
+    margin-top: -2px;
+    line-height: 32px;
   }
 
   /* Laisser le logo prendre tout l'espace disponible */
@@ -270,7 +275,7 @@ html, body {
   }
 
   main {
-    padding-top: 136px !important; /* header 75px + ligne de respiration ~28px + marge */
+    padding-top: 80px !important; /* header 32px + 48px marge */
   }
 }
 
@@ -380,7 +385,7 @@ tr:hover {
 .bottom-menu a {
   background: none;
   border: none;
-  font-size: 16px;
+  font-size: 11px;
   color: var(--foreground);
   cursor: pointer;
   display: flex;
@@ -396,13 +401,14 @@ tr:hover {
 }
 
 .bottom-menu a.active {
-  color: #a477ff; /* même couleur que le hover du top menu */
+  color: #00d4ff;
+  filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.5));
 }
 
 .bottom-menu svg {
-  width: 24px;
-  height: 24px;
-  margin-bottom: 4px;
+  width: 20px;
+  height: 20px;
+  margin-bottom: 2px;
 }
 
 .table-large th,

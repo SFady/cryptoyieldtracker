@@ -76,13 +76,19 @@ function SectionHeader({ label, wallet, positions, mt }) {
     : null;
   return (
     <div className="section-header" style={mt ? { marginTop: 28 } : {}}>
-      <h3 className="section-title">Pools de liquidité</h3>
+      <span style={{
+        fontSize: "0.95rem", fontWeight: 700, color: "#ffffff", fontFamily: "monospace",
+        padding: "4px 12px", background: "rgba(124,77,255,0.12)",
+        border: "1px solid rgba(124,77,255,0.3)", borderRadius: 6,
+      }}>
+        {label}
+      </span>
       <span style={{
         fontSize: "0.72rem", color: "#6666aa", fontFamily: "monospace",
-        padding: "3px 8px", background: "rgba(124,77,255,0.08)",
-        border: "1px solid rgba(124,77,255,0.2)", borderRadius: 5,
+        padding: "3px 8px", background: "rgba(124,77,255,0.06)",
+        border: "1px solid rgba(124,77,255,0.15)", borderRadius: 5,
       }}>
-        {label} · {wallet}
+        {wallet}
       </span>
       {total && (
         <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
@@ -104,8 +110,8 @@ function Spinner({ label }) {
 function ErrorBox({ msg }) {
   return (
     <div style={{
-      color: "#ff3366", background: "rgba(255,51,102,0.08)",
-      border: "1px solid rgba(255,51,102,0.3)", borderRadius: 8,
+      color: "#c97070", background: "rgba(180,100,100,0.08)",
+      border: "1px solid rgba(180,100,100,0.3)", borderRadius: 8,
       padding: "12px 16px", fontFamily: "monospace", fontSize: "0.85rem", marginBottom: 12,
     }}>
       ⚠ {msg}
@@ -125,7 +131,7 @@ function PositionCard({ pos }) {
   return (
     <div style={{
       background: "rgba(20,26,36,0.95)",
-      border: `1px solid ${pos.inRange ? "rgba(0,229,160,0.25)" : "rgba(255,51,102,0.25)"}`,
+      border: `1px solid ${pos.inRange ? "rgba(0,229,160,0.25)" : "rgba(180,100,100,0.25)"}`,
       borderRadius: 12,
       overflow: "hidden",
       marginBottom: 12,
@@ -138,7 +144,6 @@ function PositionCard({ pos }) {
         borderBottom: "1px solid rgba(124,77,255,0.12)",
       }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <span style={{ fontWeight: 700, fontSize: "1rem" }}>{pos.pair}</span>
           <div style={{ display: "flex", gap: 6 }}>
             <span style={{
               fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
@@ -162,9 +167,9 @@ function PositionCard({ pos }) {
           display: "inline-flex", alignItems: "center", gap: 6,
           fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
           padding: "3px 8px", borderRadius: 4,
-          background: pos.inRange ? "rgba(0,229,160,0.1)" : "rgba(255,51,102,0.1)",
-          border: `1px solid ${pos.inRange ? "rgba(0,229,160,0.3)" : "rgba(255,51,102,0.3)"}`,
-          color: pos.inRange ? "#00e5a0" : "#ff3366",
+          background: pos.inRange ? "rgba(0,229,160,0.1)" : "rgba(180,100,100,0.1)",
+          border: `1px solid ${pos.inRange ? "rgba(0,229,160,0.3)" : "rgba(180,100,100,0.3)"}`,
+          color: pos.inRange ? "#00e5a0" : "#c97070",
         }}>
           {pos.inRange && <span className="pulse-dot pulse-dot--sm" style={{ background: "#00e5a0" }} />}
           {pos.inRange ? "IN RANGE" : "OUT OF RANGE"}
@@ -192,10 +197,7 @@ function PositionCard({ pos }) {
         fontSize: "0.72rem", fontFamily: "monospace", color: "#6666aa",
       }}>
         <span>#{pos.tokenId}</span>
-        <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "#00e5a0" }}>
-          Total : ${pos.totalUSD}
-        </span>
-        {pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
+{pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
         {pos.wethPrice && <span>ETH = ${pos.wethPrice}</span>}
         {pos.btcPrice  && <span>BTC = ${pos.btcPrice}</span>}
       </div>
@@ -207,10 +209,10 @@ function Section({ label, children }) {
   return (
     <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
       <div style={{
-        padding: "6px 18px",
-        fontSize: "0.6rem", fontFamily: "monospace", letterSpacing: "1px",
-        textTransform: "uppercase", color: "#555588",
-        background: "rgba(124,77,255,0.05)",
+        padding: "7px 18px",
+        fontSize: "0.7rem", fontFamily: "monospace", letterSpacing: "1.5px",
+        textTransform: "uppercase", color: "#9988cc", fontWeight: 600,
+        background: "rgba(124,77,255,0.08)",
       }}>
         {label}
       </div>
