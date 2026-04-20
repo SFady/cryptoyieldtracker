@@ -130,13 +130,20 @@ async function scanActiveId(rpcUrl, call) {
     "eth_blockNumber", [], 5000
   );
   const latest = Number(BigInt(latestHex));
-  const from   = "0x" + Math.max(1, latest - 2_000_000).toString(16);
+  const CHUNK  = 500_000;
 
-  const logs = await getLogs(rpcUrl, [{
-    address: NFPM,
-    topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic],
-    fromBlock: from, toBlock: "latest",
-  }]).catch(() => []);
+  // Try progressively smaller ranges if the RPC rejects the block range
+  let logs = [];
+  for (const size of [CHUNK, 200_000, 50_000]) {
+    const from = "0x" + Math.max(1, latest - size).toString(16);
+    logs = await getLogs(rpcUrl, [{
+      address: NFPM,
+      topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic],
+      fromBlock: from, toBlock: "latest",
+    }]).catch(() => null);
+    if (logs !== null) break;
+    logs = [];
+  }
 
   const ids = logs.map(l => BigInt(l.topics[3])).reverse();
   for (const id of ids) {
