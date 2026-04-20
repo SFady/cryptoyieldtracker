@@ -81,24 +81,17 @@ html, body {
 
 .crypto-title {
   font-family: var(--font-geist-sans), 'Inter', sans-serif;
-  font-size: 1.35rem;
+  font-size: 1.8rem;
   margin-top: 15px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: none;
-  background: linear-gradient(135deg, #e0f0ff 0%, #a0c8ff 50%, #7eb8f7 100%);
-  background-size: 200% auto;
+  background: linear-gradient(135deg, #e0f0ff 0%, #60a8f8 50%, #3b82f6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: titleShimmer 6s ease-in-out infinite;
   text-shadow: none;
   filter: drop-shadow(0 0 12px rgba(120, 180, 255, 0.25));
-}
-
-@keyframes titleShimmer {
-  0%   { background-position: 0% center; }
-  100% { background-position: 200% center; }
 }
 
 .header-right {
