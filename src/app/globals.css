@@ -173,30 +173,30 @@ html, body {
 
   .logo-icon {
     margin-right: -8px;
-    width: 54px;
-    height: 54px;
+    width: 62px;
+    height: 62px;
     flex-shrink: 0;
     display: block;
   }
 
   .header {
-    height: 32px;
+    height: 48px;
     padding-left: 6px;
     padding-right: 8px;
   }
 
   main {
-    padding-top: 80px !important;
+    padding-top: 90px !important;
   }
 
   .crypto-title {
-    font-size: 1.2rem;
+    font-size: 1.35rem;
     white-space: nowrap;
     overflow: visible;
     text-overflow: unset;
     margin: 0;
     margin-top: -2px;
-    line-height: 32px;
+    line-height: 48px;
   }
 
   /* Laisser le logo prendre tout l'espace disponible */
@@ -268,7 +268,7 @@ html, body {
   }
 
   main {
-    padding-top: 80px !important; /* header 32px + 48px marge */
+    padding-top: 90px !important; /* header 48px + 42px marge */
   }
 }
 
@@ -358,7 +358,7 @@ tr:hover {
 .bottom-menu {
   position: fixed;
   bottom: 0; left: 0; right: 0;
-  height: 56px;
+  height: 60px;
   background: var(--background);
   box-shadow: 0 -1px 5px rgba(0,0,0,0.1);
   display: flex;
@@ -399,8 +399,8 @@ tr:hover {
 }
 
 .bottom-menu svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   margin-bottom: 2px;
 }
 
