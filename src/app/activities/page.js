@@ -73,11 +73,7 @@ function BotIcon({ active = true, positive = true }) {
   );
 }
 
-const BOT_NAMES = [
-  "Grid 1", "Grid 2", "Grid 3", "Indicators 1", "Indicators 2",
-  "ML 1", "ML 2", "Basic 1", "Basic 2", "Rebalance",
-  "Grid Futures", "Algo 1", "Algo 2", "Martingale", "Algo 3",
-];
+const BOT_NAMES = Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(2, "0"));
 
 function triggerFlash(setFlashing, botIndex) {
   setFlashing(prev => {

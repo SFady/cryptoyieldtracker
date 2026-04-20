@@ -418,8 +418,8 @@ tr:hover {
   }
 
   /* Masquer la colonne Description sur mobile */
-  .table-large th:nth-child(2),
-  .table-large td:nth-child(2) {
+  .table-large th:nth-child(3),
+  .table-large td:nth-child(3) {
     display: none;
   }
 }
@@ -579,15 +579,15 @@ tr:hover {
 }
 
 .bots-header-label {
-  font-size: 0.6rem;
-  color: #6666aa;
-  letter-spacing: 1.5px;
+  font-size: 0.72rem;
+  color: #8888bb;
+  letter-spacing: 1.2px;
   font-family: monospace;
   text-transform: uppercase;
 }
 
 .bots-header-value {
-  font-size: 1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: #eaf6ff;
   font-family: monospace;
@@ -730,11 +730,11 @@ tr:hover {
   }
 
   .bots-header-label {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
   }
 
   .bots-header-value {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
 
   .section-title {

@@ -85,6 +85,7 @@ export default function HomePage() {
         <table className="table-large">
           <thead>
             <tr>
+              <th style={{ width: "36px", color: "#6666aa" }}>#</th>
               <th>Bot</th>
               <th>Description</th>
               <th style={{ width: "140px" }}>Gain</th>
@@ -112,11 +113,11 @@ export default function HomePage() {
               const isPos = total >= 0;
               return (
                 <tr key={i}>
-                  <td>
-                    {label}{" "}
-                    <span style={{ color: status === "live" ? "green" : "grey" }}>
-                      ({status === "live" ? "Live" : "Inactif"})
-                    </span>
+                  <td style={{ color: "#6666aa", fontFamily: "monospace", fontSize: "0.8rem" }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </td>
+                  <td style={{ color: status === "live" ? "var(--foreground)" : "#555575" }}>
+                    {label}
                   </td>
                   <td>{desc}</td>
                   <td style={{ color: isPos ? "green" : "red", fontFamily: "monospace" }}>
