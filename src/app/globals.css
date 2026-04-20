@@ -535,25 +535,20 @@ tr:hover {
 
 @media (max-width: 600px) {
   .bots-grid {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
     width: 100%;
   }
 
   .bots-grid > div {
     min-width: unset !important;
-    padding: 8px 4px !important;
-    gap: 4px !important;
+    padding: 8px 6px !important;
+    gap: 5px !important;
   }
 
   .bots-grid svg {
-    width: 32px !important;
-    height: 37px !important;
-  }
-
-  .bots-grid span {
-    font-size: 0.58rem !important;
-    letter-spacing: 0 !important;
+    width: 40px !important;
+    height: 40px !important;
   }
 }
 
@@ -724,9 +719,30 @@ tr:hover {
 
 /* ── MOBILE OVERRIDES ── */
 @media (max-width: 600px) {
+  th, td {
+    padding: 10px 8px;
+    font-size: 1rem;
+  }
+
   .bots-header {
     gap: 16px;
     padding: 10px 14px;
+  }
+
+  .bots-header-label {
+    font-size: 0.65rem;
+  }
+
+  .bots-header-value {
+    font-size: 1rem;
+  }
+
+  .section-title {
+    font-size: 1rem;
+  }
+
+  .portfolio-value__amount {
+    font-size: 1rem;
   }
 
   .bot-card {
@@ -741,15 +757,15 @@ tr:hover {
   }
 
   .bot-card__name {
-    font-size: 0.52rem;
+    font-size: 0.78rem;
   }
 
   .bot-badge {
-    font-size: 0.42rem;
-    padding: 1px 3px;
+    font-size: 0.62rem;
+    padding: 2px 5px;
   }
 
   .bot-card__gain {
-    font-size: 0.64rem;
+    font-size: 0.85rem;
   }
 }
