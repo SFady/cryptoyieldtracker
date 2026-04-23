@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../context/AuthContext";
 
 const WALLET1_SHORT = "0xaf96…2499";
 const WALLET2_SHORT = "0xac38…2f6";
 
 export default function ProfilePage() {
+  const { activeUser } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (activeUser !== "set3") router.replace("/home");
+  }, [activeUser, router]);
+
   const [pos1, setPos1]           = useState(null);
   const [loading1, setLoading1]   = useState(true);
   const [error1, setError1]       = useState(null);

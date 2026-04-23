@@ -7,6 +7,7 @@ import { logout } from "../actions/logout";
 
 export default function TopMenu({ selected, onSelect }) {
   const { activeUser } = useAuth();
+  const isSupervisor = activeUser === "set3";
 
   return (
     <header className="header">
@@ -25,22 +26,36 @@ export default function TopMenu({ selected, onSelect }) {
           >
             Home
           </Link>
-          <Link
-            href="/activities"
-            className={selected === "activities" ? "active" : ""}
-            onClick={() => onSelect && onSelect("activities")}
-            aria-current={selected === "activities" ? "page" : undefined}
-          >
-            Bots
-          </Link>
-          <Link
-            href="/profile"
-            className={selected === "profile" ? "active" : ""}
-            onClick={() => onSelect && onSelect("profile")}
-            aria-current={selected === "profile" ? "page" : undefined}
-          >
-            Pools
-          </Link>
+          {isSupervisor && (
+            <Link
+              href="/activities"
+              className={selected === "activities" ? "active" : ""}
+              onClick={() => onSelect && onSelect("activities")}
+              aria-current={selected === "activities" ? "page" : undefined}
+            >
+              Bots
+            </Link>
+          )}
+          {isSupervisor && (
+            <Link
+              href="/profile"
+              className={selected === "profile" ? "active" : ""}
+              onClick={() => onSelect && onSelect("profile")}
+              aria-current={selected === "profile" ? "page" : undefined}
+            >
+              Pools
+            </Link>
+          )}
+          {isSupervisor && (
+            <Link
+              href="/test"
+              className={selected === "test" ? "active" : ""}
+              onClick={() => onSelect && onSelect("test")}
+              aria-current={selected === "test" ? "page" : undefined}
+            >
+              Test
+            </Link>
+          )}
         </nav>
 
         {activeUser && (

@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import TopMenu from "./TopMenu";
 import BottomMenu from "./BottomMenu";
 
-const validSections = ["home", "activities", "profile"];
+const validSections = ["home", "activities", "profile", "test"];
 
 export default function LayoutClient({ children }) {
   const pathname = usePathname();
