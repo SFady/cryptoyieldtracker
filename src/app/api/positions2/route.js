@@ -149,27 +149,11 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
   return owed + (liq * delta) / Q128;
 }
 
-// ── Timestamp du mint ─────────────────────────────────────────────────────────
-
-async function getMintTimestamp(tokenId, rpc) {
-  try {
-    const logs = await rpc("eth_getLogs", [{
-      address: NFPM,
-      topics: [TRANSFER_TOPIC, ZERO_TOPIC, null, "0x" + pad64(tokenId)],
-      fromBlock: "earliest",
-      toBlock: "latest",
-    }], 25000).catch(() => null);
-
-    if (!Array.isArray(logs) || logs.length === 0) return null;
-
-    const block = await rpc("eth_getBlockByNumber", [logs[0].blockNumber, false]).catch(() => null);
-    return block ? Number(BigInt(block.timestamp)) * 1000 : null;
-  } catch { return null; }
-}
+const POSITION_OPEN_DATE = new Date("2026-04-22");
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
-async function buildPosition(tokenId, ethCall, rpc) {
+async function buildPosition(tokenId, ethCall) {
   const posHex = await ethCall(NFPM, "0x99fbab88" + pad64(tokenId));
 
   const token0Addr    = toAddr(word(posHex, 2));
@@ -234,12 +218,10 @@ async function buildPosition(tokenId, ethCall, rpc) {
   const totalPoolUSD = poolUsd0 + poolUsd1;
   const totalFeesUSD = feeUsd0  + feeUsd1;
 
-  const mintTs      = await getMintTimestamp(tokenId, rpc);
-  const daysElapsed = mintTs ? (Date.now() - mintTs) / 86_400_000 : 7;
-  const mintDate    = mintTs ? new Date(mintTs).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : null;
-  const feeMonthlyPct = totalPoolUSD > 0
-    ? ((totalFeesUSD / totalPoolUSD) * (30 / daysElapsed) * 100).toFixed(2)
-    : null;
+  const daysElapsed   = (Date.now() - POSITION_OPEN_DATE.getTime()) / 86_400_000;
+  const mintDate      = POSITION_OPEN_DATE.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+  const INITIAL_USD   = 97;
+  const feeMonthlyPct = ((totalFeesUSD / INITIAL_USD) * (30 / daysElapsed) * 100).toFixed(2);
 
   return {
     protocol: "Aerodrome CL",
@@ -284,7 +266,7 @@ export async function GET() {
       return Response.json(data);
     }
 
-    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall, rpc)));
+    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall)));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
       .map((r) => r.value);
