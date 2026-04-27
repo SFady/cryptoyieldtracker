@@ -149,9 +149,27 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
   return owed + (liq * delta) / Q128;
 }
 
+// ── Timestamp du mint ─────────────────────────────────────────────────────────
+
+async function getMintTimestamp(tokenId, rpc) {
+  try {
+    const logs = await rpc("eth_getLogs", [{
+      address: NFPM,
+      topics: [TRANSFER_TOPIC, ZERO_TOPIC, null, "0x" + pad64(tokenId)],
+      fromBlock: "earliest",
+      toBlock: "latest",
+    }], 25000).catch(() => null);
+
+    if (!Array.isArray(logs) || logs.length === 0) return null;
+
+    const block = await rpc("eth_getBlockByNumber", [logs[0].blockNumber, false]).catch(() => null);
+    return block ? Number(BigInt(block.timestamp)) * 1000 : null;
+  } catch { return null; }
+}
+
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
-async function buildPosition(tokenId, ethCall) {
+async function buildPosition(tokenId, ethCall, rpc) {
   const posHex = await ethCall(NFPM, "0x99fbab88" + pad64(tokenId));
 
   const token0Addr    = toAddr(word(posHex, 2));
@@ -216,6 +234,13 @@ async function buildPosition(tokenId, ethCall) {
   const totalPoolUSD = poolUsd0 + poolUsd1;
   const totalFeesUSD = feeUsd0  + feeUsd1;
 
+  const mintTs      = await getMintTimestamp(tokenId, rpc);
+  const daysElapsed = mintTs ? (Date.now() - mintTs) / 86_400_000 : 7;
+  const mintDate    = mintTs ? new Date(mintTs).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : null;
+  const feeMonthlyPct = totalPoolUSD > 0
+    ? ((totalFeesUSD / totalPoolUSD) * (30 / daysElapsed) * 100).toFixed(2)
+    : null;
+
   return {
     protocol: "Aerodrome CL",
     chain: "Base",
@@ -230,10 +255,12 @@ async function buildPosition(tokenId, ethCall) {
       { symbol: t0.symbol, balance: fee0.toFixed(6),  usd: feeUsd0.toFixed(2)  },
       { symbol: t1.symbol, balance: fee1.toFixed(2),  usd: feeUsd1.toFixed(2)  },
     ],
-    totalPoolUSD: totalPoolUSD.toFixed(2),
-    totalFeesUSD: totalFeesUSD.toFixed(2),
-    totalUSD:     (totalPoolUSD + totalFeesUSD).toFixed(2),
-    wethPrice:    ethPrice.toFixed(2),
+    totalPoolUSD:   totalPoolUSD.toFixed(2),
+    totalFeesUSD:   totalFeesUSD.toFixed(2),
+    totalUSD:       (totalPoolUSD + totalFeesUSD).toFixed(2),
+    wethPrice:      ethPrice.toFixed(2),
+    feeMonthlyPct,
+    mintDate,
   };
 }
 
@@ -257,7 +284,7 @@ export async function GET() {
       return Response.json(data);
     }
 
-    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall)));
+    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall, rpc)));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
       .map((r) => r.value);

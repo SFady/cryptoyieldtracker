@@ -65,7 +65,7 @@ export default function ProfilePage() {
       {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
       {pos2 && pos2.length === 0 && !loading2 && <Empty />}
-      {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
+      {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent />)}
 
       {/* ── Wallet 1 : USDC/cbBTC ── */}
       <SectionHeader label="USDC / cbBTC" wallet={WALLET1_SHORT} positions={pos3} mt />
@@ -136,7 +136,8 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos }) {
+function PositionCard({ pos, showFeePercent }) {
+  const feePct = showFeePercent ? (pos.feeMonthlyPct ?? null) : null;
   return (
     <div style={{
       background: "rgba(20,26,36,0.95)",
@@ -194,7 +195,7 @@ function PositionCard({ pos }) {
       {/* Fees */}
       <Section label="Frais non collectés">
         {pos.fees.map((t) => <TokenRow key={t.symbol} token={t} accent="#f0b429" />)}
-        <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} highlight />
+        <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} highlight percent={feePct} percentSuffix={pos.feeMonthlyPct ? "%/mois" : "%"} />
       </Section>
 
       {/* Footer */}
@@ -206,6 +207,7 @@ function PositionCard({ pos }) {
         fontSize: "0.72rem", fontFamily: "monospace", color: "#6666aa",
       }}>
         <span>#{pos.tokenId}</span>
+        {pos.mintDate  && <span>ouvert le {pos.mintDate}</span>}
 {pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
         {pos.wethPrice && <span>ETH = ${pos.wethPrice}</span>}
         {pos.btcPrice  && <span>BTC = ${pos.btcPrice}</span>}
@@ -253,7 +255,7 @@ function TokenRow({ token, accent }) {
   );
 }
 
-function TotalRow({ label, value, highlight }) {
+function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -270,15 +272,27 @@ function TotalRow({ label, value, highlight }) {
       }}>
         {label}
       </span>
-      <span style={{
-        fontWeight: 700,
-        fontFamily: "monospace",
-        fontSize: highlight ? "1rem" : "0.88rem",
-        color: highlight ? "#f0b429" : "#eaf6ff",
-        textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
-      }}>
-        {value}
-      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {percent && (
+          <span style={{
+            fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
+            padding: "2px 7px", borderRadius: 4,
+            background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)",
+            color: "#f0b429",
+          }}>
+            {percent}{percentSuffix}
+          </span>
+        )}
+        <span style={{
+          fontWeight: 700,
+          fontFamily: "monospace",
+          fontSize: highlight ? "1rem" : "0.88rem",
+          color: highlight ? "#f0b429" : "#eaf6ff",
+          textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
+        }}>
+          {value}
+        </span>
+      </div>
     </div>
   );
 }
