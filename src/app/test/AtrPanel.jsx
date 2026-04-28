@@ -194,22 +194,28 @@ export default function AtrPanel() {
   );
 }
 
-function CreatePanel({ data, onClose }) {
-  const [amount, setAmount]     = useState("");
-  const [multiplier, setMultiplier] = useState("2.0");
-  const [status, setStatus]     = useState(null); // null | "loading" | "ok" | "error"
-  const [txMsg, setTxMsg]       = useState("");
+function CreatePanel({ data }) {
+  const [amount, setAmount]           = useState("");
+  const [multiplier, setMultiplier]   = useState("2.0");
+  const [customRange, setCustomRange] = useState("");
+  const [passphrase, setPassphrase]   = useState("");
+  const [status, setStatus]           = useState(null); // null | "loading" | "ok" | "error"
+  const [txMsg, setTxMsg]             = useState("");
 
-  const half = (data.atrPct * parseFloat(multiplier)) / 2;
+  const atrRange  = (data.atrPct * parseFloat(multiplier)).toFixed(2);
+  const rangePct  = customRange !== "" && !isNaN(parseFloat(customRange)) && parseFloat(customRange) > 0
+    ? parseFloat(customRange)
+    : parseFloat(atrRange);
+  const half     = rangePct / 2;
   const minPrice = (data.price * (1 - half / 100)).toFixed(2);
   const maxPrice = (data.price * (1 + half / 100)).toFixed(2);
-  const rangePct = (data.atrPct * parseFloat(multiplier)).toFixed(2);
 
   async function handleCreate() {
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-      setTxMsg("Montant invalide.");
-      setStatus("error");
-      return;
+      setTxMsg("Montant invalide."); setStatus("error"); return;
+    }
+    if (!passphrase) {
+      setTxMsg("Passphrase requise."); setStatus("error"); return;
     }
     setStatus("loading");
     setTxMsg("");
@@ -218,10 +224,12 @@ function CreatePanel({ data, onClose }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amountUSDC: parseFloat(amount),
-          minPrice: parseFloat(minPrice),
-          maxPrice: parseFloat(maxPrice),
+          amountUSDC:   parseFloat(amount),
+          minPrice:     parseFloat(minPrice),
+          maxPrice:     parseFloat(maxPrice),
           currentPrice: data.price,
+          rangePercent: rangePct,
+          passphrase,
         }),
       });
       const json = await res.json();
@@ -321,6 +329,20 @@ function CreatePanel({ data, onClose }) {
           </div>
         </div>
 
+        {/* Range % */}
+        <div>
+          <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1px", marginBottom: 6 }}>
+            RANGE (%) <span style={{ color: "#44446a" }}>— ATR suggère {atrRange}%</span>
+          </div>
+          <input
+            type="number"
+            placeholder={atrRange}
+            value={customRange}
+            onChange={e => setCustomRange(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+
         {/* Montant USDC */}
         <div>
           <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1px", marginBottom: 6 }}>
@@ -348,6 +370,20 @@ function CreatePanel({ data, onClose }) {
             {status === "ok" ? "✓ " : "⚠ "}{txMsg}
           </div>
         )}
+
+        {/* Passphrase */}
+        <div>
+          <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1px", marginBottom: 6 }}>
+            PASSPHRASE
+          </div>
+          <input
+            type="password"
+            placeholder="••••••••"
+            value={passphrase}
+            onChange={e => setPassphrase(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
 
         {/* Confirmer */}
         <button

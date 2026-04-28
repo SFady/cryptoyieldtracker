@@ -149,7 +149,7 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
   return owed + (liq * delta) / Q128;
 }
 
-const POSITION_OPEN_DATE = new Date("2026-04-22");
+const POSITION_OPEN_DATE = new Date("2026-04-28");
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
@@ -220,7 +220,7 @@ async function buildPosition(tokenId, ethCall) {
 
   const daysElapsed   = (Date.now() - POSITION_OPEN_DATE.getTime()) / 86_400_000;
   const mintDate      = POSITION_OPEN_DATE.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
-  const INITIAL_USD   = 97;
+  const INITIAL_USD   = 167;
   const feeMonthlyPct = ((totalFeesUSD / INITIAL_USD) * (30 / daysElapsed) * 100).toFixed(2);
 
   return {
