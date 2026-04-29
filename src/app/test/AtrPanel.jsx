@@ -17,6 +17,7 @@ export default function AtrPanel() {
   const [error, setError]         = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showClose,  setShowClose]  = useState(false);
 
   const fetchAtr = useCallback(async () => {
     setLoading(true);
@@ -185,6 +186,29 @@ export default function AtrPanel() {
             <CreatePanel data={data} onClose={() => setShowCreate(false)} />
           )}
 
+          {/* Bouton fermer tout */}
+          <button
+            onClick={() => { setShowClose(v => !v); setShowCreate(false); }}
+            style={{
+              width: "100%",
+              padding: "13px",
+              marginBottom: 12,
+              background: showClose ? "rgba(201,112,112,0.08)" : "rgba(201,112,112,0.06)",
+              border: "1px solid rgba(201,112,112,0.35)",
+              borderRadius: 10,
+              color: "#c97070",
+              fontFamily: "monospace",
+              fontSize: "0.85rem",
+              fontWeight: 700,
+              letterSpacing: "1px",
+              cursor: "pointer",
+            }}
+          >
+            {showClose ? "✕ ANNULER" : "⬛ TOUT FERMER → USDC"}
+          </button>
+
+          {showClose && <ClosePanel />}
+
           <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#44446a", textAlign: "right" }}>
             {lastFetch ? lastFetch.toLocaleTimeString("fr-FR") : "—"} · {data.candleCount} bougies · {data.interval}
           </div>
@@ -194,11 +218,95 @@ export default function AtrPanel() {
   );
 }
 
+function ClosePanel() {
+  const [status, setStatus] = useState(null);
+  const [msg,    setMsg]    = useState("");
+
+  async function handleClose() {
+    setStatus("loading");
+    setMsg("");
+    try {
+      const res  = await fetch("/api/closePositions", { method: "POST" });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setStatus("ok");
+      setMsg(json.message);
+    } catch (e) {
+      setStatus("error");
+      setMsg(e.message);
+    }
+  }
+
+  return (
+    <div style={{
+      background: "rgba(18,18,45,0.98)",
+      border: "1px solid rgba(201,112,112,0.25)",
+      borderRadius: 12,
+      overflow: "hidden",
+      marginBottom: 12,
+    }}>
+      <div style={{
+        padding: "8px 18px",
+        background: "rgba(201,112,112,0.06)",
+        borderBottom: "1px solid rgba(201,112,112,0.15)",
+        fontFamily: "monospace", fontSize: "0.65rem", letterSpacing: "1.5px",
+        textTransform: "uppercase", color: "#c97070", fontWeight: 600,
+      }}>
+        Fermer toutes les positions — WETH / USDC
+      </div>
+
+      <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{
+          fontFamily: "monospace", fontSize: "0.8rem", color: "#c97070",
+          background: "rgba(201,112,112,0.07)",
+          border: "1px solid rgba(201,112,112,0.2)",
+          borderRadius: 8, padding: "10px 14px", lineHeight: 1.6,
+        }}>
+          ⚠ Retire toutes vos positions WETH/USDC du staking et du LP,
+          collecte les fees accumulées, et convertit tout en USDC.
+        </div>
+
+        {msg && (
+          <div style={{
+            fontFamily: "monospace", fontSize: "0.8rem",
+            color: status === "ok" ? "#00e5a0" : "#c97070",
+            background: status === "ok" ? "rgba(0,229,160,0.07)" : "rgba(180,100,100,0.08)",
+            border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.25)" : "rgba(180,100,100,0.25)"}`,
+            borderRadius: 6, padding: "10px 14px",
+          }}>
+            {status === "ok" ? "✓ " : "⚠ "}{msg}
+          </div>
+        )}
+
+        <button
+          onClick={handleClose}
+          disabled={status === "loading" || status === "ok"}
+          style={{
+            padding: "12px",
+            background: status === "loading" || status === "ok"
+              ? "rgba(201,112,112,0.05)"
+              : "rgba(201,112,112,0.15)",
+            border: "1px solid rgba(201,112,112,0.4)",
+            borderRadius: 8,
+            color: status === "loading" || status === "ok" ? "#663333" : "#c97070",
+            fontFamily: "monospace",
+            fontSize: "0.85rem",
+            fontWeight: 700,
+            letterSpacing: "1px",
+            cursor: status === "loading" || status === "ok" ? "default" : "pointer",
+          }}
+        >
+          {status === "loading" ? "FERMETURE EN COURS..." : status === "ok" ? "✓ TERMINÉ" : "CONFIRMER — TOUT FERMER"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CreatePanel({ data }) {
   const [amount, setAmount]           = useState("");
   const [multiplier, setMultiplier]   = useState("2.0");
   const [customRange, setCustomRange] = useState("");
-  const [passphrase, setPassphrase]   = useState("");
   const [status, setStatus]           = useState(null); // null | "loading" | "ok" | "error"
   const [txMsg, setTxMsg]             = useState("");
 
@@ -214,9 +322,6 @@ function CreatePanel({ data }) {
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
       setTxMsg("Montant invalide."); setStatus("error"); return;
     }
-    if (!passphrase) {
-      setTxMsg("Passphrase requise."); setStatus("error"); return;
-    }
     setStatus("loading");
     setTxMsg("");
     try {
@@ -229,7 +334,6 @@ function CreatePanel({ data }) {
           maxPrice:     parseFloat(maxPrice),
           currentPrice: data.price,
           rangePercent: rangePct,
-          passphrase,
         }),
       });
       const json = await res.json();
@@ -370,20 +474,6 @@ function CreatePanel({ data }) {
             {status === "ok" ? "✓ " : "⚠ "}{txMsg}
           </div>
         )}
-
-        {/* Passphrase */}
-        <div>
-          <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1px", marginBottom: 6 }}>
-            PASSPHRASE
-          </div>
-          <input
-            type="password"
-            placeholder="••••••••"
-            value={passphrase}
-            onChange={e => setPassphrase(e.target.value)}
-            style={inputStyle}
-          />
-        </div>
 
         {/* Confirmer */}
         <button
