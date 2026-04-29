@@ -70,6 +70,7 @@ async function view(provider, to, iface, fn, args = []) {
   return iface.decodeFunctionResult(fn, hex);
 }
 
+
 export async function POST() {
   try {
     const privateKey = process.env.PRIVATE_KEY;
@@ -116,13 +117,15 @@ export async function POST() {
     // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'être unstakées)
     const collectedList = [];
     try {
-      const [nftCount] = await view(provider, NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
-
-      // Lire tous les tokenIds d'abord (évite les problèmes d'index si collect modifie l'enum)
+      // balanceOf peut être surévalué sur le NFPM Aerodrome (compte aussi les NFTs stakés),
+      // donc on boucle avec try/catch et on s'arrête au premier index invalide.
+      const [count] = await view(provider, NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
       const tokenIds = [];
-      for (let i = 0n; i < nftCount; i++) {
-        const [tid] = await view(provider, NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
-        tokenIds.push(tid);
+      for (let i = 0n; i < count; i++) {
+        try {
+          const [tid] = await view(provider, NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
+          tokenIds.push(tid);
+        } catch (_) { break; }
       }
 
       for (const tokenId of tokenIds) {

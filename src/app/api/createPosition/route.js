@@ -10,8 +10,17 @@ const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const POOL        = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
-// Fraction du budget USDC swappée en WETH (0.5 = 50/50)
-const SWAP_RATIO = 0.5;
+// Calcule la fraction optimale du budget à swapper en WETH selon la position dans le range
+function optimalWethFraction(price, minPrice, maxPrice) {
+  if (price <= minPrice) return 0; // tout en USDC, range au-dessus du prix
+  if (price >= maxPrice) return 1; // tout en WETH, range en-dessous du prix
+  const sqrtP  = Math.sqrt(price);
+  const sqrtPa = Math.sqrt(minPrice);
+  const sqrtPb = Math.sqrt(maxPrice);
+  const val0 = sqrtP - price / sqrtPb; // part de valeur WETH
+  const val1 = sqrtP - sqrtPa;         // part de valeur USDC
+  return val0 / (val0 + val1);
+}
 
 const RPC_URLS = [
   "https://base.drpc.org",
@@ -130,9 +139,17 @@ export async function POST(req) {
 
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
-    // 4. Calcul des montants : SWAP_RATIO du budget en USDC swappé vers WETH
-    const usdcToSwap = ethers.parseUnits(String((amountUSDC * SWAP_RATIO).toFixed(6)), 6);
-    const usdcToKeep = ethers.parseUnits(String((amountUSDC * (1 - SWAP_RATIO)).toFixed(6)), 6);
+    // 4. Vérifier le solde USDC disponible et calculer le ratio optimal
+    const usdcBalBeforeHex = await provider.call({
+      to: USDC, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
+    });
+    const usdcBalBefore = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], usdcBalBeforeHex)[0];
+    const effectiveUSDC = Math.min(amountUSDC, Number(ethers.formatUnits(usdcBalBefore, 6)));
+    if (effectiveUSDC < 1)
+      return Response.json({ error: `Solde USDC insuffisant : ${ethers.formatUnits(usdcBalBefore, 6)} USDC disponible` }, { status: 400 });
+
+    const swapRatio  = optimalWethFraction(currentPrice, minPrice, maxPrice);
+    const usdcToSwap = ethers.parseUnits(String((effectiveUSDC * swapRatio).toFixed(6)), 6);
 
     // 5. Approve USDC → SwapRouter (seulement si insuffisant)
     try {
@@ -159,12 +176,18 @@ export async function POST(req) {
       await txSwap.wait();
     } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
 
-    // 7. Lire le solde WETH reçu
+    // 7. Lire les soldes réels WETH + USDC après le swap
     const wethBalanceHex = await provider.call({
-      to:   WETH,
-      data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
+      to: WETH, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
     });
     const wethBalance = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], wethBalanceHex)[0];
+
+    const usdcBalAfterHex = await provider.call({
+      to: USDC, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
+    });
+    const usdcBalance = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], usdcBalAfterHex)[0];
+    // Limiter à ce qu'on a réellement (évite STF si solde insuffisant)
+    const usdcToKeep = usdcBalance;
 
     // 8. Approve WETH + USDC → NFPM (seulement si insuffisant)
     try {
@@ -176,25 +199,35 @@ export async function POST(req) {
     } catch (e) { throw new Error(`[étape 8b – approve USDC→NFPM] ${e.shortMessage ?? e.message}`); }
 
     // 9. Mint position
+    const mintParams = {
+      token0:         WETH,
+      token1:         USDC,
+      tickSpacing,
+      tickLower,
+      tickUpper,
+      amount0Desired: wethBalance,
+      amount1Desired: usdcToKeep,
+      amount0Min:     0n,
+      amount1Min:     0n,
+      recipient:      wallet.address,
+      deadline:       freshDeadline(),
+      sqrtPriceX96:   0n,
+    };
+    const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatio.toFixed(4)}`;
+
+    // Simulation avant envoi pour avoir le vrai message d'erreur
+    try {
+      await provider.call({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
+    } catch (simErr) {
+      throw new Error(`[simulation mint] ${simErr.shortMessage ?? simErr.message} | ${mintDiag}`);
+    }
+
     let mintTxHash = null;
     let tokenId = null;
     try {
       const mintTx = await wallet.sendTransaction({
         to: NFPM,
-        data: NFPM_IFACE.encodeFunctionData("mint", [{
-          token0:         WETH,
-          token1:         USDC,
-          tickSpacing,
-          tickLower,
-          tickUpper,
-          amount0Desired: wethBalance,
-          amount1Desired: usdcToKeep,
-          amount0Min:     0n,
-          amount1Min:     0n,
-          recipient:      wallet.address,
-          deadline:       freshDeadline(),
-          sqrtPriceX96:   0n,
-        }]),
+        data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]),
       });
       mintTxHash = mintTx.hash;
       let receipt = null;
@@ -210,10 +243,35 @@ export async function POST(req) {
         l.topics[1] === "0x0000000000000000000000000000000000000000000000000000000000000000"
       );
       if (log) tokenId = ethers.toBigInt(log.topics[3]);
-    } catch (e) { throw new Error(`[étape 9 – mint] ${e.shortMessage ?? e.message}`); }
+    } catch (e) { throw new Error(`[étape 9 – mint] ${e.shortMessage ?? e.message} | ${mintDiag}`); }
 
     if (tokenId == null)
       throw new Error("[étape 9 – mint] Transfer event introuvable dans le reçu");
+
+    // 10. Sweep WETH résiduel → USDC (le LP n'utilise pas forcément tout le WETH)
+    try {
+      const wethRemHex = await provider.call({
+        to: WETH, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
+      });
+      const wethRem = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], wethRemHex)[0];
+      if (wethRem > 0n) {
+        await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethRem);
+        const txSweep = await wallet.sendTransaction({
+          to: SWAP_ROUTER,
+          data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+            tokenIn:           WETH,
+            tokenOut:          USDC,
+            tickSpacing,
+            recipient:         wallet.address,
+            deadline:          freshDeadline(),
+            amountIn:          wethRem,
+            amountOutMinimum:  0n,
+            sqrtPriceLimitX96: 0n,
+          }]),
+        });
+        await txSweep.wait();
+      }
+    } catch (_) {} // non-bloquant, la position est créée
 
     const ownerIface = new ethers.Interface(["function ownerOf(uint256 tokenId) view returns (address)"]);
 
