@@ -1,3 +1,5 @@
+import { ethers } from "ethers";
+
 export const runtime     = "nodejs";
 export const maxDuration = 30;
 
@@ -5,6 +7,26 @@ export const maxDuration = 30;
 const WALLET = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
 const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
+const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+
+const VOTER_IFACE = new ethers.Interface([
+  "function gauges(address pool) view returns (address)",
+]);
+const GAUGE_IFACE = new ethers.Interface([
+  "function stakedValues(address depositor) view returns (uint256[])",
+  "function earned(address account, uint256 tokenId) view returns (uint256)",
+]);
+
+async function getAeroPrice() {
+  try {
+    const res  = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=aerodrome-finance&vs_currencies=usd",
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const data = await res.json();
+    return data?.["aerodrome-finance"]?.usd ?? 0;
+  } catch (_) { return 0; }
+}
 
 const TOKENS = {
   "0x4200000000000000000000000000000000000006": { symbol: "WETH", decimals: 18 },
@@ -91,27 +113,51 @@ const ZERO_TOPIC     = "0x000000000000000000000000000000000000000000000000000000
 
 // ── Découverte des tokenIds ───────────────────────────────────────────────────
 
-// rpc et ethCall sont injectés par le handler pour garantir un seul nœud
+// Retourne { tokenIds, gaugeAddr, stakedIds } — gaugeAddr/stakedIds pour les rewards AERO
 async function discoverTokenIds(rpc, ethCall) {
-  // 1. Le NFT est dans le wallet (non staké)
-  const countHex = await ethCall(NFPM, "0x70a08231" + walletPad);
-  const count = Number(toUint(countHex));
+  const ids       = new Set();
+  let   gaugeAddr = null;
+  const stakedIds = [];
 
+  // 0. Positions stakées dans le gauge Aerodrome
+  try {
+    const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL])).catch(() => null);
+    if (gaugeHex) {
+      const [addr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
+      if (addr && addr !== ethers.ZeroAddress) {
+        gaugeAddr = addr;
+        const stakedHex = await ethCall(addr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
+        if (stakedHex && stakedHex !== "0x") {
+          const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+          for (const id of staked) {
+            const bigId = BigInt(id);
+            ids.add(bigId);
+            stakedIds.push(bigId);
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 1. NFTs dans le wallet (non stakés)
+  const countHex = await ethCall(NFPM, "0x70a08231" + walletPad);
+  const count    = Number(toUint(countHex));
   if (count > 0) {
-    const ids = await Promise.all(
+    const walletIds = await Promise.all(
       Array.from({ length: count }, (_, i) =>
         ethCall(NFPM, "0x2f745c59" + walletPad + pad64(i)).then(toUint)
       )
     );
-    return ids;
+    for (const id of walletIds) ids.add(id);
   }
+
+  if (ids.size > 0) return { tokenIds: [...ids], gaugeAddr, stakedIds };
 
   // 2. Scan des mints vers ce wallet (~5 mois = 5 M blocs)
   const latestHex = await rpc("eth_blockNumber", []);
   const latest    = Number(BigInt(latestHex));
   const from      = "0x" + Math.max(1, latest - 5_000_000).toString(16);
 
-  const ids  = new Set();
   const logs = await rpc("eth_getLogs", [{
     address: NFPM,
     topics: [TRANSFER_TOPIC, ZERO_TOPIC, walletTopic],
@@ -122,7 +168,7 @@ async function discoverTokenIds(rpc, ethCall) {
   if (Array.isArray(logs))
     for (const log of logs) ids.add(BigInt(log.topics[3]));
 
-  return [...ids];
+  return { tokenIds: [...ids], gaugeAddr, stakedIds };
 }
 
 // ── CL math ───────────────────────────────────────────────────────────────────
@@ -149,7 +195,8 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
   return owed + (liq * delta) / Q128;
 }
 
-const POSITION_OPEN_DATE = new Date("2026-04-28");
+const POSITION_OPEN_DATE = new Date("2026-04-30T14:30:00");
+const INITIAL_USD        = 142;
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
@@ -219,8 +266,7 @@ async function buildPosition(tokenId, ethCall) {
   const totalFeesUSD = feeUsd0  + feeUsd1;
 
   const daysElapsed   = (Date.now() - POSITION_OPEN_DATE.getTime()) / 86_400_000;
-  const mintDate      = POSITION_OPEN_DATE.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
-  const INITIAL_USD   = 167;
+  const mintDate      = POSITION_OPEN_DATE.toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const feeMonthlyPct = ((totalFeesUSD / INITIAL_USD) * (30 / daysElapsed) * 100).toFixed(2);
 
   return {
@@ -258,7 +304,7 @@ export async function GET() {
     const rpc     = makeRpc(rpcUrl);
     const ethCall = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);
 
-    const tokenIds = await discoverTokenIds(rpc, ethCall);
+    const { tokenIds, gaugeAddr, stakedIds } = await discoverTokenIds(rpc, ethCall);
 
     if (tokenIds.length === 0) {
       const data = { positions: [] };
@@ -266,10 +312,36 @@ export async function GET() {
       return Response.json(data);
     }
 
+    // Rewards AERO en attente pour les positions stakées
+    const aeroUsdById = {};
+    if (gaugeAddr && stakedIds.length > 0) {
+      const aeroPrice = await getAeroPrice();
+      await Promise.allSettled(stakedIds.map(async (tokenId) => {
+        try {
+          const hex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("earned", [WALLET, tokenId]));
+          const [earned] = GAUGE_IFACE.decodeFunctionResult("earned", hex);
+          aeroUsdById[tokenId.toString()] = (Number(earned) / 1e18) * aeroPrice;
+        } catch (_) {}
+      }));
+    }
+
     const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall)));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
-      .map((r) => r.value);
+      .map((r) => {
+        const pos        = r.value;
+        const aeroUSD    = aeroUsdById[pos.tokenId] ?? 0;
+        const feesNum    = parseFloat(pos.totalFeesUSD);
+        const totalRevUSD = feesNum + aeroUSD;
+        const daysElapsed = (Date.now() - POSITION_OPEN_DATE.getTime()) / 86_400_000;
+        const totalMonthlyPct = ((totalRevUSD / INITIAL_USD) * (30 / daysElapsed) * 100).toFixed(2);
+        return {
+          ...pos,
+          aeroRevenueUSD:  aeroUSD.toFixed(2),
+          totalRevenueUSD: totalRevUSD.toFixed(2),
+          totalMonthlyPct,
+        };
+      });
 
     const data = { positions };
     global._cytPos2Cache = { data, time: Date.now() };

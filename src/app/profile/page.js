@@ -137,7 +137,9 @@ function Empty() {
 }
 
 function PositionCard({ pos, showFeePercent }) {
-  const feePct = showFeePercent ? (pos.feeMonthlyPct ?? null) : null;
+  const aeroUSD    = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
+  const totalRevUSD = pos.totalRevenueUSD ?? pos.totalFeesUSD;
+  const feePct     = showFeePercent ? (pos.totalMonthlyPct ?? pos.feeMonthlyPct ?? null) : null;
   return (
     <div style={{
       background: "rgba(20,26,36,0.95)",
@@ -195,7 +197,10 @@ function PositionCard({ pos, showFeePercent }) {
       {/* Fees */}
       <Section label="Frais non collectés">
         {pos.fees.map((t) => <TokenRow key={t.symbol} token={t} accent="#f0b429" />)}
-        <TotalRow label="Total frais" value={`$${pos.totalFeesUSD}`} highlight percent={feePct} percentSuffix={pos.feeMonthlyPct ? "%/mois" : "%"} />
+        {aeroUSD > 0.001 && (
+          <TokenRow token={{ symbol: "AERO", balance: "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
+        )}
+        <TotalRow label="Total revenus" value={`$${totalRevUSD}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
 
       {/* Footer */}

@@ -35,6 +35,25 @@ const ERC20_IFACE = new ethers.Interface([
   "function allowance(address owner, address spender) view returns (uint256)",
 ]);
 
+// tx.wait() échoue souvent sur Base RPCs même quand la tx réussit → fallback par polling
+async function waitForTx(provider, tx) {
+  try {
+    const r = await tx.wait();
+    if (r?.status === 0) throw new Error("reverted");
+    return r;
+  } catch (_) {
+    for (let i = 0; i < 30; i++) {
+      await new Promise(res => setTimeout(res, 2000));
+      const r = await provider.getTransactionReceipt(tx.hash);
+      if (r) {
+        if (r.status === 0) throw new Error(`revert on-chain (hash=${tx.hash})`);
+        return r;
+      }
+    }
+    throw new Error(`timeout confirmation tx ${tx.hash}`);
+  }
+}
+
 async function ensureAllowance(wallet, provider, token, spender, amount) {
   try {
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000));
@@ -49,7 +68,7 @@ async function ensureAllowance(wallet, provider, token, spender, amount) {
     to: token,
     data: ERC20_IFACE.encodeFunctionData("approve", [spender, ethers.MaxUint256]),
   });
-  await tx.wait();
+  await waitForTx(provider, tx);
   return tx.hash;
 }
 
@@ -86,6 +105,11 @@ function roundTick(tick, spacing) {
   return Math.round(tick / spacing) * spacing;
 }
 
+// Prix USDC/WETH à partir du tick exact (inverse de priceToTick)
+function tickToPrice(tick) {
+  return Math.pow(1.0001, tick) * Math.pow(10, -DECIMAL_ADJUSTMENT);
+}
+
 async function pickRpc() {
   return new Promise((resolve) => {
     let done = false;
@@ -118,9 +142,19 @@ export async function POST(req) {
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
 
-    // 1. tickSpacing du pool
+    // 1. tickSpacing + prix réel du pool (slot0)
     const tsRaw = await provider.call({ to: POOL, data: "0xd0c93a7c" });
     const tickSpacing = Number(ethers.toBigInt(tsRaw));
+
+    // Prix on-chain depuis sqrtPriceX96 — plus précis que le feed UI, critique pour les ranges serrés
+    let poolPrice = currentPrice;
+    try {
+      const slot0Hex = await provider.call({ to: POOL, data: "0x3850c7bd" }); // slot0()
+      const sqrtPriceX96 = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], slot0Hex)[0];
+      // sqrtPrice = sqrtPriceX96 / 2^96 ; price_raw = sqrtPrice^2 ; human = price_raw * 10^12
+      const sqrtP = Number(sqrtPriceX96) / Number(2n ** 96n);
+      poolPrice = sqrtP * sqrtP * 1e12;
+    } catch (_) { /* fallback au prix UI */ }
 
     // 2. Ticks arrondis
     const tickLower = roundTick(priceToTick(minPrice), tickSpacing);
@@ -139,55 +173,79 @@ export async function POST(req) {
 
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
-    // 4. Vérifier le solde USDC disponible et calculer le ratio optimal
-    const usdcBalBeforeHex = await provider.call({
-      to: USDC, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-    });
-    const usdcBalBefore = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], usdcBalBeforeHex)[0];
-    const effectiveUSDC = Math.min(amountUSDC, Number(ethers.formatUnits(usdcBalBefore, 6)));
-    if (effectiveUSDC < 1)
-      return Response.json({ error: `Solde USDC insuffisant : ${ethers.formatUnits(usdcBalBefore, 6)} USDC disponible` }, { status: 400 });
+    // 4. Lire les soldes réels avant swap
+    const readBal = async (token) => {
+      const h = await provider.call({ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) });
+      return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
+    };
 
-    const swapRatio  = optimalWethFraction(currentPrice, minPrice, maxPrice);
-    const usdcToSwap = ethers.parseUnits(String((effectiveUSDC * swapRatio).toFixed(6)), 6);
-
-    // 5. Approve USDC → SwapRouter (seulement si insuffisant)
+    let usdcBalBefore, wethBalBefore;
     try {
-      await ensureAllowance(wallet, provider, USDC, SWAP_ROUTER, usdcToSwap);
-    } catch (e) { throw new Error(`[étape 5 – approve USDC→Router] ${e.shortMessage ?? e.message}`); }
+      usdcBalBefore = await readBal(USDC);
+      wethBalBefore = await readBal(WETH);
+    } catch (e) { throw new Error(`[étape 4 – lecture soldes] ${e.shortMessage ?? e.message}`); }
+
+    // Budget total disponible = USDC + valeur du WETH déjà en wallet
+    const wethValueUsdc = Number(ethers.formatUnits(wethBalBefore, 18)) * poolPrice;
+    const usdcAvailable = Number(ethers.formatUnits(usdcBalBefore, 6));
+    const totalAvailable = usdcAvailable + wethValueUsdc;
+
+    if (totalAvailable < 1)
+      return Response.json({ error: `Solde insuffisant : ${usdcAvailable.toFixed(2)} USDC + ${wethValueUsdc.toFixed(2)}$ de WETH` }, { status: 400 });
+
+    // Budget effectif plafonné à ce qu'on a
+    const totalBudget       = Math.min(amountUSDC, totalAvailable);
+    // Utiliser les prix des ticks réels (après arrondi) et non les prix user — évite le désalignement ratio
+    const tickLowerPrice    = tickToPrice(tickLower);
+    const tickUpperPrice    = tickToPrice(tickUpper);
+    const swapRatio         = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
+    const targetWethValue   = totalBudget * swapRatio; // valeur WETH cible en $
+
+    // Swap seulement le manque de WETH — si on en a déjà assez, on ne swap pas
+    const wethDeficitUsdc = Math.max(0, targetWethValue - wethValueUsdc);
+    const usdcToSwap = wethDeficitUsdc > 0.01
+      ? ethers.parseUnits(String(Math.min(wethDeficitUsdc, usdcAvailable).toFixed(6)), 6)
+      : 0n;
+
+    // 5. Approve USDC → SwapRouter (seulement si on a quelque chose à swapper)
+    if (usdcToSwap > 0n) {
+      try {
+        await ensureAllowance(wallet, provider, USDC, SWAP_ROUTER, usdcToSwap);
+      } catch (e) { throw new Error(`[étape 5 – approve USDC→Router] ${e.shortMessage ?? e.message}`); }
+    }
 
     // 6. Swap USDC → WETH
     let txSwapHash = null;
+    if (usdcToSwap > 0n) {
+      try {
+        const txSwap = await wallet.sendTransaction({
+          to: SWAP_ROUTER,
+          data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+            tokenIn:            USDC,
+            tokenOut:           WETH,
+            tickSpacing,
+            recipient:          wallet.address,
+            deadline:           freshDeadline(),
+            amountIn:           usdcToSwap,
+            amountOutMinimum:   0n,
+            sqrtPriceLimitX96:  0n,
+          }]),
+        });
+        txSwapHash = txSwap.hash;
+        await waitForTx(provider, txSwap);
+      } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
+    }
+
+    // 7. Soldes réels après swap
+    let wethBalance, usdcBalance;
     try {
-      const txSwap = await wallet.sendTransaction({
-        to: SWAP_ROUTER,
-        data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-          tokenIn:            USDC,
-          tokenOut:           WETH,
-          tickSpacing,
-          recipient:          wallet.address,
-          deadline:           freshDeadline(),
-          amountIn:           usdcToSwap,
-          amountOutMinimum:   0n,
-          sqrtPriceLimitX96:  0n,
-        }]),
-      });
-      txSwapHash = txSwap.hash;
-      await txSwap.wait();
-    } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
+      wethBalance = await readBal(WETH);
+      usdcBalance = await readBal(USDC);
+    } catch (e) { throw new Error(`[étape 7 – lecture soldes post-swap] ${e.shortMessage ?? e.message}`); }
 
-    // 7. Lire les soldes réels WETH + USDC après le swap
-    const wethBalanceHex = await provider.call({
-      to: WETH, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-    });
-    const wethBalance = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], wethBalanceHex)[0];
-
-    const usdcBalAfterHex = await provider.call({
-      to: USDC, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-    });
-    const usdcBalance = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], usdcBalAfterHex)[0];
-    // Limiter à ce qu'on a réellement (évite STF si solde insuffisant)
-    const usdcToKeep = usdcBalance;
+    // USDC pour le LP = ce qui reste, plafonné à la part USDC du budget (évite d'y mettre trop)
+    const usdcBudgeted = ethers.parseUnits(String((totalBudget * (1 - swapRatio)).toFixed(6)), 6);
+    const usdcToKeep   = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
 
     // 8. Approve WETH + USDC → NFPM (seulement si insuffisant)
     try {
@@ -213,7 +271,7 @@ export async function POST(req) {
       deadline:       freshDeadline(),
       sqrtPriceX96:   0n,
     };
-    const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatio.toFixed(4)}`;
+    const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatio.toFixed(4)} poolPrice=${poolPrice.toFixed(2)} usdcToSwap=${usdcToSwap} wethBefore=${wethBalBefore} wethDeficit=${wethDeficitUsdc.toFixed(2)}`;
 
     // Simulation avant envoi pour avoir le vrai message d'erreur
     try {
@@ -225,17 +283,20 @@ export async function POST(req) {
     let mintTxHash = null;
     let tokenId = null;
     try {
+      // Estimer le gas + marge ×1.5 pour éviter les out-of-gas sur NFPM Aerodrome
+      let gasLimit = 600000n;
+      try {
+        const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
+        gasLimit = est * 3n / 2n;
+      } catch (_) {}
+
       const mintTx = await wallet.sendTransaction({
         to: NFPM,
         data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]),
+        gasLimit,
       });
       mintTxHash = mintTx.hash;
-      let receipt = null;
-      try { receipt = await mintTx.wait(); } catch (_) {}
-      // Si wait() a échoué, on relit le reçu directement
-      if (!receipt) receipt = await provider.getTransactionReceipt(mintTxHash);
-      if (!receipt) throw new Error("reçu introuvable après mint");
-      if (receipt.status === 0) throw new Error("mint rejeté on-chain (status=0)");
+      const receipt = await waitForTx(provider, mintTx);
       const log = receipt.logs.find(l =>
         l.address.toLowerCase() === NFPM.toLowerCase() &&
         l.topics.length === 4 &&
@@ -269,11 +330,9 @@ export async function POST(req) {
             sqrtPriceLimitX96: 0n,
           }]),
         });
-        await txSweep.wait();
+        await waitForTx(provider, txSweep);
       }
     } catch (_) {} // non-bloquant, la position est créée
-
-    const ownerIface = new ethers.Interface(["function ownerOf(uint256 tokenId) view returns (address)"]);
 
     // 11. Double approbation : approve(tokenId) + setApprovalForAll pour couvrir les deux cas
     try {
@@ -281,7 +340,7 @@ export async function POST(req) {
         to: NFPM,
         data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
       });
-      await txApproveId.wait();
+      await waitForTx(provider, txApproveId);
     } catch (e) { throw new Error(`[étape 11a – approve tokenId] ${e.shortMessage ?? e.message}`); }
 
     try {
@@ -295,37 +354,52 @@ export async function POST(req) {
           to: NFPM,
           data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
         });
-        await txAll.wait();
+        await waitForTx(provider, txAll);
       }
     } catch (e) { throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`); }
 
     // 12. Dépôt dans le gauge
-    let txGaugeHash = null;
+    // Simulation pour capturer le vrai message de revert avant d'envoyer la tx
     try {
-      const txGauge = await wallet.sendTransaction({
-        to: gaugeAddr,
-        data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
-      });
-      txGaugeHash = txGauge.hash;
-      await txGauge.wait();
-    } catch (e) {
-      // Vérifie on-chain si le dépôt a quand même réussi (ethers.js peut mal lire le reçu)
-      const ownerHex2 = await provider.call({ to: NFPM, data: ownerIface.encodeFunctionData("ownerOf", [tokenId]) });
-      const [ownerAfter] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], ownerHex2);
-      if (ownerAfter.toLowerCase() !== gaugeAddr.toLowerCase())
-        throw new Error(`[étape 12 – deposit gauge] tokenId=${tokenId} | ${e.shortMessage ?? e.message}`);
-      // Le gauge possède le token → dépôt réussi malgré l'erreur ethers.js
+      await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
+    } catch (simErr) {
+      throw new Error(`[simulation deposit] ${simErr.shortMessage ?? simErr.message} | tokenId=${tokenId} gauge=${gaugeAddr}`);
     }
 
+    let txGaugeHash = null;
+    try {
+      const depositData = GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]);
+      let gaugeGas = 300000n;
+      try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {}
+      const txGauge = await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
+      txGaugeHash = txGauge.hash;
+      await waitForTx(provider, txGauge);
+    } catch (e) { throw new Error(`[étape 12 – deposit gauge] tokenId=${tokenId} | ${e.message ?? e.shortMessage}`); }
+
+    const budgetWarning = totalBudget < amountUSDC
+      ? `⚠ Budget plafonné à $${totalBudget.toFixed(2)} (demandé $${amountUSDC}, disponible $${totalAvailable.toFixed(2)})`
+      : null;
+
     return Response.json({
-      message:  `Position #${tokenId} créée et stakée — range $${minPrice}→$${maxPrice}`,
-      tokenId:  tokenId.toString(),
-      txSwap:   txSwapHash,
-      txMint:   mintTxHash,
-      txGauge:  txGaugeHash,
+      message:    `Position #${tokenId} créée et stakée — range $${minPrice}→$${maxPrice}`,
+      tokenId:    tokenId.toString(),
+      txSwap:     txSwapHash,
+      txMint:     mintTxHash,
+      txGauge:    txGaugeHash,
+      budgetUsed: `$${totalBudget.toFixed(2)} / $${amountUSDC} demandés`,
+      detail: {
+        totalBudget:    totalBudget.toFixed(2),
+        swapRatio:      swapRatio.toFixed(4),
+        tickPrices:     `$${tickLowerPrice.toFixed(2)}→$${tickUpperPrice.toFixed(2)}`,
+        wethInLP:       ethers.formatUnits(wethBalance, 18),
+        usdcInLP:       ethers.formatUnits(usdcToKeep, 6),
+        usdcAvailable:  usdcAvailable.toFixed(2),
+        wethValueUsdc:  wethValueUsdc.toFixed(2),
+      },
+      ...(budgetWarning ? { warning: budgetWarning } : {}),
     });
 
   } catch (e) {
-    return Response.json({ error: e.shortMessage ?? e.message }, { status: 500 });
+    return Response.json({ error: e.message ?? e.shortMessage }, { status: 500 });
   }
 }

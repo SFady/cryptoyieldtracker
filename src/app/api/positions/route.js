@@ -1,3 +1,5 @@
+import { ethers } from "ethers";
+
 export const runtime     = "nodejs";
 export const maxDuration = 30;
 
@@ -5,6 +7,14 @@ export const maxDuration = 30;
 const WALLET = "0xaf96ca0b19b3966105bf2f28a05c10d586692499";
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
 const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
+const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+
+const VOTER_IFACE = new ethers.Interface([
+  "function gauges(address pool) view returns (address)",
+]);
+const GAUGE_IFACE = new ethers.Interface([
+  "function stakedValues(address depositor) view returns (uint256[])",
+]);
 
 const RPC_URLS = [
   "https://base.drpc.org",
@@ -107,6 +117,29 @@ const USDC_ADDR = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
 // Retourne [tokenId, posHex] pour éviter un double appel positions()
 async function scanActive(rpcUrl, call) {
+  // 0. Positions stakées dans le gauge Aerodrome
+  try {
+    const gaugeHex = await call(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL])).catch(() => null);
+    if (gaugeHex) {
+      const [gaugeAddr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
+      if (gaugeAddr && gaugeAddr !== ethers.ZeroAddress) {
+        const stakedHex = await call(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
+        if (stakedHex && stakedHex !== "0x") {
+          const [stakedIds] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+          const hexes = await Promise.all(stakedIds.map(id =>
+            call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null)
+          ));
+          for (let i = 0; i < stakedIds.length; i++) {
+            const h = hexes[i];
+            if (!h) continue;
+            if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
+              return [stakedIds[i], h];
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
   // 1. NFTs dans le wallet — toutes les positions en parallèle
   const countHex = await call(NFPM, "0x70a08231" + walletPad);
   const count    = Number(toUint(countHex));
