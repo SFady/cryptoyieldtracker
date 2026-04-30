@@ -195,7 +195,7 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
   return owed + (liq * delta) / Q128;
 }
 
-const POSITION_OPEN_DATE = new Date("2026-04-30T14:30:00");
+const POSITION_OPEN_DATE = new Date("2026-04-30T12:30:00Z"); // 14h30 heure Paris (CEST = UTC+2)
 const INITIAL_USD        = 142;
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────

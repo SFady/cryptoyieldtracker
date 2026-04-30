@@ -141,7 +141,7 @@ function PositionCard({ pos, showFeePercent, showCollect }) {
   const totalRevUSD = pos.totalRevenueUSD ?? pos.totalFeesUSD;
   const feePct      = showFeePercent && pos.openTimestamp && pos.initialUSD
     ? (() => {
-        const days = (Date.now() - pos.openTimestamp) / 86_400_000;
+        const days = Math.max(0.001, (Date.now() - pos.openTimestamp) / 86_400_000);
         return ((parseFloat(totalRevUSD) / pos.initialUSD) * (30 / days) * 100).toFixed(2);
       })()
     : null;
