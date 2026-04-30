@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../context/AuthContext";
 
@@ -65,7 +65,7 @@ export default function ProfilePage() {
       {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
       {pos2 && pos2.length === 0 && !loading2 && <Empty />}
-      {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent />)}
+      {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect />)}
 
       {/* ── Wallet 1 : USDC/cbBTC ── */}
       <SectionHeader label="USDC / cbBTC" wallet={WALLET1_SHORT} positions={pos3} mt />
@@ -136,10 +136,36 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent }) {
-  const aeroUSD    = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
+function PositionCard({ pos, showFeePercent, showCollect }) {
+  const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const totalRevUSD = pos.totalRevenueUSD ?? pos.totalFeesUSD;
-  const feePct     = showFeePercent ? (pos.totalMonthlyPct ?? pos.feeMonthlyPct ?? null) : null;
+  const feePct      = showFeePercent && pos.openTimestamp && pos.initialUSD
+    ? (() => {
+        const days = (Date.now() - pos.openTimestamp) / 86_400_000;
+        return ((parseFloat(totalRevUSD) / pos.initialUSD) * (30 / days) * 100).toFixed(2);
+      })()
+    : null;
+  const [collecting, setCollecting] = React.useState(false);
+  const [collectResult, setCollectResult] = React.useState(null);
+
+  async function handleCollect() {
+    setCollecting(true);
+    setCollectResult(null);
+    try {
+      const res  = await fetch("/api/collectRewards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokenId: pos.tokenId }),
+      });
+      const data = await res.json();
+      if (data.error) setCollectResult({ ok: false, msg: data.error });
+      else setCollectResult({ ok: true, msg: `Collecté ✓ — Solde USDC : $${data.finalUsdc}` });
+    } catch (e) {
+      setCollectResult({ ok: false, msg: e.message });
+    } finally {
+      setCollecting(false);
+    }
+  }
   return (
     <div style={{
       background: "rgba(20,26,36,0.95)",
@@ -213,10 +239,37 @@ function PositionCard({ pos, showFeePercent }) {
       }}>
         <span>#{pos.tokenId}</span>
         {pos.mintDate  && <span>ouvert le {pos.mintDate}</span>}
-{pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
+        {pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
         {pos.wethPrice && <span>ETH = ${pos.wethPrice}</span>}
         {pos.btcPrice  && <span>BTC = ${pos.btcPrice}</span>}
       </div>
+
+      {/* Bouton collecter */}
+      {showCollect && (
+        <div style={{ padding: "10px 18px", borderTop: "1px solid rgba(124,77,255,0.1)", background: "rgba(10,10,30,0.4)" }}>
+          <button
+            onClick={handleCollect}
+            disabled={collecting}
+            style={{
+              fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700,
+              padding: "6px 16px", borderRadius: 6, cursor: collecting ? "wait" : "pointer",
+              background: collecting ? "rgba(124,77,255,0.1)" : "rgba(124,77,255,0.2)",
+              border: "1px solid rgba(124,77,255,0.4)", color: collecting ? "#6666aa" : "#c4a6ff",
+              transition: "all 0.2s",
+            }}
+          >
+            {collecting ? "En cours…" : "Collecter fees + AERO → USDC"}
+          </button>
+          {collectResult && (
+            <div style={{
+              marginTop: 8, fontSize: "0.75rem", fontFamily: "monospace",
+              color: collectResult.ok ? "#00e5a0" : "#c97070",
+            }}>
+              {collectResult.ok ? "✓" : "⚠"} {collectResult.msg}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -265,9 +265,7 @@ async function buildPosition(tokenId, ethCall) {
   const totalPoolUSD = poolUsd0 + poolUsd1;
   const totalFeesUSD = feeUsd0  + feeUsd1;
 
-  const daysElapsed   = (Date.now() - POSITION_OPEN_DATE.getTime()) / 86_400_000;
-  const mintDate      = POSITION_OPEN_DATE.toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  const feeMonthlyPct = ((totalFeesUSD / INITIAL_USD) * (30 / daysElapsed) * 100).toFixed(2);
+  const mintDate = POSITION_OPEN_DATE.toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
   return {
     protocol: "Aerodrome CL",
@@ -287,8 +285,9 @@ async function buildPosition(tokenId, ethCall) {
     totalFeesUSD:   totalFeesUSD.toFixed(2),
     totalUSD:       (totalPoolUSD + totalFeesUSD).toFixed(2),
     wethPrice:      ethPrice.toFixed(2),
-    feeMonthlyPct,
     mintDate,
+    openTimestamp: POSITION_OPEN_DATE.getTime(),
+    initialUSD:    INITIAL_USD,
   };
 }
 
@@ -330,16 +329,13 @@ export async function GET() {
       .filter((r) => r.status === "fulfilled" && r.value !== null)
       .map((r) => {
         const pos        = r.value;
-        const aeroUSD    = aeroUsdById[pos.tokenId] ?? 0;
-        const feesNum    = parseFloat(pos.totalFeesUSD);
+        const aeroUSD     = aeroUsdById[pos.tokenId] ?? 0;
+        const feesNum     = parseFloat(pos.totalFeesUSD);
         const totalRevUSD = feesNum + aeroUSD;
-        const daysElapsed = (Date.now() - POSITION_OPEN_DATE.getTime()) / 86_400_000;
-        const totalMonthlyPct = ((totalRevUSD / INITIAL_USD) * (30 / daysElapsed) * 100).toFixed(2);
         return {
           ...pos,
           aeroRevenueUSD:  aeroUSD.toFixed(2),
           totalRevenueUSD: totalRevUSD.toFixed(2),
-          totalMonthlyPct,
         };
       });
 
