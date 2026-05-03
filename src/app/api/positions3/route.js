@@ -202,11 +202,11 @@ export async function GET() {
       return Response.json(data);
     }
 
-    let posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
-    const pairOk = toAddr(word(posHex, 2)) === USDC_ADDR && toAddr(word(posHex, 3)) === CBBTC_ADDR;
-    const liquidity  = toUint(word(posHex, 7));
-    const owed0check = toUint(word(posHex, 10));
-    const owed1check = toUint(word(posHex, 11));
+    let posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId)).catch(() => null);
+    const pairOk = posHex && toAddr(word(posHex, 2)) === USDC_ADDR && toAddr(word(posHex, 3)) === CBBTC_ADDR;
+    const liquidity  = posHex ? toUint(word(posHex, 7))  : 0n;
+    const owed0check = posHex ? toUint(word(posHex, 10)) : 0n;
+    const owed1check = posHex ? toUint(word(posHex, 11)) : 0n;
 
     if (!pairOk || (liquidity === 0n && owed0check === 0n && owed1check === 0n)) {
       const newId = await scanActiveId(rpcUrl, call).catch(() => null);

@@ -229,12 +229,12 @@ export async function GET() {
       return Response.json(data);
     }
 
-    if (!posHex) posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId));
-    const liquidity  = toUint(word(posHex, 7));
-    const owed0check = toUint(word(posHex, 10));
-    const owed1check = toUint(word(posHex, 11));
+    if (!posHex) posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId)).catch(() => null);
+    const liquidity  = posHex ? toUint(word(posHex, 7))  : 0n;
+    const owed0check = posHex ? toUint(word(posHex, 10)) : 0n;
+    const owed1check = posHex ? toUint(word(posHex, 11)) : 0n;
 
-    if (liquidity === 0n && owed0check === 0n && owed1check === 0n) {
+    if (!posHex || (liquidity === 0n && owed0check === 0n && owed1check === 0n)) {
       [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
       if (tokenId) {
         global._pos1ActiveId = { id: tokenId, time: Date.now() };
