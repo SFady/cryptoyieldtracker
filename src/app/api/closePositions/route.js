@@ -6,6 +6,7 @@ export const maxDuration = 300;
 const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
 const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5";
 const WETH        = "0x4200000000000000000000000000000000000006";
+const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const POOL        = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
@@ -223,6 +224,40 @@ export async function POST() {
     } catch (e) {
       throw new Error(e.message); // propage le message détaillé
     }
+
+    // 4a. Swap AERO → WETH (récompenses du gauge)
+    try {
+      const aeroBalHex = await provider.call({
+        to: AERO, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
+      });
+      const [aeroBal] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], aeroBalHex);
+
+      if (aeroBal > 0n) {
+        const txApp = await wallet.sendTransaction({
+          to: AERO,
+          data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
+        });
+        await waitForTx(provider, txApp);
+
+        const aeroSwapParams = {
+          tokenIn:           AERO,
+          tokenOut:          WETH,
+          tickSpacing:       200,
+          recipient:         wallet.address,
+          deadline:          freshDeadline(),
+          amountIn:          aeroBal,
+          amountOutMinimum:  0n,
+          sqrtPriceLimitX96: 0n,
+        };
+        try {
+          const txAeroSwap = await wallet.sendTransaction({
+            to: SWAP_ROUTER,
+            data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [aeroSwapParams]),
+          });
+          await waitForTx(provider, txAeroSwap);
+        } catch (e) { throw new Error(`[swap AERO→WETH] ${e.shortMessage ?? e.message}`); }
+      }
+    } catch (e) { throw new Error(`[étape 4a] ${e.message ?? e.shortMessage}`); }
 
     // 4. Swap tout le WETH → USDC
     let swapHash = null;

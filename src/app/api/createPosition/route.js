@@ -12,13 +12,13 @@ const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
 // Calcule la fraction optimale du budget à swapper en WETH selon la position dans le range
 function optimalWethFraction(price, minPrice, maxPrice) {
-  if (price <= minPrice) return 0; // tout en USDC, range au-dessus du prix
-  if (price >= maxPrice) return 1; // tout en WETH, range en-dessous du prix
+  if (price <= minPrice) return 1; // prix sous le range → position 100% WETH
+  if (price >= maxPrice) return 0; // prix au-dessus du range → position 100% USDC
   const sqrtP  = Math.sqrt(price);
   const sqrtPa = Math.sqrt(minPrice);
   const sqrtPb = Math.sqrt(maxPrice);
-  const val0 = sqrtP - price / sqrtPb; // part de valeur WETH
-  const val1 = sqrtP - sqrtPa;         // part de valeur USDC
+  const val0 = sqrtP - price / sqrtPb; // valeur WETH
+  const val1 = sqrtP - sqrtPa;         // valeur USDC
   return val0 / (val0 + val1);
 }
 
