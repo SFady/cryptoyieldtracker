@@ -5,7 +5,10 @@ export const maxDuration = 300;
 
 const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
 const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5";
+const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
+const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const WETH        = "0x4200000000000000000000000000000000000006";
+const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const POOL        = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
@@ -44,6 +47,10 @@ const VOTER_IFACE = new ethers.Interface([
 
 const SWAP_ROUTER_IFACE = new ethers.Interface([
   "function exactInputSingle((address tokenIn, address tokenOut, int24 tickSpacing, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut)",
+]);
+
+const V2_ROUTER_IFACE = new ethers.Interface([
+  "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
 ]);
 
 const POOL_IFACE = new ethers.Interface([
@@ -225,7 +232,7 @@ export async function POST() {
       throw new Error(e.message); // propage le message détaillé
     }
 
-    // 4a. Swap AERO → WETH (récompenses du gauge)
+    // 4a. Swap AERO → USDC (récompenses du gauge, via V2 router AMM)
     try {
       const aeroBalHex = await provider.call({
         to: AERO, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
@@ -235,27 +242,20 @@ export async function POST() {
       if (aeroBal > 0n) {
         const txApp = await wallet.sendTransaction({
           to: AERO,
-          data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
+          data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         });
         await waitForTx(provider, txApp);
 
-        const aeroSwapParams = {
-          tokenIn:           AERO,
-          tokenOut:          WETH,
-          tickSpacing:       200,
-          recipient:         wallet.address,
-          deadline:          freshDeadline(),
-          amountIn:          aeroBal,
-          amountOutMinimum:  0n,
-          sqrtPriceLimitX96: 0n,
-        };
+        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
+        const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+          aeroBal, 0n, routes, wallet.address, freshDeadline(),
+        ]);
+        // simulation pour avoir un revert clair si le pool n'existe pas
+        await provider.call({ to: V2_ROUTER, from: wallet.address, data: swapData });
         try {
-          const txAeroSwap = await wallet.sendTransaction({
-            to: SWAP_ROUTER,
-            data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [aeroSwapParams]),
-          });
+          const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
           await waitForTx(provider, txAeroSwap);
-        } catch (e) { throw new Error(`[swap AERO→WETH] ${e.shortMessage ?? e.message}`); }
+        } catch (e) { throw new Error(`[swap AERO→USDC] ${e.shortMessage ?? e.message}`); }
       }
     } catch (e) { throw new Error(`[étape 4a] ${e.message ?? e.shortMessage}`); }
 
