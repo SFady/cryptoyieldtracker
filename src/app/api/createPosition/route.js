@@ -320,11 +320,9 @@ export async function POST(req) {
       throw new Error("[étape 9 – mint] Transfer event introuvable dans le reçu");
 
     // 10. Sweep WETH résiduel → USDC (le LP n'utilise pas forcément tout le WETH)
+    let sweepWarning = null;
     try {
-      const wethRemHex = await provider.call({
-        to: WETH, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-      });
-      const wethRem = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], wethRemHex)[0];
+      const wethRem = await readBal(WETH);
       if (wethRem > 0n) {
         await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethRem);
         const txSweep = await wallet.sendTransaction({
@@ -342,7 +340,9 @@ export async function POST(req) {
         });
         await waitForTx(provider, txSweep);
       }
-    } catch (_) {} // non-bloquant, la position est créée
+    } catch (e) {
+      sweepWarning = `WETH résiduel non converti : ${e.shortMessage ?? e.message}`;
+    }
 
     // 11. Double approbation : approve(tokenId) + setApprovalForAll pour couvrir les deux cas
     try {
@@ -406,7 +406,8 @@ export async function POST(req) {
         usdcAvailable:  usdcAvailable.toFixed(2),
         wethValueUsdc:  wethValueUsdc.toFixed(2),
       },
-      ...(budgetWarning ? { warning: budgetWarning } : {}),
+      ...(budgetWarning  ? { warning: budgetWarning }   : {}),
+      ...(sweepWarning   ? { sweepWarning }              : {}),
     });
 
   } catch (e) {
