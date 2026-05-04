@@ -178,7 +178,10 @@ export async function POST(req) {
     try {
       await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
     } catch (simErr) {
-      throw new Error(`[sim deposit] ${simErr.shortMessage ?? simErr.message}`);
+      const msg = simErr.shortMessage ?? simErr.message ?? "";
+      if (msg && !msg.includes("missing revert data")) {
+        throw new Error(`[sim deposit] ${msg}`);
+      }
     }
     let depositGas = 300000n;
     try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); depositGas = est * 3n / 2n; } catch (_) {}

@@ -144,7 +144,11 @@ export async function POST() {
             data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
           });
         } catch (simErr) {
-          throw new Error(`[sim withdraw tokenId=${tokenId}] ${simErr.shortMessage ?? simErr.message}`);
+          const msg = simErr.shortMessage ?? simErr.message ?? "";
+          // "missing revert data" = RPC transient, pas un vrai revert → on tente quand même
+          if (msg && !msg.includes("missing revert data")) {
+            throw new Error(`[sim withdraw tokenId=${tokenId}] ${msg}`);
+          }
         }
         const tx = await wallet.sendTransaction({
           to: gaugeAddr,
@@ -202,7 +206,10 @@ export async function POST() {
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
             });
           } catch (simErr) {
-            throw new Error(`[sim decreaseLiquidity tokenId=${tokenId}] ${simErr.shortMessage ?? simErr.message}`);
+            const msg = simErr.shortMessage ?? simErr.message ?? "";
+            if (msg && !msg.includes("missing revert data")) {
+              throw new Error(`[sim decreaseLiquidity tokenId=${tokenId}] ${msg}`);
+            }
           }
           let gasLimit = 400000n;
           try {
