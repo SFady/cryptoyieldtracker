@@ -175,8 +175,14 @@ export async function POST(req) {
 
     // 4. Lire les soldes réels avant swap
     const readBal = async (token) => {
-      const h = await provider.call({ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) });
-      return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const h = await provider.call({ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) });
+          if (h && h !== "0x") return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      throw new Error(`balanceOf(${token}) échoué après 3 tentatives`);
     };
 
     let usdcBalBefore, wethBalBefore;
