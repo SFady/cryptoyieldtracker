@@ -101,8 +101,12 @@ function priceToTick(price) {
   return Math.floor(Math.log(rawPrice) / Math.log(1.0001));
 }
 
-function roundTick(tick, spacing) {
-  return Math.round(tick / spacing) * spacing;
+function roundTickFloor(tick, spacing) {
+  return Math.floor(tick / spacing) * spacing;
+}
+
+function roundTickCeil(tick, spacing) {
+  return Math.ceil(tick / spacing) * spacing;
 }
 
 // Prix USDC/WETH à partir du tick exact (inverse de priceToTick)
@@ -157,8 +161,8 @@ export async function POST(req) {
     } catch (_) { /* fallback au prix UI */ }
 
     // 2. Ticks arrondis
-    const tickLower = roundTick(priceToTick(minPrice), tickSpacing);
-    const tickUpper = roundTick(priceToTick(maxPrice), tickSpacing);
+    const tickLower = roundTickFloor(priceToTick(minPrice), tickSpacing);
+    const tickUpper = roundTickCeil(priceToTick(maxPrice), tickSpacing);
     if (tickLower >= tickUpper)
       return Response.json({ error: `Range invalide : tickLower(${tickLower}) >= tickUpper(${tickUpper}) — élargis la fourchette de prix` }, { status: 400 });
 

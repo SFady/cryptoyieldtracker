@@ -172,7 +172,10 @@ export async function POST() {
       }
 
       for (const tokenId of tokenIds) {
-        const pos = await view(provider, NFPM, NFPM_IFACE, "positions", [tokenId]);
+        let pos;
+        try {
+          pos = await view(provider, NFPM, NFPM_IFACE, "positions", [tokenId]);
+        } catch (_) { continue; } // position brûlée ou tokenId invalide → ignorer
 
         // Filtrer : seulement les positions de ce pool
         if (
