@@ -354,12 +354,17 @@ export async function POST(req) {
     } catch (e) { throw new Error(`[étape 11a – approve tokenId] ${e.shortMessage ?? e.message}`); }
 
     try {
-      const approvedHex = await provider.call({
-        to: NFPM,
-        data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]),
-      });
-      const [alreadyAll] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], approvedHex);
-      if (!alreadyAll) {
+      let needsApproval = true;
+      try {
+        const approvedHex = await provider.call({
+          to: NFPM,
+          data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]),
+        });
+        const [alreadyAll] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], approvedHex);
+        needsApproval = !alreadyAll;
+      } catch (_) { /* RPC transient — on envoie setApprovalForAll par précaution */ }
+
+      if (needsApproval) {
         const txAll = await wallet.sendTransaction({
           to: NFPM,
           data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),

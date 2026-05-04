@@ -161,12 +161,17 @@ export async function POST(req) {
     });
     await waitForTx(provider, txApproveId);
 
-    const approvedHex = await provider.call({
-      to: NFPM,
-      data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]),
-    });
-    const [alreadyAll] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], approvedHex);
-    if (!alreadyAll) {
+    let needsApprovalAll = true;
+    try {
+      const approvedHex = await provider.call({
+        to: NFPM,
+        data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]),
+      });
+      const [alreadyAll] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], approvedHex);
+      needsApprovalAll = !alreadyAll;
+    } catch (_) { /* RPC transient — on envoie setApprovalForAll par précaution */ }
+
+    if (needsApprovalAll) {
       const txAll = await wallet.sendTransaction({
         to: NFPM,
         data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
