@@ -254,10 +254,13 @@ export async function POST() {
     }
 
     // 4a. Swap AERO → USDC (récompenses du gauge, via V2 router AMM)
+    // Non-bloquant : si le swap échoue (montant trop faible, pool insuffisant), on continue
+    let aeroSwapHash = null;
     try {
       const aeroBal = await readBal(provider, AERO, wallet.address);
+      const MIN_AERO = ethers.parseUnits("0.01", 18); // ignore dust < 0.01 AERO
 
-      if (aeroBal > 0n) {
+      if (aeroBal >= MIN_AERO) {
         const txApp = await wallet.sendTransaction({
           to: AERO,
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
@@ -268,19 +271,11 @@ export async function POST() {
         const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
           aeroBal, 0n, routes, wallet.address, freshDeadline(),
         ]);
-        // simulation pour avoir un revert clair si le pool n'existe pas
-        try {
-          await provider.call({ to: V2_ROUTER, from: wallet.address, data: swapData });
-        } catch (simErr) {
-          const msg = simErr.shortMessage ?? simErr.message ?? "";
-          if (msg && !msg.includes("missing revert data")) throw new Error(`[sim AERO→USDC] ${msg}`);
-        }
-        try {
-          const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
-          await waitForTx(provider, txAeroSwap);
-        } catch (e) { throw new Error(`[swap AERO→USDC] ${e.shortMessage ?? e.message}`); }
+        const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
+        aeroSwapHash = txAeroSwap.hash;
+        await waitForTx(provider, txAeroSwap);
       }
-    } catch (e) { throw new Error(`[étape 4a] ${e.message ?? e.shortMessage}`); }
+    } catch (_) {} // non-bloquant — AERO reste en wallet si le swap échoue
 
     // 4. Swap tout le WETH → USDC
     let swapHash = null;
@@ -325,10 +320,11 @@ export async function POST() {
     const finalUsdc  = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
     return Response.json({
-      message:   `Tout fermé. Solde final : $${finalUsdc}`,
-      unstaked:  unstakedList,
-      collected: collectedList,
+      message:      `Tout fermé. Solde final : $${finalUsdc}`,
+      unstaked:     unstakedList,
+      collected:    collectedList,
       swapHash,
+      aeroSwapHash,
       finalUsdc,
     });
 
