@@ -408,7 +408,7 @@ export async function POST(req) {
       ? `⚠ Budget plafonné à $${totalBudget.toFixed(2)} (demandé $${amountUSDC}, disponible $${totalAvailable.toFixed(2)})`
       : null;
 
-    return Response.json({
+    const payload = {
       message:    `Position #${tokenId} créée et stakée — range $${minPrice}→$${maxPrice}`,
       tokenId:    tokenId.toString(),
       txSwap:     txSwapHash,
