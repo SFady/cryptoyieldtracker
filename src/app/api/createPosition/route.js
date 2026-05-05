@@ -296,9 +296,12 @@ export async function POST(req) {
     };
     const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatio.toFixed(4)} poolPrice=${poolPrice.toFixed(2)} usdcToSwap=${usdcToSwap} wethBefore=${wethBalBefore} wethDeficit=${wethDeficitUsdc.toFixed(2)}`;
 
-    // Simulation avant envoi pour avoir le vrai message d'erreur
+    // Simulation avant envoi — capture le retour pour avoir le montant réel placé dans le LP
+    let valuePlacedUsdc = totalBudget;
     try {
-      await provider.call({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
+      const simHex = await provider.call({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
+      const [, , simAmount0, simAmount1] = NFPM_IFACE.decodeFunctionResult("mint", simHex);
+      valuePlacedUsdc = Number(ethers.formatUnits(simAmount0, 18)) * poolPrice + Number(ethers.formatUnits(simAmount1, 6));
     } catch (simErr) {
       throw new Error(`[simulation mint] ${simErr.shortMessage ?? simErr.message} | ${mintDiag}`);
     }
@@ -433,7 +436,7 @@ export async function POST(req) {
       const usdcRestant = Number(ethers.formatUnits(await readBal(USDC), 6));
       await logEvent({
         action:         "CREATE_OK",
-        usdc_placed:    totalBudget.toFixed(2),
+        usdc_placed:    valuePlacedUsdc.toFixed(2),
         range_min:      minPrice,
         range_max:      maxPrice,
         range_pct:      rangePct,
