@@ -100,6 +100,17 @@ async function view(provider, to, iface, fn, args = []) {
   return iface.decodeFunctionResult(fn, hex);
 }
 
+async function readBal(provider, token, address) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const h = await provider.call({ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [address]) });
+      if (h && h !== "0x") return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  throw new Error(`balanceOf(${token}) échoué après 3 tentatives`);
+}
+
 
 export async function POST() {
   try {
@@ -244,10 +255,7 @@ export async function POST() {
 
     // 4a. Swap AERO → USDC (récompenses du gauge, via V2 router AMM)
     try {
-      const aeroBalHex = await provider.call({
-        to: AERO, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-      });
-      const [aeroBal] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], aeroBalHex);
+      const aeroBal = await readBal(provider, AERO, wallet.address);
 
       if (aeroBal > 0n) {
         const txApp = await wallet.sendTransaction({
@@ -261,7 +269,12 @@ export async function POST() {
           aeroBal, 0n, routes, wallet.address, freshDeadline(),
         ]);
         // simulation pour avoir un revert clair si le pool n'existe pas
-        await provider.call({ to: V2_ROUTER, from: wallet.address, data: swapData });
+        try {
+          await provider.call({ to: V2_ROUTER, from: wallet.address, data: swapData });
+        } catch (simErr) {
+          const msg = simErr.shortMessage ?? simErr.message ?? "";
+          if (msg && !msg.includes("missing revert data")) throw new Error(`[sim AERO→USDC] ${msg}`);
+        }
         try {
           const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
           await waitForTx(provider, txAeroSwap);
@@ -272,10 +285,7 @@ export async function POST() {
     // 4. Swap tout le WETH → USDC
     let swapHash = null;
     try {
-      const wethBalHex = await provider.call({
-        to: WETH, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-      });
-      const [wethBal] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], wethBalHex);
+      const wethBal = await readBal(provider, WETH, wallet.address);
 
       if (wethBal > 0n) {
         try {
@@ -311,10 +321,7 @@ export async function POST() {
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
     // 5. Solde stablecoin final
-    const stableBalHex = await provider.call({
-      to: stablecoin, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]),
-    });
-    const [stableBal] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], stableBalHex);
+    const stableBal = await readBal(provider, stablecoin, wallet.address);
     const finalUsdc  = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
     return Response.json({
