@@ -1,4 +1,4 @@
-import { ethers } from "ethers";
+﻿import { ethers } from "ethers";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -95,27 +95,31 @@ async function pickRpc() {
   });
 }
 
-async function view(provider, to, iface, fn, args = []) {
-  let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
+// eth_call multi-RPC via fetch â€” indÃ©pendant du provider principal (Ã©vite le rate-limit)
+async function ethCall(to, data) {
+  for (const url of RPC_URLS) {
     try {
-      const hex = await provider.call({ to, data: iface.encodeFunctionData(fn, args) });
-      if (hex && hex !== "0x") return iface.decodeFunctionResult(fn, hex);
-    } catch (e) { lastErr = e; }
-    await new Promise(r => setTimeout(r, 1500));
+      const res  = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+        signal: AbortSignal.timeout(6000),
+      });
+      const json = await res.json();
+      if (json.result && json.result !== "0x") return json.result;
+    } catch (_) {}
   }
-  throw lastErr ?? new Error(`view(${fn}) échoué après 3 tentatives`);
+  throw new Error(`eth_call(${to}) Ã©chouÃ© sur tous les RPCs`);
 }
 
-async function readBal(provider, token, address) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const h = await provider.call({ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [address]) });
-      if (h && h !== "0x") return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
-    } catch (_) {}
-    await new Promise(r => setTimeout(r, 1500));
-  }
-  throw new Error(`balanceOf(${token}) échoué après 3 tentatives`);
+async function view(to, iface, fn, args = []) {
+  const hex = await ethCall(to, iface.encodeFunctionData(fn, args));
+  return iface.decodeFunctionResult(fn, hex);
+}
+
+async function readBal(token, address) {
+  const h = await ethCall(token, ERC20_IFACE.encodeFunctionData("balanceOf", [address]));
+  return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
 }
 
 
@@ -130,22 +134,22 @@ export async function POST() {
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
     // 1. Gauge + tickSpacing
-    const [gaugeAddr] = await view(provider, VOTER, VOTER_IFACE, "gauges", [POOL]);
+    const [gaugeAddr] = await view(VOTER, VOTER_IFACE, "gauges", [POOL]);
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 
-    const tsRaw      = await provider.call({ to: POOL, data: "0xd0c93a7c" });
+    const tsRaw      = await ethCall(POOL, "0xd0c93a7c");
     const tickSpacing = Number(ethers.toBigInt(tsRaw));
 
-    // Détecter automatiquement le stablecoin du pool (token0 ou token1 selon lequel n'est pas WETH)
-    const [poolToken0] = await view(provider, POOL, POOL_IFACE, "token0");
-    const [poolToken1] = await view(provider, POOL, POOL_IFACE, "token1");
+    // DÃ©tecter automatiquement le stablecoin du pool (token0 ou token1 selon lequel n'est pas WETH)
+    const [poolToken0] = await view(POOL, POOL_IFACE, "token0");
+    const [poolToken1] = await view(POOL, POOL_IFACE, "token1");
     const stablecoin = poolToken0.toLowerCase() === WETH.toLowerCase() ? poolToken1 : poolToken0;
 
     // 2. Unstake toutes les positions du gauge
     const unstakedList = [];
     try {
-      const [stakedIds] = await view(provider, gaugeAddr, GAUGE_IFACE, "stakedValues", [wallet.address]);
+      const [stakedIds] = await view(gaugeAddr, GAUGE_IFACE, "stakedValues", [wallet.address]);
       for (const tokenId of stakedIds) {
         // Claim rewards AERO (silencieux)
         try {
@@ -163,7 +167,7 @@ export async function POST() {
           });
         } catch (simErr) {
           const msg = simErr.shortMessage ?? simErr.message ?? "";
-          // "missing revert data" = RPC transient, pas un vrai revert → on tente quand même
+          // "missing revert data" = RPC transient, pas un vrai revert â†’ on tente quand mÃªme
           if (msg && !msg.includes("missing revert data")) {
             throw new Error(`[sim withdraw tokenId=${tokenId}] ${msg}`);
           }
@@ -179,16 +183,16 @@ export async function POST() {
       throw new Error(`[unstake] ${e.shortMessage ?? e.message}`);
     }
 
-    // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'être unstakées)
+    // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'Ãªtre unstakÃ©es)
     const collectedList = [];
     try {
-      // balanceOf peut être surévalué sur le NFPM Aerodrome (compte aussi les NFTs stakés),
-      // donc on boucle avec try/catch et on s'arrête au premier index invalide.
-      const [count] = await view(provider, NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
+      // balanceOf peut Ãªtre surÃ©valuÃ© sur le NFPM Aerodrome (compte aussi les NFTs stakÃ©s),
+      // donc on boucle avec try/catch et on s'arrÃªte au premier index invalide.
+      const [count] = await view(NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
       const tokenIds = [];
       for (let i = 0n; i < count; i++) {
         try {
-          const [tid] = await view(provider, NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
+          const [tid] = await view(NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
           tokenIds.push(tid);
         } catch (_) { break; }
       }
@@ -196,8 +200,8 @@ export async function POST() {
       for (const tokenId of tokenIds) {
         let pos;
         try {
-          pos = await view(provider, NFPM, NFPM_IFACE, "positions", [tokenId]);
-        } catch (_) { continue; } // position brûlée ou tokenId invalide → ignorer
+          pos = await view(NFPM, NFPM_IFACE, "positions", [tokenId]);
+        } catch (_) { continue; } // position brÃ»lÃ©e ou tokenId invalide â†’ ignorer
 
         // Filtrer : seulement les positions de ce pool
         if (
@@ -205,10 +209,10 @@ export async function POST() {
           pos.token1.toLowerCase() !== stablecoin.toLowerCase()
         ) continue;
 
-        // Rien à faire : position vide et sans fees
+        // Rien Ã  faire : position vide et sans fees
         if (pos.liquidity === 0n && pos.tokensOwed0 === 0n && pos.tokensOwed1 === 0n) continue;
 
-        // Retirer toute la liquidité si > 0
+        // Retirer toute la liquiditÃ© si > 0
         if (pos.liquidity > 0n) {
           const dlParams = {
             tokenId,
@@ -244,7 +248,7 @@ export async function POST() {
           } catch (e) { throw new Error(`[decreaseLiquidity tokenId=${tokenId}] ${e.message ?? e.shortMessage}`); }
         }
 
-        // Collecter fees + tokens retirés
+        // Collecter fees + tokens retirÃ©s
         try {
           const collectData = NFPM_IFACE.encodeFunctionData("collect", [{ tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128 }]);
           let collectGas = 200000n;
@@ -257,14 +261,14 @@ export async function POST() {
         }
       }
     } catch (e) {
-      throw new Error(e.message); // propage le message détaillé
+      throw new Error(e.message); // propage le message dÃ©taillÃ©
     }
 
-    // 4a. Swap AERO → USDC (récompenses du gauge, via V2 router AMM)
-    // Non-bloquant : si le swap échoue (montant trop faible, pool insuffisant), on continue
+    // 4a. Swap AERO â†’ USDC (rÃ©compenses du gauge, via V2 router AMM)
+    // Non-bloquant : si le swap Ã©choue (montant trop faible, pool insuffisant), on continue
     let aeroSwapHash = null;
     try {
-      const aeroBal = await readBal(provider, AERO, wallet.address);
+      const aeroBal = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18); // ignore dust < 0.01 AERO
 
       if (aeroBal >= MIN_AERO) {
@@ -282,12 +286,12 @@ export async function POST() {
         aeroSwapHash = txAeroSwap.hash;
         await waitForTx(provider, txAeroSwap);
       }
-    } catch (_) {} // non-bloquant — AERO reste en wallet si le swap échoue
+    } catch (_) {} // non-bloquant â€” AERO reste en wallet si le swap Ã©choue
 
-    // 4. Swap tout le WETH → USDC
+    // 4. Swap tout le WETH â†’ USDC
     let swapHash = null;
     try {
-      const wethBal = await readBal(provider, WETH, wallet.address);
+      const wethBal = await readBal(WETH, wallet.address);
 
       if (wethBal > 0n) {
         try {
@@ -296,7 +300,7 @@ export async function POST() {
             data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
           });
           await waitForTx(provider, txApp);
-        } catch (e) { throw new Error(`[approve WETH→Router] ${e.shortMessage ?? e.message}`); }
+        } catch (e) { throw new Error(`[approve WETHâ†’Router] ${e.shortMessage ?? e.message}`); }
 
         const swapParams = {
           tokenIn:           WETH,
@@ -310,7 +314,7 @@ export async function POST() {
         };
         try {
           await provider.call({ to: SWAP_ROUTER, from: wallet.address, data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [swapParams]) });
-        } catch (simErr) { throw new Error(`[sim swap WETH→USDC wethBal=${wethBal} tickSpacing=${tickSpacing}] ${simErr.shortMessage ?? simErr.message}`); }
+        } catch (simErr) { throw new Error(`[sim swap WETHâ†’USDC wethBal=${wethBal} tickSpacing=${tickSpacing}] ${simErr.shortMessage ?? simErr.message}`); }
         try {
           const txSwap = await wallet.sendTransaction({
             to: SWAP_ROUTER,
@@ -318,16 +322,16 @@ export async function POST() {
           });
           swapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
-        } catch (e) { throw new Error(`[swap WETH→USDC] ${e.shortMessage ?? e.message}`); }
+        } catch (e) { throw new Error(`[swap WETHâ†’USDC] ${e.shortMessage ?? e.message}`); }
       }
-    } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
+    } catch (e) { throw new Error(`[Ã©tape 4] ${e.message ?? e.shortMessage}`); }
 
     // 5. Solde stablecoin final
-    const stableBal = await readBal(provider, stablecoin, wallet.address);
+    const stableBal = await readBal(stablecoin, wallet.address);
     const finalUsdc  = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
 
     return Response.json({
-      message:      `Tout fermé. Solde final : $${finalUsdc}`,
+      message:      `Tout fermÃ©. Solde final : $${finalUsdc}`,
       unstaked:     unstakedList,
       collected:    collectedList,
       swapHash,
@@ -339,3 +343,4 @@ export async function POST() {
     return Response.json({ error: e.message ?? e.shortMessage }, { status: 500 });
   }
 }
+
