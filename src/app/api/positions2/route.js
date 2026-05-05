@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { neon }   from "@neondatabase/serverless";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -195,12 +196,11 @@ function calcFees(liq, fgInside, fgInsideLast, owed) {
   return owed + (liq * delta) / Q128;
 }
 
-const POSITION_OPEN_DATE = new Date("2026-04-30T12:30:00Z"); // 14h30 heure Paris (CEST = UTC+2)
-const INITIAL_USD        = 142;
+const sql = neon(process.env.DATABASE_URL);
 
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
-async function buildPosition(tokenId, ethCall) {
+async function buildPosition(tokenId, ethCall, openData) {
   const posHex = await ethCall(NFPM, "0x99fbab88" + pad64(tokenId));
 
   const token0Addr    = toAddr(word(posHex, 2));
@@ -265,7 +265,9 @@ async function buildPosition(tokenId, ethCall) {
   const totalPoolUSD = poolUsd0 + poolUsd1;
   const totalFeesUSD = feeUsd0  + feeUsd1;
 
-  const mintDate = POSITION_OPEN_DATE.toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const openDate   = openData?.openDate ?? new Date();
+  const initialUSD = openData?.initialUSD ?? null;
+  const mintDate   = openDate.toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" });
 
   return {
     protocol: "Aerodrome CL",
@@ -286,8 +288,8 @@ async function buildPosition(tokenId, ethCall) {
     totalUSD:       (totalPoolUSD + totalFeesUSD).toFixed(2),
     wethPrice:      ethPrice.toFixed(2),
     mintDate,
-    openTimestamp: POSITION_OPEN_DATE.getTime(),
-    initialUSD:    INITIAL_USD,
+    openTimestamp: openDate.getTime(),
+    initialUSD,
   };
 }
 
@@ -324,7 +326,24 @@ export async function GET() {
       }));
     }
 
-    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall)));
+    // Dates et montants initiaux depuis lp_events
+    const openDataByTokenId = {};
+    try {
+      const rows = await sql`
+        SELECT DISTINCT ON (token_id) token_id, created_at, usdc_placed
+        FROM lp_events
+        WHERE action = 'CREATE_OK' AND token_id = ANY(${tokenIds.map(id => id.toString())})
+        ORDER BY token_id, created_at ASC
+      `;
+      for (const row of rows) {
+        openDataByTokenId[row.token_id] = {
+          openDate:   new Date(row.created_at),
+          initialUSD: row.usdc_placed ? parseFloat(row.usdc_placed) : null,
+        };
+      }
+    } catch (_) {}
+
+    const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall, openDataByTokenId[id.toString()])));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
       .map((r) => {
