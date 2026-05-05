@@ -96,8 +96,15 @@ async function pickRpc() {
 }
 
 async function view(provider, to, iface, fn, args = []) {
-  const hex = await provider.call({ to, data: iface.encodeFunctionData(fn, args) });
-  return iface.decodeFunctionResult(fn, hex);
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const hex = await provider.call({ to, data: iface.encodeFunctionData(fn, args) });
+      if (hex && hex !== "0x") return iface.decodeFunctionResult(fn, hex);
+    } catch (e) { lastErr = e; }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  throw lastErr ?? new Error(`view(${fn}) échoué après 3 tentatives`);
 }
 
 async function readBal(provider, token, address) {
