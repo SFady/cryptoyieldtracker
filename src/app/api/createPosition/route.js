@@ -1,7 +1,20 @@
 import { ethers } from "ethers";
+import { neon }   from "@neondatabase/serverless";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
+
+const sql = neon(process.env.DATABASE_URL);
+
+async function logEvent(fields) {
+  try {
+    await sql`INSERT INTO lp_events
+      (action, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg)
+      VALUES (${fields.action}, ${fields.usdc_placed ?? null}, ${fields.range_min ?? null},
+              ${fields.range_max ?? null}, ${fields.range_pct ?? null},
+              ${fields.usdc_remaining ?? null}, ${fields.token_id ?? null}, ${fields.error_msg ?? null})`;
+  } catch (_) {}
+}
 
 const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
 const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // Aerodrome Slipstream SwapRouter (Initial Deployment, même que NFPM)
@@ -413,9 +426,35 @@ export async function POST(req) {
       },
       ...(budgetWarning  ? { warning: budgetWarning }   : {}),
       ...(sweepWarning   ? { sweepWarning }              : {}),
-    });
+    };
+
+    const rangePct = ((maxPrice / minPrice - 1) * 100).toFixed(2);
+    try {
+      const usdcRestant = Number(ethers.formatUnits(await readBal(USDC), 6));
+      await logEvent({
+        action:         "CREATE_OK",
+        usdc_placed:    totalBudget.toFixed(2),
+        range_min:      minPrice,
+        range_max:      maxPrice,
+        range_pct:      rangePct,
+        usdc_remaining: usdcRestant.toFixed(2),
+        token_id:       tokenId.toString(),
+      });
+    } catch (_) {}
+
+    return Response.json(payload);
 
   } catch (e) {
-    return Response.json({ error: e.message ?? e.shortMessage }, { status: 500 });
+    const msg = e.message ?? e.shortMessage ?? String(e);
+    const rangePct = minPrice && maxPrice ? ((maxPrice / minPrice - 1) * 100).toFixed(2) : null;
+    await logEvent({
+      action:    "CREATE_ERR",
+      usdc_placed: amountUSDC ?? null,
+      range_min: minPrice ?? null,
+      range_max: maxPrice ?? null,
+      range_pct: rangePct,
+      error_msg: msg,
+    });
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
