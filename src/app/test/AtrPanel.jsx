@@ -303,6 +303,35 @@ function ClosePanel() {
   );
 }
 
+function optimalWethFraction(price, minP, maxP) {
+  if (price <= minP) return 1;
+  if (price >= maxP) return 0;
+  const sqrtP  = Math.sqrt(price);
+  const sqrtPa = Math.sqrt(minP);
+  const sqrtPb = Math.sqrt(maxP);
+  const val0 = sqrtP - price / sqrtPb;
+  const val1 = sqrtP - sqrtPa;
+  if (val0 + val1 <= 0) return 0.5;
+  return val0 / (val0 + val1);
+}
+
+// Trouve le centre du range tel que optimalWethFraction(P, C/(1+h), C*(1+h)) = targetRatio
+// Centre plus haut que P → prix en bas du range → plus de WETH ; plus bas → plus d'USDC
+function findCenterForRatio(targetRatio, P, halfFrac) {
+  const h = halfFrac;
+  if (targetRatio >= 1) return P * (1 + h); // prix exactement à la borne basse → 100% WETH
+  if (targetRatio <= 0) return P / (1 + h); // prix exactement à la borne haute → 100% USDC
+  let lo = P / (1 + h) * 1.0001;
+  let hi = P * (1 + h) * 0.9999;
+  for (let i = 0; i < 60; i++) {
+    const C = Math.sqrt(lo * hi);
+    const r = optimalWethFraction(P, C / (1 + h), C * (1 + h));
+    if (r < targetRatio) lo = C;
+    else hi = C;
+  }
+  return Math.sqrt(lo * hi);
+}
+
 function CreatePanel({ data }) {
   const [amount, setAmount]           = useState("");
   const [multiplier, setMultiplier]   = useState("2.0");
@@ -337,9 +366,10 @@ function CreatePanel({ data }) {
   const rangePct  = customRange !== "" && !isNaN(parseFloat(customRange)) && parseFloat(customRange) > 0
     ? parseFloat(customRange)
     : parseFloat(atrRange);
-  const half     = rangePct / 2;
-  const minPrice = (basePrice * (1 - half / 100)).toFixed(2);
-  const maxPrice = (basePrice * (1 + half / 100)).toFixed(2);
+  const halfFrac    = rangePct / 200;
+  const rangeCenter = findCenterForRatio(wethPct / 100, basePrice, halfFrac);
+  const minPrice    = (rangeCenter / (1 + halfFrac)).toFixed(2);
+  const maxPrice    = (rangeCenter * (1 + halfFrac)).toFixed(2);
 
   async function handleCreate() {
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
@@ -357,7 +387,6 @@ function CreatePanel({ data }) {
           maxPrice:     parseFloat(maxPrice),
           currentPrice: basePrice,
           rangePercent: rangePct,
-          manualRatio:  wethPct / 100,
         }),
       });
       const json = await res.json();
@@ -460,29 +489,49 @@ function CreatePanel({ data }) {
         </div>
 
         {/* Résumé range */}
-        <div style={{
-          background: "rgba(0,0,0,0.2)",
-          border: "1px solid rgba(124,77,255,0.15)",
-          borderRadius: 8,
-          padding: "10px 14px",
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
-          gap: 4,
-          textAlign: "center",
-        }}>
-          <div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 2 }}>MIN</div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#c97070" }}>${Number(minPrice).toLocaleString("en-US")}</div>
-          </div>
-          <div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 2 }}>RANGE</div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#eaf6ff" }}>{rangePct}%</div>
-          </div>
-          <div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 2 }}>MAX</div>
-            <div style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#00e5a0" }}>${Number(maxPrice).toLocaleString("en-US")}</div>
-          </div>
-        </div>
+        {(() => {
+          const minP = parseFloat(minPrice);
+          const maxP = parseFloat(maxPrice);
+          const pctPos = Math.max(0, Math.min(100, (Math.log(basePrice / minP) / Math.log(maxP / minP)) * 100));
+          return (
+            <div style={{
+              background: "rgba(0,0,0,0.2)",
+              border: "1px solid rgba(124,77,255,0.15)",
+              borderRadius: 8,
+              padding: "10px 14px",
+            }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, textAlign: "center" }}>
+                <div>
+                  <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 2 }}>MIN</div>
+                  <div style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#c97070" }}>${Number(minPrice).toLocaleString("en-US")}</div>
+                </div>
+                <div>
+                  <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 2 }}>RANGE</div>
+                  <div style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#eaf6ff" }}>{rangePct}%</div>
+                </div>
+                <div>
+                  <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 2 }}>MAX</div>
+                  <div style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#00e5a0" }}>${Number(maxPrice).toLocaleString("en-US")}</div>
+                </div>
+              </div>
+              {/* Barre indiquant où se trouve le prix actuel dans le range */}
+              <div style={{ position: "relative", height: 14, marginTop: 8 }}>
+                <div style={{ position: "absolute", top: 5, left: 0, right: 0, height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 2 }} />
+                <div style={{ position: "absolute", top: 5, left: 0, width: `${pctPos}%`, height: 4, background: "rgba(164,119,255,0.35)", borderRadius: 2 }} />
+                <div style={{
+                  position: "absolute", top: 1, left: `${pctPos}%`, transform: "translateX(-50%)",
+                  width: 12, height: 12, borderRadius: 6,
+                  background: "#a477ff", boxShadow: "0 0 8px rgba(164,119,255,0.9)",
+                }} />
+                <div style={{
+                  position: "absolute", top: -2, left: `${pctPos}%`, transform: "translateX(-50%)",
+                  fontFamily: "monospace", fontSize: "0.55rem", color: "#a477ff",
+                  whiteSpace: "nowrap", marginTop: 14,
+                }}>▲ PRIX</div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Range % */}
         <div>
