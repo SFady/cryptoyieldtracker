@@ -1,4 +1,7 @@
 ﻿import { ethers } from "ethers";
+import { neon }   from "@neondatabase/serverless";
+
+const sql = neon(process.env.DATABASE_URL);
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -327,8 +330,19 @@ export async function POST() {
     } catch (e) { throw new Error(`[Ã©tape 4] ${e.message ?? e.shortMessage}`); }
 
     // 5. Solde stablecoin final
-    const stableBal = await readBal(stablecoin, wallet.address);
-    const finalUsdc  = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
+    const stableBal    = await readBal(stablecoin, wallet.address);
+    const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
+    const finalUsdcRaw = Number(ethers.formatUnits(stableBal, 6)).toFixed(2);
+
+    // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes
+    if (collectedList.length > 0) {
+      try {
+        for (const tokenId of collectedList) {
+          await sql`UPDATE lp_events SET usdc_on_close = ${finalUsdcRaw}
+                    WHERE token_id = ${tokenId} AND action = 'CREATE_OK'`;
+        }
+      } catch (_) {}
+    }
 
     return Response.json({
       message:      `Tout fermÃ©. Solde final : $${finalUsdc}`,

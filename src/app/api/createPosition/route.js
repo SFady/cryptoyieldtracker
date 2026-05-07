@@ -9,10 +9,11 @@ const sql = neon(process.env.DATABASE_URL);
 async function logEvent(fields) {
   try {
     await sql`INSERT INTO lp_events
-      (action, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg)
+      (action, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg, usdc_on_close)
       VALUES (${fields.action}, ${fields.usdc_placed ?? null}, ${fields.range_min ?? null},
               ${fields.range_max ?? null}, ${fields.range_pct ?? null},
-              ${fields.usdc_remaining ?? null}, ${fields.token_id ?? null}, ${fields.error_msg ?? null})`;
+              ${fields.usdc_remaining ?? null}, ${fields.token_id ?? null}, ${fields.error_msg ?? null},
+              ${fields.usdc_on_close ?? null})`;
   } catch (_) {}
 }
 
