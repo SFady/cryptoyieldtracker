@@ -147,7 +147,7 @@ async function pickRpc() {
 }
 
 export async function POST(req) {
-  const { amountUSDC, minPrice, maxPrice, currentPrice } = await req.json();
+  const { amountUSDC, minPrice, maxPrice, currentPrice, manualRatio } = await req.json();
   if (!amountUSDC || !minPrice || !maxPrice || !currentPrice)
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });
 
@@ -221,7 +221,9 @@ export async function POST(req) {
     // Utiliser les prix des ticks réels (après arrondi) et non les prix user — évite le désalignement ratio
     const tickLowerPrice    = tickToPrice(tickLower);
     const tickUpperPrice    = tickToPrice(tickUpper);
-    const swapRatio         = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
+    const swapRatio = (manualRatio != null && manualRatio >= 0 && manualRatio <= 1)
+      ? manualRatio
+      : optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
     const targetWethValue   = totalBudget * swapRatio; // valeur WETH cible en $
 
     // Swap seulement le manque de WETH — si on en a déjà assez, on ne swap pas

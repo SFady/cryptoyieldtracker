@@ -307,7 +307,8 @@ function CreatePanel({ data }) {
   const [amount, setAmount]           = useState("");
   const [multiplier, setMultiplier]   = useState("2.0");
   const [customRange, setCustomRange] = useState("");
-  const [status, setStatus]           = useState(null); // null | "loading" | "ok" | "error"
+  const [wethPct, setWethPct]         = useState(50);
+  const [status, setStatus]           = useState(null);
   const [txMsg, setTxMsg]             = useState("");
 
   const atrRange  = (data.atrPct * parseFloat(multiplier)).toFixed(2);
@@ -334,6 +335,7 @@ function CreatePanel({ data }) {
           maxPrice:     parseFloat(maxPrice),
           currentPrice: data.price,
           rangePercent: rangePct,
+          manualRatio:  wethPct / 100,
         }),
       });
       const json = await res.json();
@@ -445,6 +447,54 @@ function CreatePanel({ data }) {
             onChange={e => setCustomRange(e.target.value)}
             style={inputStyle}
           />
+        </div>
+
+        {/* Ratio WETH / USDC */}
+        <div>
+          <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1px", marginBottom: 6 }}>
+            RATIO WETH / USDC
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            {[0, 20, 50, 80, 100].map(p => (
+              <button key={p} onClick={() => setWethPct(p)} style={{
+                flex: 1, padding: "5px 2px",
+                background: wethPct === p ? "rgba(164,119,255,0.18)" : "rgba(124,77,255,0.07)",
+                border: `1px solid ${wethPct === p ? "rgba(164,119,255,0.5)" : "rgba(124,77,255,0.2)"}`,
+                borderRadius: 5, color: wethPct === p ? "#a477ff" : "#6666aa",
+                fontFamily: "monospace", fontSize: "0.72rem", fontWeight: wethPct === p ? 700 : 400,
+                cursor: "pointer",
+              }}>
+                {p}/{100 - p}
+              </button>
+            ))}
+          </div>
+          <div style={{ height: 6, borderRadius: 4, background: "rgba(255,255,255,0.07)", overflow: "hidden", marginBottom: 10 }}>
+            <div style={{
+              height: "100%", width: "100%", borderRadius: 4,
+              background: `linear-gradient(90deg, #4488ff ${wethPct}%, #00e5a0 ${wethPct}%)`,
+              transition: "all 0.2s",
+            }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#4488ff", marginBottom: 4 }}>
+                WETH — <strong>{wethPct}%</strong>
+              </div>
+              <input type="range" min={0} max={100} step={5} value={wethPct}
+                onChange={e => setWethPct(Number(e.target.value))}
+                style={{ width: "100%", accentColor: "#4488ff" }}
+              />
+            </div>
+            <div>
+              <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#00e5a0", marginBottom: 4 }}>
+                USDC — <strong>{100 - wethPct}%</strong>
+              </div>
+              <input type="range" min={0} max={100} step={5} value={100 - wethPct}
+                onChange={e => setWethPct(100 - Number(e.target.value))}
+                style={{ width: "100%", accentColor: "#00e5a0" }}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Montant USDC */}
