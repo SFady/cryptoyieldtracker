@@ -163,43 +163,52 @@ export async function POST() {
     const stablecoin = poolToken0.toLowerCase() === WETH.toLowerCase() ? poolToken1 : poolToken0;
 
     // 2. Unstake toutes les positions du gauge
-    const unstakedList = [];
+    const unstakedList  = [];
+    const unstakeErrors = [];
     try {
-      const [stakedIds] = await view(gaugeAddr, GAUGE_IFACE, "stakedValues", [wallet.address]);
+      const [stakedIds] = await view(gaugeAddr, GAUGE_IFACE, 'stakedValues', [wallet.address]);
       for (const tokenId of stakedIds) {
         // Claim rewards AERO (silencieux)
         try {
           const tx = await wallet.sendTransaction({
             to: gaugeAddr,
-            data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
+            data: GAUGE_IFACE.encodeFunctionData('getReward', [tokenId]),
           });
           await waitForTx(provider, tx);
         } catch (_) {}
 
+        // Simulation — si revert reel (pas juste RPC transient) on skippe ce tokenId
+        let simOk = true;
         try {
           await provider.call({
             to: gaugeAddr, from: wallet.address,
-            data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
+            data: GAUGE_IFACE.encodeFunctionData('withdraw', [tokenId]),
           });
         } catch (simErr) {
-          const msg = simErr.shortMessage ?? simErr.message ?? "";
-          // "missing revert data" = RPC transient, pas un vrai revert â†’ on tente quand mÃªme
-          if (msg && !msg.includes("missing revert data")) {
-            throw new Error(`[sim withdraw tokenId=${tokenId}] ${msg}`);
+          const msg = simErr.shortMessage ?? simErr.message ?? '';
+          if (msg && !msg.includes('missing revert data')) {
+            unstakeErrors.push(`tokenId=${tokenId}: ${msg}`);
+            simOk = false;
           }
         }
-        const tx = await wallet.sendTransaction({
-          to: gaugeAddr,
-          data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
-        });
-        await waitForTx(provider, tx);
-        unstakedList.push(tokenId.toString());
+        if (!simOk) continue;
+
+        try {
+          const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [tokenId]);
+          let withdrawGas = 300000n;
+          try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (_) {}
+          const tx = await wallet.sendTransaction({ to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
+          await waitForTx(provider, tx);
+          unstakedList.push(tokenId.toString());
+        } catch (e) {
+          unstakeErrors.push(`tokenId=${tokenId}: ${e.shortMessage ?? e.message}`);
+        }
       }
     } catch (e) {
       throw new Error(`[unstake] ${e.shortMessage ?? e.message}`);
     }
 
-    // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'Ãªtre unstakÃ©es)
+    // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'être unstakées)
     const collectedList = [];
     let totalFeesWei0  = 0n;
     let totalFeesUsdc1 = 0n;
@@ -414,12 +423,13 @@ export async function POST() {
     }
 
     return Response.json({
-      message:      `Tout fermÃ©. Solde final : $${finalUsdc}`,
+      message:      `Tout fermé. Solde final : $${finalUsdc}`,
       unstaked:     unstakedList,
       collected:    collectedList,
       swapHash,
       aeroSwapHash,
       finalUsdc,
+      ...(unstakeErrors.length > 0 ? { unstakeWarnings: unstakeErrors } : {}),
     });
 
   } catch (e) {
