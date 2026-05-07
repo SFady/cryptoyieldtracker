@@ -24,16 +24,32 @@ const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const POOL        = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
-// Calcule la fraction optimale du budget à swapper en WETH selon la position dans le range
 function optimalWethFraction(price, minPrice, maxPrice) {
-  if (price <= minPrice) return 1; // prix sous le range → position 100% WETH
-  if (price >= maxPrice) return 0; // prix au-dessus du range → position 100% USDC
+  if (price <= minPrice) return 1;
+  if (price >= maxPrice) return 0;
   const sqrtP  = Math.sqrt(price);
   const sqrtPa = Math.sqrt(minPrice);
   const sqrtPb = Math.sqrt(maxPrice);
-  const val0 = sqrtP - price / sqrtPb; // valeur WETH
-  const val1 = sqrtP - sqrtPa;         // valeur USDC
+  const val0 = sqrtP - price / sqrtPb;
+  const val1 = sqrtP - sqrtPa;
+  if (val0 + val1 <= 0) return 0.5;
   return val0 / (val0 + val1);
+}
+
+// Trouve le centre du range tel que optimalWethFraction(P, C/(1+h), C*(1+h)) = targetRatio
+function findCenterForRatio(targetRatio, P, halfFrac) {
+  const h = halfFrac;
+  if (targetRatio >= 1) return P * (1 + h);
+  if (targetRatio <= 0) return P / (1 + h);
+  let lo = P / (1 + h) * 1.0001;
+  let hi = P * (1 + h) * 0.9999;
+  for (let i = 0; i < 60; i++) {
+    const C = Math.sqrt(lo * hi);
+    const r = optimalWethFraction(P, C / (1 + h), C * (1 + h));
+    if (r < targetRatio) lo = C;
+    else hi = C;
+  }
+  return Math.sqrt(lo * hi);
 }
 
 const RPC_URLS = [
@@ -148,7 +164,7 @@ async function pickRpc() {
 }
 
 export async function POST(req) {
-  const { amountUSDC, minPrice, maxPrice, currentPrice } = await req.json();
+  const { amountUSDC, minPrice, maxPrice, currentPrice, targetRatio } = await req.json();
   if (!amountUSDC || !minPrice || !maxPrice || !currentPrice)
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });
 
@@ -174,15 +190,19 @@ export async function POST(req) {
       poolPrice = sqrtP * sqrtP * 1e12;
     } catch (_) { /* fallback au prix UI */ }
 
-    // 2. Ticks arrondis — essaye les 4 combinaisons et garde celle dont le midpoint géométrique
-    //    est le plus proche du centre voulu (compense le biais d'arrondi sur tick spacing large)
-    const rawLower       = priceToTick(minPrice);
-    const rawUpper       = priceToTick(maxPrice);
-    const intendedCenter = Math.sqrt(minPrice * maxPrice);
+    // 2. Re-centrer le range sur le prix pool réel (corrige le lag UI → exécution)
+    //    puis essayer les 4 combinaisons d'arrondi pour minimiser le biais de tick spacing
+    const halfFrac      = Math.sqrt(maxPrice / minPrice) - 1;
+    const serverCenter  = findCenterForRatio(targetRatio ?? 0.5, poolPrice, halfFrac);
+    const serverMin     = serverCenter / (1 + halfFrac);
+    const serverMax     = serverCenter * (1 + halfFrac);
+
+    const rawLower = priceToTick(serverMin);
+    const rawUpper = priceToTick(serverMax);
 
     let tickLower = roundTickFloor(rawLower, tickSpacing);
     let tickUpper = roundTickCeil(rawUpper, tickSpacing);
-    let bestMidErr = Math.abs(Math.sqrt(tickToPrice(tickLower) * tickToPrice(tickUpper)) - intendedCenter);
+    let bestMidErr = Math.abs(Math.sqrt(tickToPrice(tickLower) * tickToPrice(tickUpper)) - serverCenter);
 
     for (const [lo, hi] of [
       [roundTickCeil(rawLower,  tickSpacing), roundTickCeil(rawUpper,  tickSpacing)],
@@ -190,7 +210,7 @@ export async function POST(req) {
       [roundTickCeil(rawLower,  tickSpacing), roundTickFloor(rawUpper, tickSpacing)],
     ]) {
       if (lo >= hi) continue;
-      const err = Math.abs(Math.sqrt(tickToPrice(lo) * tickToPrice(hi)) - intendedCenter);
+      const err = Math.abs(Math.sqrt(tickToPrice(lo) * tickToPrice(hi)) - serverCenter);
       if (err < bestMidErr) { bestMidErr = err; tickLower = lo; tickUpper = hi; }
     }
 

@@ -387,6 +387,7 @@ function CreatePanel({ data }) {
           maxPrice:     parseFloat(maxPrice),
           currentPrice: basePrice,
           rangePercent: rangePct,
+          targetRatio:  wethPct / 100,
         }),
       });
       const json = await res.json();
