@@ -174,9 +174,26 @@ export async function POST(req) {
       poolPrice = sqrtP * sqrtP * 1e12;
     } catch (_) { /* fallback au prix UI */ }
 
-    // 2. Ticks arrondis
-    const tickLower = roundTickFloor(priceToTick(minPrice), tickSpacing);
-    const tickUpper = roundTickCeil(priceToTick(maxPrice), tickSpacing);
+    // 2. Ticks arrondis — essaye les 4 combinaisons et garde celle dont le midpoint géométrique
+    //    est le plus proche du centre voulu (compense le biais d'arrondi sur tick spacing large)
+    const rawLower       = priceToTick(minPrice);
+    const rawUpper       = priceToTick(maxPrice);
+    const intendedCenter = Math.sqrt(minPrice * maxPrice);
+
+    let tickLower = roundTickFloor(rawLower, tickSpacing);
+    let tickUpper = roundTickCeil(rawUpper, tickSpacing);
+    let bestMidErr = Math.abs(Math.sqrt(tickToPrice(tickLower) * tickToPrice(tickUpper)) - intendedCenter);
+
+    for (const [lo, hi] of [
+      [roundTickCeil(rawLower,  tickSpacing), roundTickCeil(rawUpper,  tickSpacing)],
+      [roundTickFloor(rawLower, tickSpacing), roundTickFloor(rawUpper, tickSpacing)],
+      [roundTickCeil(rawLower,  tickSpacing), roundTickFloor(rawUpper, tickSpacing)],
+    ]) {
+      if (lo >= hi) continue;
+      const err = Math.abs(Math.sqrt(tickToPrice(lo) * tickToPrice(hi)) - intendedCenter);
+      if (err < bestMidErr) { bestMidErr = err; tickLower = lo; tickUpper = hi; }
+    }
+
     if (tickLower >= tickUpper)
       return Response.json({ error: `Range invalide : tickLower(${tickLower}) >= tickUpper(${tickUpper}) — élargis la fourchette de prix` }, { status: 400 });
 
@@ -414,7 +431,7 @@ export async function POST(req) {
       : null;
 
     const payload = {
-      message:    `Position #${tokenId} créée et stakée — range $${minPrice}→$${maxPrice}`,
+      message:    `Position #${tokenId} créée — LP ${Math.round(swapRatio*100)}% WETH / ${Math.round((1-swapRatio)*100)}% USDC · range $${tickLowerPrice.toFixed(0)}→$${tickUpperPrice.toFixed(0)}`,
       tokenId:    tokenId.toString(),
       txSwap:     txSwapHash,
       txMint:     mintTxHash,
