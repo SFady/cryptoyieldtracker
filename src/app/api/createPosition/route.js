@@ -269,13 +269,17 @@ export async function POST(req) {
       usdcBalance = await readBal(USDC);
     } catch (e) { throw new Error(`[étape 7 – lecture soldes post-swap] ${e.shortMessage ?? e.message}`); }
 
-    // USDC pour le LP = ce qui reste, plafonné à la part USDC du budget (évite d'y mettre trop)
+    // USDC pour le LP = plafonné à la part USDC du budget
     const usdcBudgeted = ethers.parseUnits(String((totalBudget * (1 - swapRatio)).toFixed(6)), 6);
     const usdcToKeep   = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
 
+    // WETH pour le LP = plafonné à la part WETH du budget (même logique que USDC)
+    const wethBudgeted = ethers.parseUnits(String((targetWethValue / poolPrice).toFixed(18)), 18);
+    const wethToUse    = wethBalance < wethBudgeted ? wethBalance : wethBudgeted;
+
     // 8. Approve WETH + USDC → NFPM (seulement si insuffisant)
     try {
-      await ensureAllowance(wallet, provider, WETH, NFPM, wethBalance);
+      await ensureAllowance(wallet, provider, WETH, NFPM, wethToUse);
     } catch (e) { throw new Error(`[étape 8a – approve WETH→NFPM] ${e.shortMessage ?? e.message}`); }
 
     try {
@@ -289,7 +293,7 @@ export async function POST(req) {
       tickSpacing,
       tickLower,
       tickUpper,
-      amount0Desired: wethBalance,
+      amount0Desired: wethToUse,
       amount1Desired: usdcToKeep,
       amount0Min:     0n,
       amount1Min:     0n,
