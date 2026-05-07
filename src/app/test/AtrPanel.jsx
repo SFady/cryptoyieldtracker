@@ -310,14 +310,36 @@ function CreatePanel({ data }) {
   const [wethPct, setWethPct]         = useState(50);
   const [status, setStatus]           = useState(null);
   const [txMsg, setTxMsg]             = useState("");
+  const [livePrice, setLivePrice]     = useState(null);
+  const [priceStale, setPriceStale]   = useState(false);
 
+  const fetchLivePrice = useCallback(async () => {
+    try {
+      const res  = await fetch("/api/livePrice");
+      const json = await res.json();
+      if (json.price) {
+        setLivePrice(json.price);
+        setPriceStale(false);
+      }
+    } catch (_) {
+      setPriceStale(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLivePrice();
+    const id = setInterval(fetchLivePrice, 15_000);
+    return () => clearInterval(id);
+  }, [fetchLivePrice]);
+
+  const basePrice = livePrice ?? data.price;
   const atrRange  = (data.atrPct * parseFloat(multiplier)).toFixed(2);
   const rangePct  = customRange !== "" && !isNaN(parseFloat(customRange)) && parseFloat(customRange) > 0
     ? parseFloat(customRange)
     : parseFloat(atrRange);
   const half     = rangePct / 2;
-  const minPrice = (data.price * (1 - half / 100)).toFixed(2);
-  const maxPrice = (data.price * (1 + half / 100)).toFixed(2);
+  const minPrice = (basePrice * (1 - half / 100)).toFixed(2);
+  const maxPrice = (basePrice * (1 + half / 100)).toFixed(2);
 
   async function handleCreate() {
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
@@ -333,7 +355,7 @@ function CreatePanel({ data }) {
           amountUSDC:   parseFloat(amount),
           minPrice:     parseFloat(minPrice),
           maxPrice:     parseFloat(maxPrice),
-          currentPrice: data.price,
+          currentPrice: basePrice,
           rangePercent: rangePct,
           manualRatio:  wethPct / 100,
         }),
@@ -380,6 +402,33 @@ function CreatePanel({ data }) {
       </div>
 
       <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+        {/* Prix on-chain live */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "rgba(0,0,0,0.25)",
+          border: `1px solid ${priceStale ? "rgba(201,112,112,0.3)" : "rgba(0,229,160,0.2)"}`,
+          borderRadius: 8, padding: "8px 14px",
+        }}>
+          <div>
+            <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", letterSpacing: "1px", marginBottom: 2 }}>
+              PRIX ON-CHAIN <span style={{ color: priceStale ? "#c97070" : "#00e5a0" }}>● {priceStale ? "STALE" : "LIVE"}</span>
+            </div>
+            <div style={{ fontFamily: "monospace", fontSize: "1.1rem", fontWeight: 700, color: "#eaf6ff" }}>
+              {livePrice ? `$${livePrice.toLocaleString("en-US")}` : "—"}
+              {livePrice && Math.abs(livePrice - data.price) > 1 && (
+                <span style={{ fontSize: "0.7rem", color: "#f0b429", marginLeft: 8 }}>
+                  (UI: ${data.price.toLocaleString("en-US")})
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={fetchLivePrice} style={{
+            background: "transparent", border: "1px solid rgba(0,229,160,0.2)",
+            borderRadius: 5, color: "#00e5a0", fontFamily: "monospace",
+            fontSize: "0.7rem", padding: "4px 10px", cursor: "pointer",
+          }}>↺</button>
+        </div>
 
         {/* Multiplicateur */}
         <div>
