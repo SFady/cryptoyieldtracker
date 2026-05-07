@@ -188,6 +188,8 @@ export async function POST() {
 
     // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'Ãªtre unstakÃ©es)
     const collectedList = [];
+    let totalFeesWei0  = 0n; // WETH fees (tokensOwed0 avant collect)
+    let totalFeesUsdc1 = 0n; // USDC fees (tokensOwed1 avant collect)
     try {
       // balanceOf peut Ãªtre surÃ©valuÃ© sur le NFPM Aerodrome (compte aussi les NFTs stakÃ©s),
       // donc on boucle avec try/catch et on s'arrÃªte au premier index invalide.
@@ -214,6 +216,10 @@ export async function POST() {
 
         // Rien Ã  faire : position vide et sans fees
         if (pos.liquidity === 0n && pos.tokensOwed0 === 0n && pos.tokensOwed1 === 0n) continue;
+
+        // Accumuler les fees LP avant collect (tokensOwed = fees de trading, pas le principal)
+        totalFeesWei0  += pos.tokensOwed0;
+        totalFeesUsdc1 += pos.tokensOwed1;
 
         // Retirer toute la liquiditÃ© si > 0
         if (pos.liquidity > 0n) {
@@ -267,6 +273,9 @@ export async function POST() {
       throw new Error(e.message); // propage le message dÃ©taillÃ©
     }
 
+    // Snapshot USDC avant les swaps
+    const usdcBeforeSwaps = Number(ethers.formatUnits(await readBal(stablecoin, wallet.address), 6));
+
     // 4a. Swap AERO â†’ USDC (rÃ©compenses du gauge, via V2 router AMM)
     // Non-bloquant : si le swap Ã©choue (montant trop faible, pool insuffisant), on continue
     let aeroSwapHash = null;
@@ -290,6 +299,8 @@ export async function POST() {
         await waitForTx(provider, txAeroSwap);
       }
     } catch (_) {} // non-bloquant â€” AERO reste en wallet si le swap Ã©choue
+
+    const usdcAfterAero = Number(ethers.formatUnits(await readBal(stablecoin, wallet.address), 6));
 
     // 4. Swap tout le WETH â†’ USDC
     let swapHash = null;
@@ -334,11 +345,20 @@ export async function POST() {
     const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
     const finalUsdcRaw = Number(ethers.formatUnits(stableBal, 6)).toFixed(2);
 
-    // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes
+    // 6. Mettre à jour usdc_on_close + fees sur les lignes CREATE_OK correspondantes
+    const aeroFeesUsdc = (usdcAfterAero - usdcBeforeSwaps).toFixed(2);
+    const wethFeesUsdc = (Number(finalUsdcRaw) - usdcAfterAero).toFixed(2);
+    // fees_usdc = fees USDC gagnees dans la LP (tokensOwed1, directement en USDC)
+    const feesUsdc = Number(ethers.formatUnits(totalFeesUsdc1, 6)).toFixed(2);
+
     if (collectedList.length > 0) {
       try {
         for (const tokenId of collectedList) {
-          await sql`UPDATE lp_events SET usdc_on_close = ${finalUsdcRaw}
+          await sql`UPDATE lp_events
+                    SET usdc_on_close = ${finalUsdcRaw},
+                        aero_usdc     = ${aeroFeesUsdc},
+                        weth_usdc     = ${wethFeesUsdc},
+                        fees_usdc     = ${feesUsdc}
                     WHERE token_id = ${tokenId} AND action = 'CREATE_OK'`;
         }
       } catch (_) {}
