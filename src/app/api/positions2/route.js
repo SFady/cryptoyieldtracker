@@ -287,6 +287,7 @@ async function buildPosition(tokenId, ethCall, openData) {
     totalPoolUSD:   totalPoolUSD.toFixed(2),
     totalFeesUSD:   totalFeesUSD.toFixed(2),
     totalUSD:       (totalPoolUSD + totalFeesUSD).toFixed(2),
+    rangePct:       ((1.0001 ** (tickUpper - tickLower) - 1) * 100).toFixed(1),
     wethPrice:      ethPrice.toFixed(2),
     mintDate,
     openTimestamp: openDate.getTime(),

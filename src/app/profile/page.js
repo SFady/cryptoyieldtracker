@@ -24,10 +24,6 @@ export default function ProfilePage() {
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
 
-  const [pos3, setPos3]           = useState(null);
-  const [loading3, setLoading3]   = useState(true);
-  const [error3, setError3]       = useState(null);
-
   useEffect(() => {
     fetch("/api/positions")
       .then((r) => r.json())
@@ -42,14 +38,6 @@ export default function ProfilePage() {
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
-
-    setTimeout(() => {
-      fetch("/api/positions3")
-        .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); })
-        .catch((e) => setError3(e.message))
-        .finally(() => setLoading3(false));
-    }, 1400);
   }, []);
 
   return (
@@ -62,27 +50,24 @@ export default function ProfilePage() {
       {pos1 && pos1.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
 
       {/* ── Wallet 2 : WETH/USDC ── */}
-      <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} mt />
+      <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} includeAero extraUSD={parseFloat(usdcWallet2 || 0)} mt />
       {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
       {pos2 && pos2.length === 0 && !loading2 && <Empty />}
       {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} />)}
 
-      {/* ── Wallet 1 : USDC/cbBTC ── */}
-      <SectionHeader label="USDC / cbBTC" wallet={WALLET1_SHORT} positions={pos3} mt />
-      {loading3 && <Spinner label="Lecture du contrat…" />}
-      {error3   && <ErrorBox msg={error3} />}
-      {pos3 && pos3.length === 0 && !loading3 && <Empty />}
-      {pos3 && pos3.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
     </>
   );
 }
 
 // ── Composants ────────────────────────────────────────────────────────────────
 
-function SectionHeader({ label, wallet, positions, mt }) {
+function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0 }) {
   const total = positions && positions.length > 0
-    ? positions.reduce((s, p) => s + parseFloat(p.totalUSD), 0).toFixed(2)
+    ? (positions.reduce((s, p) => {
+        const aero = includeAero ? parseFloat(p.aeroRevenueUSD ?? 0) : 0;
+        return s + parseFloat(p.totalUSD) + aero;
+      }, 0) + extraUSD).toFixed(2)
     : null;
   return (
     <div className="section-header" style={mt ? { marginTop: 28 } : {}}>
@@ -198,6 +183,15 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
                 background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
               }}>
                 {pos.protocol}
+              </span>
+            )}
+            {pos.rangePct && (
+              <span style={{
+                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+                padding: "2px 7px", borderRadius: 4,
+                background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
+              }}>
+                {pos.rangePct}%
               </span>
             )}
           </div>

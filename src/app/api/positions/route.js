@@ -315,6 +315,7 @@ export async function GET() {
       totalPoolUSD: totalPoolUSD.toFixed(2),
       totalFeesUSD: totalFeesUSD.toFixed(2),
       totalUSD:     (totalPoolUSD + totalFeesUSD).toFixed(2),
+      rangePct:     ((1.0001 ** (tickUpper - tickLower) - 1) * 100).toFixed(1),
       ethPrice:     ethPrice.toFixed(2),
     };
 
