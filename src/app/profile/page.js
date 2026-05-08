@@ -167,35 +167,36 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
         background: "rgba(10,10,30,0.7)",
         borderBottom: "1px solid rgba(124,77,255,0.12)",
       }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <span style={{
+            fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+            padding: "2px 7px", borderRadius: 4,
+            background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
+          }}>
+            Base
+          </span>
+          {pos.protocol && (
             <span style={{
               fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
               padding: "2px 7px", borderRadius: 4,
-              background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
+              background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
             }}>
-              Base
+              {pos.protocol}
             </span>
-            {pos.protocol && (
-              <span style={{
-                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-                padding: "2px 7px", borderRadius: 4,
-                background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
-              }}>
-                {pos.protocol}
-              </span>
-            )}
-            {pos.rangePct && (
-              <span style={{
-                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-                padding: "2px 7px", borderRadius: 4,
-                background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
-              }}>
-                {pos.rangePct}%
-              </span>
-            )}
-          </div>
+          )}
+          {pos.rangePct && (
+            <span style={{
+              fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+              padding: "2px 7px", borderRadius: 4,
+              background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
+            }}>
+              {pos.rangePct}%
+            </span>
+          )}
         </div>
+        {pos.rangeLow && (
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} />
+        )}
         <span style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
@@ -203,6 +204,7 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
           background: pos.inRange ? "rgba(0,229,160,0.1)" : "rgba(180,100,100,0.1)",
           border: `1px solid ${pos.inRange ? "rgba(0,229,160,0.3)" : "rgba(180,100,100,0.3)"}`,
           color: pos.inRange ? "#00e5a0" : "#c97070",
+          flexShrink: 0,
         }}>
           {pos.inRange && <span className="pulse-dot pulse-dot--sm" style={{ background: "#00e5a0" }} />}
           {pos.inRange ? "IN RANGE" : "OUT OF RANGE"}
@@ -353,6 +355,53 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
           {value}
         </span>
       </div>
+    </div>
+  );
+}
+
+function RangeBar({ low, high, current, inRange }) {
+  const lo  = parseFloat(low);
+  const hi  = parseFloat(high);
+  const cur = parseFloat(current);
+  const pct = (cur - lo) / (hi - lo); // <0 = below, >1 = above
+  // Bar occupies 15%–85% of container; dot follows same scale but clamped to 2%–98%
+  const dotLeft = Math.max(2, Math.min(98, 15 + pct * 70));
+  const color   = inRange ? "#00e5a0" : "#c97070";
+  return (
+    <div style={{ position: "relative", width: 190, height: 34, flexShrink: 0 }}>
+      {/* Track */}
+      <div style={{
+        position: "absolute", left: "15%", right: "15%",
+        top: "55%", transform: "translateY(-50%)",
+        height: 2, borderRadius: 1,
+        background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
+      }} />
+      {/* Low label */}
+      <span style={{
+        position: "absolute", left: "15%", bottom: 1,
+        transform: "translateX(-50%)",
+        fontSize: "0.58rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
+      }}>${lo.toFixed(0)}</span>
+      {/* High label */}
+      <span style={{
+        position: "absolute", left: "85%", bottom: 1,
+        transform: "translateX(-50%)",
+        fontSize: "0.58rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
+      }}>${hi.toFixed(0)}</span>
+      {/* Current price label */}
+      <span style={{
+        position: "absolute", left: `${dotLeft}%`, top: 0,
+        transform: "translateX(-50%)",
+        fontSize: "0.6rem", fontFamily: "monospace", fontWeight: 700,
+        color, whiteSpace: "nowrap",
+      }}>${cur.toFixed(0)}</span>
+      {/* Dot */}
+      <div style={{
+        position: "absolute", left: `${dotLeft}%`, top: "55%",
+        transform: "translate(-50%, -50%)",
+        width: 7, height: 7, borderRadius: "50%",
+        background: color, boxShadow: `0 0 5px ${color}`,
+      }} />
     </div>
   );
 }
