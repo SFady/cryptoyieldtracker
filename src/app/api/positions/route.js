@@ -1,4 +1,7 @@
 import { ethers } from "ethers";
+import { neon }   from "@neondatabase/serverless";
+
+const sql = neon(process.env.DATABASE_URL);
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -299,6 +302,23 @@ export async function GET() {
     const totalPoolUSD = usd(t0.symbol, bal0) + usd(t1.symbol, bal1);
     const totalFeesUSD = usd(t0.symbol, fee0) + usd(t1.symbol, fee1);
 
+    let openTimestamp = null;
+    let initialUSD    = null;
+    let mintDate      = null;
+    try {
+      const rows = await sql`
+        SELECT created_at, usdc_placed FROM lp_events
+        WHERE action = 'CREATE_OK' AND token_id = ${tokenId.toString()}
+        ORDER BY created_at ASC LIMIT 1
+      `;
+      if (rows.length > 0) {
+        const d = new Date(rows[0].created_at);
+        openTimestamp = d.getTime();
+        initialUSD    = rows[0].usdc_placed ? parseFloat(rows[0].usdc_placed) : null;
+        mintDate      = d.toLocaleString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" });
+      }
+    } catch (_) {}
+
     const payload = {
       protocol: "Aerodrome CL", chain: "Base",
       tokenId: tokenId.toString(),
@@ -319,6 +339,9 @@ export async function GET() {
       rangeLow:     (1.0001 ** tickLower * 1e12).toFixed(0),
       rangeHigh:    (1.0001 ** tickUpper * 1e12).toFixed(0),
       ethPrice:     ethPrice.toFixed(2),
+      openTimestamp,
+      initialUSD,
+      mintDate,
     };
 
     const data = { positions: [payload] };

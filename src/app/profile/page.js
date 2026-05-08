@@ -47,7 +47,7 @@ export default function ProfilePage() {
       {loading1 && <Spinner label="Lecture du contrat…" />}
       {error1   && <ErrorBox msg={error1} />}
       {pos1 && pos1.length === 0 && !loading1 && <Empty />}
-      {pos1 && pos1.map((p) => <PositionCard key={p.tokenId} pos={p} />)}
+      {pos1 && pos1.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent />)}
 
       {/* ── Wallet 2 : WETH/USDC ── */}
       <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} includeAero extraUSD={parseFloat(usdcWallet2 || 0)} mt />

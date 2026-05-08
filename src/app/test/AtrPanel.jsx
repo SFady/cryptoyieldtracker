@@ -388,6 +388,7 @@ function CreatePanel({ data }) {
           currentPrice: basePrice,
           rangePercent: rangePct,
           targetRatio:  wethPct / 100,
+          poolNum:      2,
         }),
       });
       const json = await res.json();
