@@ -167,10 +167,10 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
         background: "rgba(10,10,30,0.7)",
         borderBottom: "1px solid rgba(124,77,255,0.12)",
       }}>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
           <span style={{
             fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-            padding: "2px 7px", borderRadius: 4,
+            padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
             background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
           }}>
             Base
@@ -178,7 +178,7 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
           {pos.protocol && (
             <span style={{
               fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-              padding: "2px 7px", borderRadius: 4,
+              padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
               background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
             }}>
               {pos.protocol}
