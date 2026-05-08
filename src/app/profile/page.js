@@ -20,6 +20,7 @@ export default function ProfilePage() {
   const [error1, setError1]       = useState(null);
 
   const [pos2, setPos2]           = useState(null);
+  const [usdcWallet2, setUsdcWallet2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
 
@@ -37,7 +38,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
@@ -65,7 +66,7 @@ export default function ProfilePage() {
       {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
       {pos2 && pos2.length === 0 && !loading2 && <Empty />}
-      {pos2 && pos2.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect />)}
+      {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} />)}
 
       {/* ── Wallet 1 : USDC/cbBTC ── */}
       <SectionHeader label="USDC / cbBTC" wallet={WALLET1_SHORT} positions={pos3} mt />
@@ -136,7 +137,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect }) {
+function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const totalRevUSD = pos.totalRevenueUSD ?? pos.totalFeesUSD;
   const feePct      = showFeePercent && pos.openTimestamp && pos.initialUSD
@@ -219,6 +220,13 @@ function PositionCard({ pos, showFeePercent, showCollect }) {
         {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
         <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />
       </Section>
+
+      {/* USDC non utilisé */}
+      {usdcWallet && parseFloat(usdcWallet) > 0 && (
+        <Section label="USDC non utilisé">
+          <TokenRow token={{ symbol: "USDC", balance: usdcWallet, usd: usdcWallet }} accent="#00e5a0" />
+        </Section>
+      )}
 
       {/* Fees */}
       <Section label="Frais non collectés">

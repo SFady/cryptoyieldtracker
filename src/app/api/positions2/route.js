@@ -9,6 +9,7 @@ const WALLET = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
 const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
 const VOTER_IFACE = new ethers.Interface([
   "function gauges(address pool) view returns (address)",
@@ -358,7 +359,15 @@ export async function GET() {
         };
       });
 
-    const data = { positions };
+    // Solde USDC non utilisé dans le wallet
+    let usdcWallet = "0.00";
+    try {
+      const hex = await ethCall(USDC, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
+      const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
+      usdcWallet = Number(ethers.formatUnits(raw, 6)).toFixed(2);
+    } catch (_) {}
+
+    const data = { positions, usdcWallet };
     global._cytPos2Cache = { data, time: Date.now() };
     return Response.json(data);
 
