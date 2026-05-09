@@ -197,12 +197,18 @@ export async function POST(req) {
     const serverMin     = serverCenter / (1 + halfFrac);
     const serverMax     = serverCenter * (1 + halfFrac);
 
-    const rawLower = priceToTick(serverMin);
-    const rawUpper = priceToTick(serverMax);
+    const rawLower   = priceToTick(serverMin);
+    const rawUpper   = priceToTick(serverMax);
+    const targetWidth = rawUpper - rawLower;
+    // widthScale : chaque tick de largeur excédentaire ou manquante vaut serverCenter/(10*targetWidth) en $
+    const widthScale  = serverCenter / Math.max(1, targetWidth) / 10;
+    const pairScore   = (lo, hi) =>
+      Math.abs(Math.sqrt(tickToPrice(lo) * tickToPrice(hi)) - serverCenter) +
+      Math.abs(hi - lo - targetWidth) * widthScale;
 
     let tickLower = roundTickFloor(rawLower, tickSpacing);
     let tickUpper = roundTickCeil(rawUpper, tickSpacing);
-    let bestMidErr = Math.abs(Math.sqrt(tickToPrice(tickLower) * tickToPrice(tickUpper)) - serverCenter);
+    let bestScore = pairScore(tickLower, tickUpper);
 
     for (const [lo, hi] of [
       [roundTickCeil(rawLower,  tickSpacing), roundTickCeil(rawUpper,  tickSpacing)],
@@ -210,8 +216,8 @@ export async function POST(req) {
       [roundTickCeil(rawLower,  tickSpacing), roundTickFloor(rawUpper, tickSpacing)],
     ]) {
       if (lo >= hi) continue;
-      const err = Math.abs(Math.sqrt(tickToPrice(lo) * tickToPrice(hi)) - serverCenter);
-      if (err < bestMidErr) { bestMidErr = err; tickLower = lo; tickUpper = hi; }
+      const s = pairScore(lo, hi);
+      if (s < bestScore) { bestScore = s; tickLower = lo; tickUpper = hi; }
     }
 
     if (tickLower >= tickUpper)
