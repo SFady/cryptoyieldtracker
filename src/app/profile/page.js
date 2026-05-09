@@ -249,31 +249,52 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
       </div>
 
       {/* Bouton collecter */}
-      {showCollect && (
-        <div style={{ padding: "10px 18px", borderTop: "1px solid rgba(124,77,255,0.1)", background: "rgba(10,10,30,0.4)" }}>
-          <button
-            onClick={handleCollect}
-            disabled={collecting}
-            style={{
-              fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700,
-              padding: "6px 16px", borderRadius: 6, cursor: collecting ? "wait" : "pointer",
-              background: collecting ? "rgba(124,77,255,0.1)" : "rgba(124,77,255,0.2)",
-              border: "1px solid rgba(124,77,255,0.4)", color: collecting ? "#6666aa" : "#c4a6ff",
-              transition: "all 0.2s",
-            }}
-          >
-            {collecting ? "En cours…" : "Collecter fees + AERO → USDC"}
-          </button>
-          {collectResult && (
-            <div style={{
-              marginTop: 8, fontSize: "0.75rem", fontFamily: "monospace",
-              color: collectResult.ok ? "#00e5a0" : "#c97070",
-            }}>
-              {collectResult.ok ? "✓" : "⚠"} {collectResult.msg}
-            </div>
-          )}
-        </div>
-      )}
+      {showCollect && (() => {
+        const COLLECT_COST = 0.50;
+        const MAX_LOSS_PCT = 0.05;
+        const MIN_FEES     = COLLECT_COST / MAX_LOSS_PCT; // $10
+        const totalRev     = parseFloat(pos.totalRevenueUSD ?? pos.totalFeesUSD ?? 0);
+        const lossPct      = totalRev > 0 ? ((COLLECT_COST / totalRev) * 100).toFixed(0) : null;
+        const tooLow       = totalRev < MIN_FEES;
+        const remaining    = (MIN_FEES - totalRev).toFixed(2);
+        return (
+          <div style={{ padding: "10px 18px", borderTop: "1px solid rgba(124,77,255,0.1)", background: "rgba(10,10,30,0.4)" }}>
+            {tooLow && (
+              <div style={{
+                marginBottom: 8, fontSize: "0.72rem", fontFamily: "monospace",
+                color: "#c97070", background: "rgba(180,100,100,0.08)",
+                border: "1px solid rgba(180,100,100,0.25)", borderRadius: 6,
+                padding: "6px 10px",
+              }}>
+                ⚠ Coût estimé ~{lossPct}% (${COLLECT_COST.toFixed(2)}) — attendre encore ${remaining} de fees
+              </div>
+            )}
+            <button
+              onClick={handleCollect}
+              disabled={collecting || tooLow}
+              style={{
+                fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700,
+                padding: "6px 16px", borderRadius: 6,
+                cursor: (collecting || tooLow) ? "not-allowed" : "pointer",
+                background: (collecting || tooLow) ? "rgba(124,77,255,0.05)" : "rgba(124,77,255,0.2)",
+                border: "1px solid rgba(124,77,255,0.4)",
+                color: (collecting || tooLow) ? "#444466" : "#c4a6ff",
+                transition: "all 0.2s",
+              }}
+            >
+              {collecting ? "En cours…" : "Collecter fees + AERO → USDC"}
+            </button>
+            {collectResult && (
+              <div style={{
+                marginTop: 8, fontSize: "0.75rem", fontFamily: "monospace",
+                color: collectResult.ok ? "#00e5a0" : "#c97070",
+              }}>
+                {collectResult.ok ? "✓" : "⚠"} {collectResult.msg}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
