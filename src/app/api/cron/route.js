@@ -17,6 +17,7 @@ async function handle(req) {
   if (!checkAuth(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const ranAt = new Date().toISOString();
   try {
+    await sql`DELETE FROM cron_runs WHERE ran_at < NOW() - INTERVAL '24 hours'`;
     await sql`INSERT INTO cron_runs (ran_at) VALUES (NOW())`;
     return Response.json({ ok: true, ranAt });
   } catch (e) {
