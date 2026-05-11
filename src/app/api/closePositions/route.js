@@ -399,24 +399,12 @@ export async function POST() {
     const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
     const finalUsdcRaw = Number(ethers.formatUnits(stableBal, 6)).toFixed(2);
 
-    // 6. Mettre à jour usdc_on_close + fees sur les lignes CREATE_OK correspondantes
-    const aeroFeesUsdc = (usdcAfterAero - usdcBeforeSwaps).toFixed(2);
-    const wethFeesUsdc = (Number(finalUsdcRaw) - usdcAfterAero).toFixed(2);
-    // fees_usdc = fees USDC de la LP (tokensOwed1)
-    const feesUsdc = Number(ethers.formatUnits(totalFeesUsdc1, 6)).toFixed(2);
-    // fees_weth = fees WETH de la LP converties en USDC via sqrtP deja lu
-    const priceUsdc = Number(sqrtP * sqrtP * 10n ** 12n / (1n << 192n));
-    const feesWeth  = (Number(ethers.formatUnits(totalFeesWei0, 18)) * priceUsdc).toFixed(2);
-
+    // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes
     if (collectedList.length > 0) {
       try {
         for (const tokenId of collectedList) {
           await sql`UPDATE lp_events
-                    SET usdc_on_close = ${finalUsdcRaw},
-                        aero_usdc     = ${aeroFeesUsdc},
-                        weth_usdc     = ${wethFeesUsdc},
-                        fees_usdc     = ${feesUsdc},
-                        fees_weth     = ${feesWeth}
+                    SET usdc_on_close = ${finalUsdcRaw}
                     WHERE token_id = ${tokenId} AND action = 'CREATE_OK'`;
         }
       } catch (_) {}
