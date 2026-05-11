@@ -9,9 +9,12 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      - name: Debug URL
+        run: echo "Calling ${{ secrets.APP_URL }}/api/cron"
+
       - name: Ping cron endpoint
         run: |
-          curl -s -X POST "${{ secrets.APP_URL }}/api/cron" \
+          curl -v -X POST "${{ secrets.APP_URL }}/api/cron" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             -d '{}'
