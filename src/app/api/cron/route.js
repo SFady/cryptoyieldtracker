@@ -16,8 +16,12 @@ function checkAuth(req) {
 async function handle(req) {
   if (!checkAuth(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const ranAt = new Date().toISOString();
-  try { await sql`INSERT INTO cron_runs (ran_at) VALUES (NOW())`; } catch (_) {}
-  return Response.json({ ok: true, ranAt });
+  try {
+    await sql`INSERT INTO cron_runs (ran_at) VALUES (NOW())`;
+    return Response.json({ ok: true, ranAt });
+  } catch (e) {
+    return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
+  }
 }
 
 export const GET  = handle;
