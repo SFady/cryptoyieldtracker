@@ -69,10 +69,15 @@ async function waitForTx(provider, tx) {
   } catch (_) {
     for (let i = 0; i < 30; i++) {
       await new Promise(res => setTimeout(res, 2000));
-      const r = await provider.getTransactionReceipt(tx.hash);
-      if (r) {
-        if (r.status === 0) throw new Error(`revert on-chain (hash=${tx.hash})`);
-        return r;
+      try {
+        const r = await provider.getTransactionReceipt(tx.hash);
+        if (r) {
+          if (r.status === 0) throw new Error(`revert on-chain (hash=${tx.hash})`);
+          return r;
+        }
+      } catch (pollErr) {
+        if (pollErr.message?.startsWith("revert on-chain")) throw pollErr;
+        // erreur RPC transitoire (408, timeout) → on continue le polling
       }
     }
     throw new Error(`timeout confirmation tx ${tx.hash}`);

@@ -9,11 +9,12 @@ const sql = neon(process.env.DATABASE_URL);
 async function logEvent(fields) {
   try {
     await sql`INSERT INTO lp_events
-      (action, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg, usdc_on_close, pool_num)
+      (action, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg, usdc_on_close, pool_num, weth, usdc)
       VALUES (${fields.action}, ${fields.usdc_placed ?? null}, ${fields.range_min ?? null},
               ${fields.range_max ?? null}, ${fields.range_pct ?? null},
               ${fields.usdc_remaining ?? null}, ${fields.token_id ?? null}, ${fields.error_msg ?? null},
-              ${fields.usdc_on_close ?? null}, ${fields.pool_num ?? null})`;
+              ${fields.usdc_on_close ?? null}, ${fields.pool_num ?? null},
+              ${fields.weth ?? null}, ${fields.usdc ?? null})`;
   } catch (_) {}
 }
 
@@ -489,6 +490,8 @@ export async function POST(req) {
         usdc_remaining: usdcRestant.toFixed(2),
         token_id:       tokenId.toString(),
         pool_num:       poolNum ?? null,
+        weth:           Number(ethers.formatUnits(wethToUse, 18)).toFixed(6),
+        usdc:           Number(ethers.formatUnits(usdcToKeep, 6)).toFixed(2),
       });
     } catch (_) {}
 
