@@ -490,7 +490,7 @@ export async function POST(req) {
         usdc_remaining: usdcRestant.toFixed(2),
         token_id:       tokenId.toString(),
         pool_num:       poolNum ?? null,
-        weth:           Number(ethers.formatUnits(wethToUse, 18)).toFixed(6),
+        weth:           (Number(ethers.formatUnits(wethToUse, 18)) * poolPrice).toFixed(2),
         usdc:           Number(ethers.formatUnits(usdcToKeep, 6)).toFixed(2),
       });
     } catch (_) {}
