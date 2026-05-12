@@ -75,11 +75,11 @@ async function handleCase1() {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND (action2 IS NULL OR action2 != 'CLOSE_OK')
+      SELECT usdc_placed, range_pct, range_min, action2 FROM lp_events
+      WHERE action1 = 'CREATE_OK'
       ORDER BY created_at DESC LIMIT 1
     `;
-    if (rows.length === 0)
+    if (rows.length === 0 || rows[0].action2 === 'CLOSE_OK')
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     lastPos = rows[0];
   } catch (e) {
