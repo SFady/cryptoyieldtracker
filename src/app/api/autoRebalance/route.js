@@ -28,9 +28,89 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const { forceCase, priceOverride } = body;
 
+  if (forceCase === 1) return handleCase1(priceOverride);
   if (forceCase === 4) return handleCase4(priceOverride);
 
   return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
+}
+
+async function handleCase1(priceOverride) {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  // Validation prix (valeur raisonnable pour l'ETH)
+  const currentPrice = parseFloat(priceOverride);
+  if (!currentPrice || isNaN(currentPrice) || currentPrice < 100 || currentPrice > 100000)
+    return Response.json({ skipped: true, reason: "Prix ETH invalide ou hors limites (100–100 000)" });
+
+  // 1. Vérifier position ouverte en DB
+  let lastPos;
+  try {
+    const rows = await sql`
+      SELECT usdc_placed, range_pct FROM lp_events
+      WHERE action1 = 'CREATE_OK' AND (action2 IS NULL OR action2 != 'CLOSE_OK')
+      ORDER BY created_at DESC LIMIT 1
+    `;
+    if (rows.length === 0)
+      return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
+    lastPos = rows[0];
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  const usdcPlaced = parseFloat(lastPos.usdc_placed);
+  const rangePct   = parseFloat(lastPos.range_pct);
+  if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
+    return Response.json({ skipped: true, reason: "Données position invalides en DB" });
+
+  const newRangePct = rangePct * 1.5;
+  const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);
+  const minPrice    = currentPrice / sqrtRatio;
+  const maxPrice    = currentPrice * sqrtRatio;
+
+  // 2. Fermer la position actuelle
+  let closeData;
+  try {
+    const res = await fetch(`${base}/api/closePositions`, {
+      method: "POST",
+      signal: AbortSignal.timeout(240000),
+    });
+    closeData = await res.json();
+    if (!res.ok) throw new Error(closeData.error ?? "close failed");
+  } catch (e) {
+    return Response.json({ error: `closePositions failed: ${e.message}` }, { status: 500 });
+  }
+
+  // 3. Créer nouvelle position 80% WETH / 20% USDC
+  try {
+    const res = await fetch(`${base}/api/createPosition`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        amountUSDC:  usdcPlaced,
+        minPrice,
+        maxPrice,
+        currentPrice,
+        targetRatio: 0.80,
+        poolNum:     2,
+      }),
+      signal: AbortSignal.timeout(240000),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "createPosition failed");
+    return Response.json({
+      ok:           true,
+      case:         1,
+      newRangePct,
+      minPrice:     minPrice.toFixed(0),
+      maxPrice:     maxPrice.toFixed(0),
+      usdcPlaced,
+      closeResult:  closeData,
+      createResult: data,
+    });
+  } catch (e) {
+    return Response.json({ case: 1, closeResult: closeData, error: `createPosition failed: ${e.message}` }, { status: 500 });
+  }
 }
 
 async function handleCase4(priceOverride) {
