@@ -228,24 +228,33 @@ const REBALANCE_CASES = [
 ];
 
 function TestRebalanceSection() {
-  const [prices,  setPrices]  = useState({ 1: "", 2: "", 3: "" });
-  const [status,  setStatus]  = useState({});
-  const [results, setResults] = useState({});
+  const [status,     setStatus]     = useState({});
+  const [results,    setResults]    = useState({});
+  const [confirming, setConfirming] = useState({});
+  const timers = useRef({});
+
+  function handleClick(caseNum) {
+    if (status[caseNum] === "loading") return;
+    if (!confirming[caseNum]) {
+      setConfirming(c => ({ ...c, [caseNum]: true }));
+      timers.current[caseNum] = setTimeout(() => {
+        setConfirming(c => ({ ...c, [caseNum]: false }));
+      }, 3000);
+    } else {
+      clearTimeout(timers.current[caseNum]);
+      setConfirming(c => ({ ...c, [caseNum]: false }));
+      trigger(caseNum);
+    }
+  }
 
   async function trigger(caseNum) {
-    const price = parseFloat(prices[caseNum]);
-    if (!price || isNaN(price)) {
-      setStatus(s => ({ ...s, [caseNum]: "error" }));
-      setResults(r => ({ ...r, [caseNum]: "Prix ETH requis" }));
-      return;
-    }
     setStatus(s => ({ ...s, [caseNum]: "loading" }));
     setResults(r => ({ ...r, [caseNum]: "" }));
     try {
       const res  = await fetch("/api/autoRebalance", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ forceCase: caseNum, priceOverride: price }),
+        body:    JSON.stringify({ forceCase: caseNum }),
       });
       const json = await res.json();
       setStatus(s => ({ ...s, [caseNum]: res.ok && json.ok !== false ? "ok" : "error" }));
@@ -265,87 +274,75 @@ function TestRebalanceSection() {
         Tests Rebalance
       </div>
 
-      {REBALANCE_CASES.map(({ num, label, color }) => (
-        <div key={num} style={{
-          background: "rgba(18,18,45,0.95)",
-          border: `1px solid ${color}33`,
-          borderRadius: 10,
-          overflow: "hidden",
-          marginBottom: 8,
-        }}>
-          <div style={{
-            padding: "7px 14px",
-            background: `${color}0d`,
-            borderBottom: `1px solid ${color}22`,
-            fontFamily: "monospace", fontSize: "0.65rem",
-            letterSpacing: "1.5px", textTransform: "uppercase",
-            color, fontWeight: 600,
-          }}>
-            {label}
-          </div>
+      {REBALANCE_CASES.map(({ num, label, color }) => {
+        const isLoading    = status[num] === "loading";
+        const isConfirming = confirming[num];
+        const btnColor     = isConfirming ? "#f0b429" : color;
+        const btnLabel     = isLoading ? "..." : isConfirming ? "⚠ CONFIRMER ?" : "▶ LANCER";
 
-          <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="number"
-                placeholder="Prix ETH en $"
-                value={prices[num]}
-                onChange={e => setPrices(p => ({ ...p, [num]: e.target.value }))}
-                style={{
-                  flex: 1,
-                  background: "rgba(10,10,30,0.8)",
-                  border: `1px solid ${color}44`,
-                  borderRadius: 6,
-                  color: "#eaf6ff",
-                  fontFamily: "monospace",
-                  fontSize: "0.85rem",
-                  padding: "8px 12px",
-                  outline: "none",
-                }}
-              />
+        return (
+          <div key={num} style={{
+            background: "rgba(18,18,45,0.95)",
+            border: `1px solid ${color}33`,
+            borderRadius: 10,
+            overflow: "hidden",
+            marginBottom: 8,
+          }}>
+            <div style={{
+              padding: "7px 14px",
+              background: `${color}0d`,
+              borderBottom: `1px solid ${color}22`,
+              fontFamily: "monospace", fontSize: "0.65rem",
+              letterSpacing: "1.5px", textTransform: "uppercase",
+              color, fontWeight: 600,
+            }}>
+              {label}
+            </div>
+
+            <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
               <button
-                onClick={() => trigger(num)}
-                disabled={status[num] === "loading"}
+                onClick={() => handleClick(num)}
+                disabled={isLoading}
                 style={{
-                  padding: "8px 16px",
-                  background: status[num] === "loading" ? `${color}11` : `${color}22`,
-                  border: `1px solid ${color}55`,
+                  padding: "9px 16px",
+                  background: isConfirming ? "rgba(240,180,41,0.15)" : isLoading ? `${color}11` : `${color}22`,
+                  border: `1px solid ${btnColor}66`,
                   borderRadius: 6,
-                  color: status[num] === "loading" ? `${color}66` : color,
+                  color: isLoading ? `${btnColor}66` : btnColor,
                   fontFamily: "monospace",
                   fontSize: "0.75rem",
                   fontWeight: 700,
                   letterSpacing: "1px",
-                  cursor: status[num] === "loading" ? "default" : "pointer",
-                  whiteSpace: "nowrap",
+                  cursor: isLoading ? "default" : "pointer",
+                  transition: "all 0.15s",
                 }}
               >
-                {status[num] === "loading" ? "..." : "▶ LANCER"}
+                {btnLabel}
               </button>
-            </div>
 
-            {results[num] && (
-              <pre style={{
-                fontFamily: "monospace",
-                fontSize: "0.7rem",
-                color: status[num] === "ok" ? "#00e5a0" : "#c97070",
-                background: "rgba(0,0,0,0.3)",
-                border: `1px solid ${status[num] === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
-                borderRadius: 6,
-                padding: "10px 12px",
-                margin: 0,
-                overflowX: "auto",
-                maxHeight: 200,
-                overflowY: "auto",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}>
-                {results[num]}
-              </pre>
-            )}
+              {results[num] && (
+                <pre style={{
+                  fontFamily: "monospace",
+                  fontSize: "0.7rem",
+                  color: status[num] === "ok" ? "#00e5a0" : "#c97070",
+                  background: "rgba(0,0,0,0.3)",
+                  border: `1px solid ${status[num] === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
+                  borderRadius: 6,
+                  padding: "10px 12px",
+                  margin: 0,
+                  overflowX: "auto",
+                  maxHeight: 200,
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}>
+                  {results[num]}
+                </pre>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -54,10 +54,10 @@ async function sendErrorEmail(subject, body) {
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
-  const { forceCase, priceOverride } = body;
+  const { forceCase } = body;
 
-  if (forceCase === 1) return handleCase1(priceOverride);
-  if (forceCase === 4) return handleCase4(priceOverride);
+  if (forceCase === 1) return handleCase1();
+  if (forceCase === 4) return handleCase4();
 
   return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 }
@@ -156,13 +156,9 @@ async function handleCase1() {
   }
 }
 
-async function handleCase4(priceOverride) {
+async function handleCase4() {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
-
-  const currentPrice = parseFloat(priceOverride);
-  if (!currentPrice || isNaN(currentPrice))
-    return Response.json({ error: "priceOverride requis" }, { status: 400 });
 
   // 1. Vérifier que la dernière ligne CREATE_OK est fermée (action2 = 'CLOSE_OK')
   try {
@@ -188,9 +184,10 @@ async function handleCase4(priceOverride) {
     return Response.json({ error: `atr failed: ${e.message}` }, { status: 500 });
   }
 
-  const sqrtRatio = Math.sqrt(1 + newRangePct / 100);
-  const minPrice  = currentPrice / sqrtRatio;
-  const maxPrice  = currentPrice * sqrtRatio;
+  const livePrice4 = await getPoolWethPrice(currentPrice);
+  const sqrtRatio  = Math.sqrt(1 + newRangePct / 100);
+  const minPrice   = livePrice4 / sqrtRatio;
+  const maxPrice   = livePrice4 * sqrtRatio;
 
   // 3. Créer nouvelle position 50/50 — 100 USDC
   try {
@@ -198,12 +195,12 @@ async function handleCase4(priceOverride) {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        amountUSDC:  100,
+        amountUSDC:   100,
         minPrice,
         maxPrice,
-        currentPrice,
-        targetRatio: 0.5,
-        poolNum:     2,
+        currentPrice: livePrice4,
+        targetRatio:  0.5,
+        poolNum:      2,
       }),
       signal: AbortSignal.timeout(240000),
     });
@@ -216,6 +213,7 @@ async function handleCase4(priceOverride) {
       ok:          true,
       case:        4,
       newRangePct,
+      livePrice:   livePrice4,
       minPrice:    minPrice.toFixed(0),
       maxPrice:    maxPrice.toFixed(0),
       createResult: data,
