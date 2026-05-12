@@ -412,12 +412,12 @@ export async function POST() {
         for (const tokenId of collectedList) {
           await sql`UPDATE lp_events
                     SET usdc_on_close = ${finalUsdcRaw},
-                        action2       = 'CLOSE_OK'
+                        action2       = 'CLOSE_OK',
+                        closed_at     = NOW()
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
       } catch (_) {}
     }
-    await logEvent({ action1: "CLOSE_OK", usdc_on_close: finalUsdcRaw });
 
     return Response.json({
       message:      `Tout fermé. Solde final : $${finalUsdc}`,
