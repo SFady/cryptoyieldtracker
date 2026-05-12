@@ -193,10 +193,16 @@ export async function POST(req) {
 
     // 2. Re-centrer le range sur le prix pool réel (corrige le lag UI → exécution)
     //    puis essayer les 4 combinaisons d'arrondi pour minimiser le biais de tick spacing
-    const halfFrac      = Math.sqrt(maxPrice / minPrice) - 1;
-    const serverCenter  = findCenterForRatio(targetRatio ?? 0.5, poolPrice, halfFrac);
-    const serverMin     = serverCenter / (1 + halfFrac);
-    const serverMax     = serverCenter * (1 + halfFrac);
+    const halfFrac = Math.sqrt(maxPrice / minPrice) - 1;
+    let effectiveRatio = targetRatio ?? 0.5;
+    let serverCenter   = findCenterForRatio(effectiveRatio, poolPrice, halfFrac);
+    // Si le prix actuel tombe sous la borne basse du range → ratio inatteignable → fallback 50/50
+    if (poolPrice < serverCenter / (1 + halfFrac)) {
+      effectiveRatio = 0.5;
+      serverCenter   = findCenterForRatio(0.5, poolPrice, halfFrac);
+    }
+    const serverMin = serverCenter / (1 + halfFrac);
+    const serverMax = serverCenter * (1 + halfFrac);
 
     const rawLower   = priceToTick(serverMin);
     const rawUpper   = priceToTick(serverMax);
