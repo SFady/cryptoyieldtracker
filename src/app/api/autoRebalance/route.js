@@ -67,7 +67,7 @@ async function handleCase1(priceOverride) {
   if (!isNaN(rangeMin) && currentPrice >= rangeMin)
     return Response.json({ skipped: true, reason: `Prix ETH $${currentPrice} >= borne basse $${rangeMin} — pas hors range bas` });
 
-  const newRangePct = rangePct * 1.5;
+  const newRangePct = Math.max(2, rangePct * 1.5);
   const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);
   const minPrice    = currentPrice / sqrtRatio;
   const maxPrice    = currentPrice * sqrtRatio;
@@ -80,9 +80,13 @@ async function handleCase1(priceOverride) {
       signal: AbortSignal.timeout(240000),
     });
     closeData = await res.json();
-    if (!res.ok) throw new Error(closeData.error ?? "close failed");
+    if (!res.ok) {
+      const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
+      throw new Error(errMsg);
+    }
   } catch (e) {
-    return Response.json({ error: `closePositions failed: ${e.message}` }, { status: 500 });
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
   }
 
   // 3. Créer nouvelle position 80% WETH / 20% USDC
@@ -101,7 +105,10 @@ async function handleCase1(priceOverride) {
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "createPosition failed");
+    if (!res.ok) {
+      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
+      throw new Error(errMsg);
+    }
     return Response.json({
       ok:           true,
       case:         1,
@@ -113,7 +120,8 @@ async function handleCase1(priceOverride) {
       createResult: data,
     });
   } catch (e) {
-    return Response.json({ case: 1, closeResult: closeData, error: `createPosition failed: ${e.message}` }, { status: 500 });
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    return Response.json({ case: 1, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
   }
 }
 
@@ -144,7 +152,7 @@ async function handleCase4(priceOverride) {
     const res = await fetch(`${base}/api/atr`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const atr = await res.json();
-    newRangePct = atr.range2x;
+    newRangePct = Math.max(2, atr.range2x);
   } catch (e) {
     return Response.json({ error: `atr failed: ${e.message}` }, { status: 500 });
   }
@@ -169,7 +177,10 @@ async function handleCase4(priceOverride) {
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "createPosition failed");
+    if (!res.ok) {
+      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
+      throw new Error(errMsg);
+    }
     return Response.json({
       ok:          true,
       case:        4,
@@ -179,10 +190,11 @@ async function handleCase4(priceOverride) {
       createResult: data,
     });
   } catch (e) {
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
     await sendErrorEmail(
       "[CryptoYieldTracker] Erreur — Cas 4 création position",
-      `Prix ETH : $${currentPrice}\nRange    : ${newRangePct}%\nMin      : $${minPrice.toFixed(0)}\nMax      : $${maxPrice.toFixed(0)}\n\nErreur : ${e.message}`
+      `Prix ETH : $${currentPrice}\nRange    : ${newRangePct}%\nMin      : $${minPrice.toFixed(0)}\nMax      : $${maxPrice.toFixed(0)}\n\nErreur : ${msg}`
     );
-    return Response.json({ error: e.message }, { status: 500 });
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
