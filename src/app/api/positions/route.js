@@ -308,7 +308,7 @@ export async function GET() {
     try {
       const rows = await sql`
         SELECT created_at, usdc_placed FROM lp_events
-        WHERE action = 'CREATE_OK' AND token_id = ${tokenId.toString()}
+        WHERE action1 = 'CREATE_OK' AND token_id = ${tokenId.toString()}
         ORDER BY created_at ASC LIMIT 1
       `;
       if (rows.length > 0) {

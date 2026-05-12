@@ -214,6 +214,137 @@ export default function AtrPanel() {
           </div>
         </>
       )}
+
+      <TestRebalanceSection />
+    </div>
+  );
+}
+
+const REBALANCE_CASES = [
+  { num: 1, label: "CAS 1 — Hors range bas",  color: "#c97070" },
+  { num: 2, label: "CAS 2 — Hors range haut", color: "#f0b429" },
+  { num: 3, label: "CAS 3 — In range > 12h",  color: "#a477ff" },
+];
+
+function TestRebalanceSection() {
+  const [prices,  setPrices]  = useState({ 1: "", 2: "", 3: "" });
+  const [status,  setStatus]  = useState({});
+  const [results, setResults] = useState({});
+
+  async function trigger(caseNum) {
+    const price = parseFloat(prices[caseNum]);
+    if (!price || isNaN(price)) {
+      setStatus(s => ({ ...s, [caseNum]: "error" }));
+      setResults(r => ({ ...r, [caseNum]: "Prix ETH requis" }));
+      return;
+    }
+    setStatus(s => ({ ...s, [caseNum]: "loading" }));
+    setResults(r => ({ ...r, [caseNum]: "" }));
+    try {
+      const res  = await fetch("/api/autoRebalance", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ forceCase: caseNum, priceOverride: price }),
+      });
+      const json = await res.json();
+      setStatus(s => ({ ...s, [caseNum]: res.ok && json.ok !== false ? "ok" : "error" }));
+      setResults(r => ({ ...r, [caseNum]: JSON.stringify(json, null, 2) }));
+    } catch (e) {
+      setStatus(s => ({ ...s, [caseNum]: "error" }));
+      setResults(r => ({ ...r, [caseNum]: e.message }));
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{
+        fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa",
+        letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 10,
+      }}>
+        Tests Rebalance
+      </div>
+
+      {REBALANCE_CASES.map(({ num, label, color }) => (
+        <div key={num} style={{
+          background: "rgba(18,18,45,0.95)",
+          border: `1px solid ${color}33`,
+          borderRadius: 10,
+          overflow: "hidden",
+          marginBottom: 8,
+        }}>
+          <div style={{
+            padding: "7px 14px",
+            background: `${color}0d`,
+            borderBottom: `1px solid ${color}22`,
+            fontFamily: "monospace", fontSize: "0.65rem",
+            letterSpacing: "1.5px", textTransform: "uppercase",
+            color, fontWeight: 600,
+          }}>
+            {label}
+          </div>
+
+          <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="number"
+                placeholder="Prix ETH en $"
+                value={prices[num]}
+                onChange={e => setPrices(p => ({ ...p, [num]: e.target.value }))}
+                style={{
+                  flex: 1,
+                  background: "rgba(10,10,30,0.8)",
+                  border: `1px solid ${color}44`,
+                  borderRadius: 6,
+                  color: "#eaf6ff",
+                  fontFamily: "monospace",
+                  fontSize: "0.85rem",
+                  padding: "8px 12px",
+                  outline: "none",
+                }}
+              />
+              <button
+                onClick={() => trigger(num)}
+                disabled={status[num] === "loading"}
+                style={{
+                  padding: "8px 16px",
+                  background: status[num] === "loading" ? `${color}11` : `${color}22`,
+                  border: `1px solid ${color}55`,
+                  borderRadius: 6,
+                  color: status[num] === "loading" ? `${color}66` : color,
+                  fontFamily: "monospace",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  letterSpacing: "1px",
+                  cursor: status[num] === "loading" ? "default" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {status[num] === "loading" ? "..." : "▶ LANCER"}
+              </button>
+            </div>
+
+            {results[num] && (
+              <pre style={{
+                fontFamily: "monospace",
+                fontSize: "0.7rem",
+                color: status[num] === "ok" ? "#00e5a0" : "#c97070",
+                background: "rgba(0,0,0,0.3)",
+                border: `1px solid ${status[num] === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
+                borderRadius: 6,
+                padding: "10px 12px",
+                margin: 0,
+                overflowX: "auto",
+                maxHeight: 200,
+                overflowY: "auto",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}>
+                {results[num]}
+              </pre>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

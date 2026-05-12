@@ -336,7 +336,7 @@ export async function GET() {
       const rows = await sql`
         SELECT DISTINCT ON (token_id) token_id, created_at, usdc_placed
         FROM lp_events
-        WHERE action = 'CREATE_OK' AND token_id = ANY(${tokenIds.map(id => id.toString())})
+        WHERE action1 = 'CREATE_OK' AND token_id = ANY(${tokenIds.map(id => id.toString())})
         ORDER BY token_id, created_at ASC
       `;
       for (const row of rows) {

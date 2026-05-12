@@ -3,6 +3,14 @@ import { neon }   from "@neondatabase/serverless";
 
 const sql = neon(process.env.DATABASE_URL);
 
+async function logEvent(fields) {
+  try {
+    await sql`INSERT INTO lp_events (action1, action2, error_msg, usdc_on_close, pool_num)
+              VALUES (${fields.action1}, ${fields.action2 ?? null}, ${fields.error_msg ?? null},
+                      ${fields.usdc_on_close ?? null}, ${fields.pool_num ?? null})`;
+  } catch (_) {}
+}
+
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
@@ -224,7 +232,6 @@ export async function POST() {
       ethCall(POOL, "0xf3058399"),  // feeGrowthGlobal0X128
       ethCall(POOL, "0x46141319"),  // feeGrowthGlobal1X128
     ]);
-    const sqrtP    = toUint(word(s0Hex, 0));
     const currTick = Number(toInt(word(s0Hex, 1)));
     const fg0      = toUint(word(fg0Hex, 0));
     const fg1      = toUint(word(fg1Hex, 0));
@@ -332,9 +339,6 @@ export async function POST() {
       throw new Error(e.message); // propage le message dÃ©taillÃ©
     }
 
-    // Snapshot USDC avant les swaps
-    const usdcBeforeSwaps = Number(ethers.formatUnits(await readBal(stablecoin, wallet.address), 6));
-
     // 4a. Swap AERO â†’ USDC (rÃ©compenses du gauge, via V2 router AMM)
     // Non-bloquant : si le swap Ã©choue (montant trop faible, pool insuffisant), on continue
     let aeroSwapHash = null;
@@ -357,9 +361,7 @@ export async function POST() {
         aeroSwapHash = txAeroSwap.hash;
         await waitForTx(provider, txAeroSwap);
       }
-    } catch (_) {} // non-bloquant â€” AERO reste en wallet si le swap Ã©choue
-
-    const usdcAfterAero = Number(ethers.formatUnits(await readBal(stablecoin, wallet.address), 6));
+    } catch (_) {} // non-bloquant — AERO reste en wallet si le swap échoue
 
     // 4. Swap tout le WETH â†’ USDC
     let swapHash = null;
@@ -404,16 +406,18 @@ export async function POST() {
     const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
     const finalUsdcRaw = Number(ethers.formatUnits(stableBal, 6)).toFixed(2);
 
-    // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes
+    // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes + logger CLOSE_OK
     if (collectedList.length > 0) {
       try {
         for (const tokenId of collectedList) {
           await sql`UPDATE lp_events
-                    SET usdc_on_close = ${finalUsdcRaw}
-                    WHERE token_id = ${tokenId} AND action = 'CREATE_OK'`;
+                    SET usdc_on_close = ${finalUsdcRaw},
+                        action2       = 'CLOSE_OK'
+                    WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
       } catch (_) {}
     }
+    await logEvent({ action1: "CLOSE_OK", usdc_on_close: finalUsdcRaw });
 
     return Response.json({
       message:      `Tout fermé. Solde final : $${finalUsdc}`,
@@ -426,7 +430,9 @@ export async function POST() {
     });
 
   } catch (e) {
-    return Response.json({ error: e.message ?? e.shortMessage }, { status: 500 });
+    const msg = e.message ?? e.shortMessage ?? String(e);
+    await logEvent({ action1: "CLOSE_ERR", error_msg: msg });
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
 
