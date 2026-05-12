@@ -224,6 +224,7 @@ const REBALANCE_CASES = [
   { num: 1, label: "CAS 1 — Hors range bas",  color: "#c97070" },
   { num: 2, label: "CAS 2 — Hors range haut", color: "#f0b429" },
   { num: 3, label: "CAS 3 — In range > 12h",  color: "#a477ff" },
+  { num: 4, label: "CAS 4 — Aucune position", color: "#556688" },
 ];
 
 function TestRebalanceSection() {
