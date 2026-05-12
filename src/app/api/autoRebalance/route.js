@@ -5,11 +5,6 @@ export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
-function snapRange(x) {
-  if (x < 3) return 3;
-  const n = Math.ceil((x - 3) / 1.5);
-  return 3 + n * 1.5;
-}
 
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
@@ -65,7 +60,7 @@ async function handleCase4(priceOverride) {
     const res = await fetch(`${base}/api/atr`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const atr = await res.json();
-    newRangePct = snapRange(atr.range2x);
+    newRangePct = atr.range2x;
   } catch (e) {
     return Response.json({ error: `atr failed: ${e.message}` }, { status: 500 });
   }
