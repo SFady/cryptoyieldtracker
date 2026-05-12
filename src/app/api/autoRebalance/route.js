@@ -184,7 +184,7 @@ async function handleCase4() {
     return Response.json({ error: `atr failed: ${e.message}` }, { status: 500 });
   }
 
-  const livePrice4 = await getPoolWethPrice(currentPrice);
+  const livePrice4 = await getPoolWethPrice(0);
   const sqrtRatio  = Math.sqrt(1 + newRangePct / 100);
   const minPrice   = livePrice4 / sqrtRatio;
   const maxPrice   = livePrice4 * sqrtRatio;
