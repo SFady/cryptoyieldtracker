@@ -5,6 +5,34 @@ export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
+const POOL_ADDRESS = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
+const RPC_URLS = [
+  "https://base.drpc.org",
+  "https://base-rpc.publicnode.com",
+  "https://base.llamarpc.com",
+  "https://mainnet.base.org",
+];
+
+async function getPoolWethPrice(fallback) {
+  for (const url of RPC_URLS) {
+    try {
+      const res = await fetch(url, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: POOL_ADDRESS, data: "0x3850c7bd" }, "latest"] }),
+        signal:  AbortSignal.timeout(6000),
+      });
+      const json = await res.json();
+      if (json.result && json.result !== "0x") {
+        const sqrtPriceX96 = BigInt("0x" + json.result.slice(2, 66));
+        const sqrtP = Number(sqrtPriceX96) / Number(2n ** 96n);
+        const price = sqrtP * sqrtP * 1e12;
+        if (price > 100 && price < 100000) return price;
+      }
+    } catch (_) {}
+  }
+  return fallback;
+}
 
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
@@ -34,16 +62,16 @@ export async function POST(req) {
   return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 }
 
-async function handleCase1(priceOverride) {
+async function handleCase1() {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
-  // Validation prix (valeur raisonnable pour l'ETH)
-  const currentPrice = parseFloat(priceOverride);
-  if (!currentPrice || isNaN(currentPrice) || currentPrice < 100 || currentPrice > 100000)
-    return Response.json({ skipped: true, reason: "Prix ETH invalide ou hors limites (100–100 000)" });
+  // 1. Prix WETH on-chain
+  const livePrice = await getPoolWethPrice(0);
+  if (!livePrice || livePrice < 100 || livePrice > 100000)
+    return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice}` });
 
-  // 1. Vérifier position ouverte en DB
+  // 2. Vérifier position ouverte en DB
   let lastPos;
   try {
     const rows = await sql`
@@ -64,15 +92,13 @@ async function handleCase1(priceOverride) {
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
-  if (!isNaN(rangeMin) && currentPrice >= rangeMin)
-    return Response.json({ skipped: true, reason: `Prix ETH $${currentPrice} >= borne basse $${rangeMin} — pas hors range bas` });
+  if (!isNaN(rangeMin) && livePrice >= rangeMin)
+    return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} >= borne basse $${rangeMin} — pas hors range bas` });
 
   const newRangePct = Math.max(2, rangePct * 1.5);
   const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);
-  const minPrice    = currentPrice / sqrtRatio;
-  const maxPrice    = currentPrice * sqrtRatio;
 
-  // 2. Fermer la position actuelle
+  // 3. Fermer la position actuelle
   let closeData;
   try {
     const res = await fetch(`${base}/api/closePositions`, {
@@ -89,16 +115,20 @@ async function handleCase1(priceOverride) {
     return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
   }
 
-  // 3. Créer nouvelle position 80% WETH / 20% USDC
+  const liveMinPrice = livePrice / sqrtRatio;
+  const liveMaxPrice = livePrice * sqrtRatio;
+
+  // 4. Créer nouvelle position 80% WETH / 20% USDC
+  const amountUSDC = parseFloat(closeData?.finalUsdcRaw) || usdcPlaced;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        amountUSDC:  usdcPlaced,
-        minPrice,
-        maxPrice,
-        currentPrice,
+        amountUSDC,
+        minPrice:    liveMinPrice,
+        maxPrice:    liveMaxPrice,
+        currentPrice: livePrice,
         targetRatio: 0.80,
         poolNum:     2,
       }),
@@ -113,9 +143,10 @@ async function handleCase1(priceOverride) {
       ok:           true,
       case:         1,
       newRangePct,
-      minPrice:     minPrice.toFixed(0),
-      maxPrice:     maxPrice.toFixed(0),
-      usdcPlaced,
+      livePrice,
+      minPrice:     liveMinPrice.toFixed(0),
+      maxPrice:     liveMaxPrice.toFixed(0),
+      amountUSDC,
       closeResult:  closeData,
       createResult: data,
     });

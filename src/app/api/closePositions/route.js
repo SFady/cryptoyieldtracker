@@ -377,11 +377,24 @@ export async function POST() {
             allowanceOk = current >= wethBal;
           } catch (_) {}
           if (!allowanceOk) {
-            const txApp = await wallet.sendTransaction({
-              to: WETH,
-              data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
-            });
-            await waitForTx(provider, txApp);
+            let approved = false;
+            try {
+              const txApp = await wallet.sendTransaction({
+                to: WETH,
+                data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
+              });
+              await waitForTx(provider, txApp);
+              approved = true;
+            } catch (approveErr) {
+              // RPC timeout (408/524) — la tx a peut-être abouti quand même
+              await new Promise(r => setTimeout(r, 5000));
+              try {
+                const h2 = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
+                const [cur2] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h2);
+                approved = cur2 >= wethBal;
+              } catch (_) {}
+              if (!approved) throw approveErr;
+            }
           }
         } catch (e) { throw new Error(`[approve WETH→Router] ${e.shortMessage ?? e.message}`); }
 
@@ -434,6 +447,7 @@ export async function POST() {
       swapHash,
       aeroSwapHash,
       finalUsdc,
+      finalUsdcRaw: parseFloat(finalUsdcRaw),
       ...(unstakeErrors.length > 0 ? { unstakeWarnings: unstakeErrors } : {}),
     });
 
