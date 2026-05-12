@@ -479,15 +479,15 @@ export async function POST(req) {
       ...(sweepWarning   ? { sweepWarning }              : {}),
     };
 
-    const rangePct = ((maxPrice / minPrice - 1) * 100).toFixed(2);
+    const rangePct = ((tickUpperPrice / tickLowerPrice - 1) * 100).toFixed(2);
     try {
       const usdcRestant = Number(ethers.formatUnits(await readBal(USDC), 6));
       const usdcPlaced  = usdcAvailable - usdcRestant;
       await logEvent({
         action1:        "CREATE_OK",
         usdc_placed:    usdcPlaced.toFixed(2),
-        range_min:      minPrice,
-        range_max:      maxPrice,
+        range_min:      tickLowerPrice,
+        range_max:      tickUpperPrice,
         range_pct:      rangePct,
         usdc_remaining: usdcRestant.toFixed(2),
         token_id:       tokenId.toString(),
