@@ -47,7 +47,7 @@ async function handleCase1(priceOverride) {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct FROM lp_events
+      SELECT usdc_placed, range_pct, range_min FROM lp_events
       WHERE action1 = 'CREATE_OK' AND (action2 IS NULL OR action2 != 'CLOSE_OK')
       ORDER BY created_at DESC LIMIT 1
     `;
@@ -60,8 +60,12 @@ async function handleCase1(priceOverride) {
 
   const usdcPlaced = parseFloat(lastPos.usdc_placed);
   const rangePct   = parseFloat(lastPos.range_pct);
+  const rangeMin   = parseFloat(lastPos.range_min);
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
+
+  if (!isNaN(rangeMin) && currentPrice >= rangeMin)
+    return Response.json({ skipped: true, reason: `Prix ETH $${currentPrice} >= borne basse $${rangeMin} — pas hors range bas` });
 
   const newRangePct = rangePct * 1.5;
   const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);

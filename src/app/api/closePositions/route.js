@@ -370,12 +370,20 @@ export async function POST() {
 
       if (wethBal > 0n) {
         try {
-          const txApp = await wallet.sendTransaction({
-            to: WETH,
-            data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
-          });
-          await waitForTx(provider, txApp);
-        } catch (e) { throw new Error(`[approve WETHâ†’Router] ${e.shortMessage ?? e.message}`); }
+          let allowanceOk = false;
+          try {
+            const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
+            const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
+            allowanceOk = current >= wethBal;
+          } catch (_) {}
+          if (!allowanceOk) {
+            const txApp = await wallet.sendTransaction({
+              to: WETH,
+              data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
+            });
+            await waitForTx(provider, txApp);
+          }
+        } catch (e) { throw new Error(`[approve WETH→Router] ${e.shortMessage ?? e.message}`); }
 
         const swapParams = {
           tokenIn:           WETH,
