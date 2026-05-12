@@ -301,6 +301,8 @@ export async function POST(req) {
         });
         txSwapHash = txSwap.hash;
         await waitForTx(provider, txSwap);
+        // Attendre que l'état RPC soit à jour avant de lire le solde WETH
+        await new Promise(r => setTimeout(r, 4000));
       } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
     }
 
