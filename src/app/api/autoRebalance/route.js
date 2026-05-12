@@ -110,6 +110,8 @@ async function handleCase1() {
       const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
       throw new Error(errMsg);
     }
+    if (!closeData.collected?.length)
+      return Response.json({ skipped: true, reason: "Aucune position trouvée on-chain à fermer", closeResult: closeData });
   } catch (e) {
     const msg = e?.message ?? e?.shortMessage ?? String(e);
     return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
