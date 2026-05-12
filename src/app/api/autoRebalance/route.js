@@ -5,14 +5,6 @@ export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
-function checkAuth(req) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  const auth  = req.headers.get("authorization") ?? "";
-  const query = new URL(req.url).searchParams.get("secret") ?? "";
-  return auth === `Bearer ${secret}` || query === secret;
-}
-
 function snapRange(x) {
   if (x < 3) return 3;
   const n = Math.ceil((x - 3) / 1.5);
@@ -38,8 +30,6 @@ async function sendErrorEmail(subject, body) {
 }
 
 export async function POST(req) {
-  if (!checkAuth(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
   const body = await req.json().catch(() => ({}));
   const { forceCase, priceOverride } = body;
 
