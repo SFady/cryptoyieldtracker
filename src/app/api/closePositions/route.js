@@ -409,18 +409,15 @@ export async function POST() {
           sqrtPriceLimitX96: 0n,
         };
         try {
-          await provider.call({ to: SWAP_ROUTER, from: wallet.address, data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [swapParams]) });
-        } catch (simErr) { throw new Error(`[sim swap WETHâ†’USDC wethBal=${wethBal} tickSpacing=${tickSpacing}] ${simErr.shortMessage ?? simErr.message}`); }
-        try {
           const txSwap = await wallet.sendTransaction({
             to: SWAP_ROUTER,
             data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [swapParams]),
           });
           swapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
-        } catch (e) { throw new Error(`[swap WETHâ†’USDC] ${e.shortMessage ?? e.message}`); }
+        } catch (e) { swapHash = `FAILED:${e.shortMessage ?? e.message}`; }
       }
-    } catch (e) { throw new Error(`[Ã©tape 4] ${e.message ?? e.shortMessage}`); }
+    } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
     // 5. Solde stablecoin final
     const stableBal    = await readBal(stablecoin, wallet.address);
