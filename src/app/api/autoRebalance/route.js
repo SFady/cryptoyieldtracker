@@ -79,7 +79,7 @@ async function handleCase1() {
       WHERE action1 = 'CREATE_OK'
       ORDER BY created_at DESC LIMIT 1
     `;
-    if (rows.length === 0 || rows[0].action2 === 'CLOSE_OK')
+    if (rows.length === 0 || rows[0].action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     lastPos = rows[0];
   } catch (e) {
