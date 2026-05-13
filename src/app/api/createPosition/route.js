@@ -272,7 +272,9 @@ export async function POST(req) {
     // Utiliser les prix des ticks réels (après arrondi) et non les prix user — évite le désalignement ratio
     const tickLowerPrice    = tickToPrice(tickLower);
     const tickUpperPrice    = tickToPrice(tickUpper);
-    const swapRatio = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
+    // Utiliser le range théorique (serverMin/serverMax) pour le ratio cible, pas les ticks arrondis
+    // Les ticks arrondis peuvent placer poolPrice très près du tick inférieur → ratio dévié
+    const swapRatio = optimalWethFraction(poolPrice, serverMin, serverMax);
     const targetWethValue   = totalBudget * swapRatio; // valeur WETH cible en $
 
     // Swap seulement le manque de WETH — si on en a déjà assez, on ne swap pas
