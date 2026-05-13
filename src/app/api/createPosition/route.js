@@ -321,13 +321,24 @@ export async function POST(req) {
       usdcBalance = await readBal(USDC);
     } catch (e) { throw new Error(`[étape 7 – lecture soldes post-swap] ${e.shortMessage ?? e.message}`); }
 
-    // USDC pour le LP = plafonné à la part USDC du budget
-    const usdcBudgeted = ethers.parseUnits(String((totalBudget * (1 - swapRatio)).toFixed(6)), 6);
-    const usdcToKeep   = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
+    // Re-lire le prix du pool post-swap : l'impact de prix du swap déplace poolPrice,
+    // ce qui change le ratio LP réel. Sans ça, le LP est contraint par le token sous-swappé.
+    if (usdcToSwap > 0n) {
+      try {
+        const s0Post = await provider.call({ to: POOL, data: "0x3850c7bd" });
+        const sqX    = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], s0Post)[0];
+        const sqP2   = Number(sqX) / Number(2n ** 96n);
+        const p2     = sqP2 * sqP2 * 1e12;
+        if (p2 > 100 && p2 < 100000) poolPrice = p2;
+      } catch (_) {}
+    }
 
-    // WETH pour le LP = plafonné à la part WETH du budget (même logique que USDC)
-    const wethBudgeted = ethers.parseUnits(String((targetWethValue / poolPrice).toFixed(18)), 18);
-    const wethToUse    = wethBalance < wethBudgeted ? wethBalance : wethBudgeted;
+    // Recalculer le ratio LP avec le prix post-swap réel
+    const swapRatioPost  = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
+    const usdcBudgeted   = ethers.parseUnits(String((totalBudget * (1 - swapRatioPost)).toFixed(6)), 6);
+    const usdcToKeep     = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
+    const wethBudgeted   = ethers.parseUnits(String((totalBudget * swapRatioPost / poolPrice).toFixed(18)), 18);
+    const wethToUse      = wethBalance < wethBudgeted ? wethBalance : wethBudgeted;
 
     // 8. Approve WETH + USDC → NFPM (seulement si insuffisant)
     try {
@@ -353,7 +364,7 @@ export async function POST(req) {
       deadline:       freshDeadline(),
       sqrtPriceX96:   0n,
     };
-    const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatio.toFixed(4)} poolPrice=${poolPrice.toFixed(2)} usdcToSwap=${usdcToSwap} wethBefore=${wethBalBefore} wethDeficit=${wethDeficitUsdc.toFixed(2)}`;
+    const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatioPost.toFixed(4)} poolPrice=${poolPrice.toFixed(2)} usdcToSwap=${usdcToSwap} wethBefore=${wethBalBefore} wethDeficit=${wethDeficitUsdc.toFixed(2)}`;
 
     // Simulation avant envoi pour avoir le vrai message d'erreur
     try {

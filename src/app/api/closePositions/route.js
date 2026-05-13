@@ -420,14 +420,18 @@ export async function POST() {
           amountOutMinimum:  0n,
           sqrtPriceLimitX96: 0n,
         };
+        const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [swapParams]);
+        let swapGas = 300000n;
+        try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
         try {
-          const txSwap = await wallet.sendTransaction({
-            to: SWAP_ROUTER,
-            data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [swapParams]),
-          });
+          const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
           swapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
-        } catch (e) { swapHash = `FAILED:${e.shortMessage ?? e.message}`; }
+          await new Promise(r => setTimeout(r, 2000));
+        } catch (e) {
+          swapHash = `FAILED:${e.shortMessage ?? e.message}`;
+          // Le swap WETH→USDC a échoué mais les positions sont bien fermées — on continue
+        }
       }
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
