@@ -175,9 +175,6 @@ export async function POST() {
     const [poolToken1] = await view(POOL, POOL_IFACE, "token1");
     const stablecoin = poolToken0.toLowerCase() === WETH.toLowerCase() ? poolToken1 : poolToken0;
 
-    // Solde USDC avant toute opération (pour isoler le gain LP par delta)
-    const usdcBefore = await readBal(stablecoin, wallet.address);
-
     // 2. Unstake toutes les positions du gauge
     const unstakedList  = [];
     const unstakeErrors = [];
@@ -401,10 +398,9 @@ export async function POST() {
       }
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
-    // USDC gagné depuis le début = gain LP seul (principal + fees LP, sans pré-existant ni AERO)
+    // Solde USDC total avant AERO (principal LP + wallet existant, sans AERO)
     const stableBalLp = await readBal(stablecoin, wallet.address);
-    const lpGain      = stableBalLp > usdcBefore ? stableBalLp - usdcBefore : 0n;
-    const lpUsdcRaw   = Number(ethers.formatUnits(lpGain, 6)).toFixed(2);
+    const lpUsdcRaw   = Number(ethers.formatUnits(stableBalLp, 6)).toFixed(2);
 
     // 4a. Swap AERO → USDC (non-bloquant)
     let aeroSwapHash = null;
