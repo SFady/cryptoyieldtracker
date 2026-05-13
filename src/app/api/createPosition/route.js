@@ -207,11 +207,14 @@ export async function POST(req) {
     const rawLower   = priceToTick(serverMin);
     const rawUpper   = priceToTick(serverMax);
     const targetWidth = rawUpper - rawLower;
-    // widthScale : chaque tick de largeur excédentaire ou manquante vaut serverCenter/(10*targetWidth) en $
     const widthScale  = serverCenter / Math.max(1, targetWidth) / 10;
-    const pairScore   = (lo, hi) =>
-      Math.abs(Math.sqrt(tickToPrice(lo) * tickToPrice(hi)) - serverCenter) +
-      Math.abs(hi - lo - targetWidth) * widthScale;
+    // Score basé sur l'écart de ratio LP réel — plus précis que la distance géométrique
+    const pairScore   = (lo, hi) => {
+      const lp = tickToPrice(lo);
+      const hp = tickToPrice(hi);
+      const r  = optimalWethFraction(poolPrice, lp, hp);
+      return Math.abs(r - effectiveRatio) * 1000 + Math.abs(hi - lo - targetWidth) * widthScale;
+    };
 
     let tickLower = roundTickFloor(rawLower, tickSpacing);
     let tickUpper = roundTickCeil(rawUpper, tickSpacing);
@@ -438,11 +441,12 @@ export async function POST(req) {
     };
     const mintDiag = `tickLower=${tickLower} tickUpper=${tickUpper} tickSpacing=${tickSpacing} amount0=${wethBalance} amount1=${usdcToKeep} swapRatio=${swapRatioPost.toFixed(4)} poolPrice=${poolPrice.toFixed(2)} usdcToSwap=${usdcToSwap} wethBefore=${wethBalBefore} wethDeficit=${wethDeficitUsdc.toFixed(2)}`;
 
-    // Simulation avant envoi pour avoir le vrai message d'erreur
+    // Simulation avant envoi — non-bloquante : certains RPCs Base ne retournent pas les revert data
+    let simWarning = null;
     try {
       await provider.call({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
     } catch (simErr) {
-      throw new Error(`[simulation mint] ${simErr.shortMessage ?? simErr.message} | ${mintDiag}`);
+      simWarning = `${simErr.shortMessage ?? simErr.message} | ${mintDiag}`;
     }
 
     let mintTxHash = null;
@@ -568,6 +572,7 @@ export async function POST(req) {
       },
       ...(budgetWarning  ? { warning: budgetWarning }   : {}),
       ...(sweepWarning   ? { sweepWarning }              : {}),
+      ...(simWarning     ? { simWarning }                : {}),
     };
 
     const rangePct = ((tickUpperPrice / tickLowerPrice - 1) * 100).toFixed(2);
