@@ -237,6 +237,8 @@ export async function POST() {
     const fg1           = toUint(word(fg1Hex, 0));
     const sqrtPf        = Number(toUint(word(s0Hex, 0))) / Number(2n ** 96n);
     const wethPriceUsdc = sqrtPf * sqrtPf * 1e12;
+    let principalWei0Acc  = 0n;
+    let principalUsdc1Acc = 0n;
     try {
       // Combiner les tokenIds unstakés (garantis dans le wallet) + ceux trouvés via balanceOf
       // tokenOfOwnerByIndex peut ne pas refléter immédiatement un NFT fraîchement transféré depuis le gauge
@@ -302,12 +304,17 @@ export async function POST() {
             amount1Min: 0n,
             deadline:   freshDeadline(),
           };
-          // Simulation pour avoir le vrai revert
+          // Simulation pour avoir le vrai revert + capturer le principal (amount0/amount1 sans fees)
           try {
-            await provider.call({
+            const dlSimHex = await provider.call({
               to: NFPM, from: wallet.address,
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
             });
+            try {
+              const [a0, a1] = NFPM_IFACE.decodeFunctionResult("decreaseLiquidity", dlSimHex);
+              principalWei0Acc  += BigInt(a0);
+              principalUsdc1Acc += BigInt(a1);
+            } catch (_) {}
           } catch (simErr) {
             const msg = simErr.shortMessage ?? simErr.message ?? "";
             if (msg && !msg.includes("missing revert data")) {
@@ -427,10 +434,11 @@ export async function POST() {
     // Solde USDC total avant AERO (principal LP + wallet existant, sans AERO)
     const stableBalLp   = await readBal(stablecoin, wallet.address);
     const lpUsdcRaw     = Number(ethers.formatUnits(stableBalLp, 6)).toFixed(2);
-    // Principal = solde avant AERO moins fees WETH et USDC accumulées
-    const feesInUsdc    = Number(ethers.formatUnits(totalFeesWei0, 18)) * wethPriceUsdc
-                        + Number(ethers.formatUnits(totalFeesUsdc1, 6));
-    const principalUsdc = Math.max(0, parseFloat(lpUsdcRaw) - feesInUsdc).toFixed(2);
+    // Principal = WETH principal converti au prix spot + USDC principal (depuis la sim decreaseLiquidity)
+    const principalUsdc = (
+      Number(ethers.formatUnits(principalWei0Acc, 18)) * wethPriceUsdc +
+      Number(ethers.formatUnits(principalUsdc1Acc, 6))
+    ).toFixed(2);
 
     // 4a. Swap AERO → USDC (non-bloquant)
     let aeroSwapHash = null;
