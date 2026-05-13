@@ -220,8 +220,11 @@ export async function POST(req) {
     const rawUpper   = priceToTick(serverMax);
     const targetWidth = rawUpper - rawLower;
     const widthScale  = serverCenter / Math.max(1, targetWidth) / 10;
-    // Score basé sur l'écart de ratio LP réel — plus précis que la distance géométrique
-    const pairScore   = (lo, hi) => {
+    // Largeur arrondie au multiple de tickSpacing le plus proche — contrainte prioritaire
+    const roundedTargetWidth = Math.round(targetWidth / tickSpacing) * tickSpacing || tickSpacing;
+    // Score : largeur contrainte en premier, puis ratio LP réel
+    const pairScore = (lo, hi) => {
+      if (Math.abs((hi - lo) - roundedTargetWidth) > tickSpacing / 2) return Infinity;
       const lp = tickToPrice(lo);
       const hp = tickToPrice(hi);
       const r  = optimalWethFraction(poolPrice, lp, hp);
@@ -240,6 +243,12 @@ export async function POST(req) {
       if (lo >= hi) continue;
       const s = pairScore(lo, hi);
       if (s < bestScore) { bestScore = s; tickLower = lo; tickUpper = hi; }
+    }
+
+    // Fallback si aucune paire ne respecte la contrainte de largeur
+    if (bestScore === Infinity) {
+      tickLower = roundTickFloor(rawLower, tickSpacing);
+      tickUpper = roundTickCeil(rawUpper, tickSpacing);
     }
 
     if (tickLower >= tickUpper)
