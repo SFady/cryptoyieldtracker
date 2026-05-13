@@ -207,6 +207,7 @@ async function handleCase4() {
   try {
     const rows = await sql`
       SELECT action2 FROM lp_events
+      WHERE action1 != 'RUNNING'
       ORDER BY created_at DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== "CLOSE_OK")
