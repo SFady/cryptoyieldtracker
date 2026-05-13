@@ -56,10 +56,58 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const { forceCase } = body;
 
-  if (forceCase === 1) return handleCase1();
-  if (forceCase === 4) return handleCase4();
+  if (![1, 2, 3, 4].includes(forceCase))
+    return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
-  return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
+  // 1. Expirer les locks bloqués depuis > 5 min, puis vérifier si une exécution est déjà active
+  try {
+    await sql`
+      UPDATE lp_events
+      SET action2 = 'TIMEOUT', error_msg = 'Timeout automatique 5 min'
+      WHERE action1 = 'RUNNING' AND action2 IS NULL
+        AND created_at < NOW() - INTERVAL '5 minutes'
+    `;
+    const active = await sql`
+      SELECT token_id FROM lp_events
+      WHERE action1 = 'RUNNING' AND action2 IS NULL
+      LIMIT 1
+    `;
+    if (active.length > 0)
+      return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
+  } catch (e) {
+    return Response.json({ error: `Lock check échoué : ${e.message}` }, { status: 500 });
+  }
+
+  // 2. Acquérir le verrou
+  const lockId = `LOCK_${Date.now()}`;
+  try {
+    await sql`INSERT INTO lp_events (action1, token_id) VALUES ('RUNNING', ${lockId})`;
+  } catch (e) {
+    return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 });
+  }
+
+  // 3. Exécuter le cas et libérer le verrou
+  try {
+    let result;
+    if (forceCase === 1) result = await handleCase1();
+    else if (forceCase === 4) result = await handleCase4();
+    else result = Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
+
+    await sql`
+      UPDATE lp_events SET action2 = ${result.ok ? 'DONE' : 'ERROR'}
+      WHERE action1 = 'RUNNING' AND token_id = ${lockId}
+    `;
+    return result;
+  } catch (e) {
+    const msg = e?.message ?? String(e);
+    try {
+      await sql`
+        UPDATE lp_events SET action2 = 'ERROR', error_msg = ${msg}
+        WHERE action1 = 'RUNNING' AND token_id = ${lockId}
+      `;
+    } catch (_) {}
+    return Response.json({ error: msg }, { status: 500 });
+  }
 }
 
 async function handleCase1() {
