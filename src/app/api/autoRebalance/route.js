@@ -94,6 +94,7 @@ export async function POST(req) {
   try {
     let result;
     if (forceCase === 1) result = await handleCase1();
+    else if (forceCase === 2) result = await handleCase2();
     else if (forceCase === 4) result = await handleCase4();
     else result = Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
@@ -196,6 +197,100 @@ async function handleCase1() {
   } catch (e) {
     const msg = e?.message ?? e?.shortMessage ?? String(e);
     return Response.json({ case: 1, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
+  }
+}
+
+async function handleCase2() {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  // 1. Prix WETH on-chain
+  const livePrice = await getPoolWethPrice(0);
+  if (!livePrice || livePrice < 100 || livePrice > 100000)
+    return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice}` });
+
+  // 2. Vérifier position ouverte en DB
+  let lastPos;
+  try {
+    const rows = await sql`
+      SELECT usdc_placed, range_pct, range_max, action2 FROM lp_events
+      WHERE action1 = 'CREATE_OK'
+      ORDER BY created_at DESC LIMIT 1
+    `;
+    if (rows.length === 0 || rows[0].action2 !== null)
+      return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
+    lastPos = rows[0];
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  const usdcPlaced = parseFloat(lastPos.usdc_placed);
+  const rangePct   = parseFloat(lastPos.range_pct);
+  const rangeMax   = parseFloat(lastPos.range_max);
+  if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
+    return Response.json({ skipped: true, reason: "Données position invalides en DB" });
+
+  if (!isNaN(rangeMax) && livePrice <= rangeMax)
+    return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} <= borne haute $${rangeMax} — pas hors range haut` });
+
+  const newRangePct = Math.max(2, rangePct * 1.5);
+  const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);
+
+  // 3. Fermer la position actuelle
+  let closeData;
+  try {
+    const res = await fetch(`${base}/api/closePositions`, {
+      method: "POST",
+      signal: AbortSignal.timeout(240000),
+    });
+    closeData = await res.json();
+    if (!res.ok) {
+      const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
+      throw new Error(errMsg);
+    }
+  } catch (e) {
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
+  }
+
+  const liveMinPrice = livePrice / sqrtRatio;
+  const liveMaxPrice = livePrice * sqrtRatio;
+
+  // 4. Créer nouvelle position 20% WETH / 80% USDC
+  const amountUSDC = parseFloat(closeData?.lpUsdcRaw) || usdcPlaced;
+  try {
+    const res = await fetch(`${base}/api/createPosition`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        amountUSDC,
+        minPrice:     liveMinPrice,
+        maxPrice:     liveMaxPrice,
+        currentPrice: livePrice,
+        targetRatio:  0.20,
+        poolNum:      2,
+      }),
+      signal: AbortSignal.timeout(240000),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
+      throw new Error(errMsg);
+    }
+    return Response.json({
+      ok:           true,
+      case:         2,
+      newRangePct,
+      livePrice,
+      minPrice:     liveMinPrice.toFixed(0),
+      maxPrice:     liveMaxPrice.toFixed(0),
+      amountUSDC,
+      closeResult:  closeData,
+      createResult: data,
+    });
+  } catch (e) {
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    return Response.json({ case: 2, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
   }
 }
 
