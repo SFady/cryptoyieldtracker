@@ -175,6 +175,9 @@ export async function POST() {
     const [poolToken1] = await view(POOL, POOL_IFACE, "token1");
     const stablecoin = poolToken0.toLowerCase() === WETH.toLowerCase() ? poolToken1 : poolToken0;
 
+    // Solde USDC avant toute opération (pour isoler le gain LP par delta)
+    const usdcBefore = await readBal(stablecoin, wallet.address);
+
     // 2. Unstake toutes les positions du gauge
     const unstakedList  = [];
     const unstakeErrors = [];
@@ -235,8 +238,6 @@ export async function POST() {
     const currTick      = Number(toInt(word(s0Hex, 1)));
     const fg0           = toUint(word(fg0Hex, 0));
     const fg1           = toUint(word(fg1Hex, 0));
-    const sqrtP         = Number(toUint(word(s0Hex, 0))) / Number(2n ** 96n);
-    const wethPriceUsdc = sqrtP * sqrtP * 1e12;
     try {
       // Combiner les tokenIds unstakés (garantis dans le wallet) + ceux trouvés via balanceOf
       // tokenOfOwnerByIndex peut ne pas refléter immédiatement un NFT fraîchement transféré depuis le gauge
@@ -400,12 +401,10 @@ export async function POST() {
       }
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
-    // Solde LP principal uniquement (WETH converti, avant AERO, sans fees WETH ni USDC)
-    const stableBalLp  = await readBal(stablecoin, wallet.address);
-    const feesUsdc     = Number(ethers.formatUnits(totalFeesWei0, 18)) * wethPriceUsdc
-                       + Number(ethers.formatUnits(totalFeesUsdc1, 6));
-    const lpPrincipal  = Math.max(0, Number(ethers.formatUnits(stableBalLp, 6)) - feesUsdc);
-    const lpUsdcRaw    = lpPrincipal.toFixed(2);
+    // USDC gagné depuis le début = gain LP seul (principal + fees LP, sans pré-existant ni AERO)
+    const stableBalLp = await readBal(stablecoin, wallet.address);
+    const lpGain      = stableBalLp > usdcBefore ? stableBalLp - usdcBefore : 0n;
+    const lpUsdcRaw   = Number(ethers.formatUnits(lpGain, 6)).toFixed(2);
 
     // 4a. Swap AERO → USDC (non-bloquant)
     let aeroSwapHash = null;
