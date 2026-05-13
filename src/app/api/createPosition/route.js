@@ -293,23 +293,22 @@ export async function POST(req) {
     // 6. Swap USDC → WETH
     let txSwapHash = null;
     if (usdcToSwap > 0n) {
+      const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+        tokenIn:            USDC,
+        tokenOut:           WETH,
+        tickSpacing,
+        recipient:          wallet.address,
+        deadline:           freshDeadline(),
+        amountIn:           usdcToSwap,
+        amountOutMinimum:   0n,
+        sqrtPriceLimitX96:  0n,
+      }]);
+      let swapGas = 300000n;
+      try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
       try {
-        const txSwap = await wallet.sendTransaction({
-          to: SWAP_ROUTER,
-          data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-            tokenIn:            USDC,
-            tokenOut:           WETH,
-            tickSpacing,
-            recipient:          wallet.address,
-            deadline:           freshDeadline(),
-            amountIn:           usdcToSwap,
-            amountOutMinimum:   0n,
-            sqrtPriceLimitX96:  0n,
-          }]),
-        });
+        const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapCalldata, gasLimit: swapGas });
         txSwapHash = txSwap.hash;
         await waitForTx(provider, txSwap);
-        // Attendre que l'état RPC soit à jour avant de lire le solde WETH
         await new Promise(r => setTimeout(r, 4000));
       } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
     }
