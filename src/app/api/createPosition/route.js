@@ -334,10 +334,83 @@ export async function POST(req) {
 
     // Recalculer le ratio LP avec le prix post-swap réel
     const swapRatioPost  = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
-    const usdcBudgeted   = ethers.parseUnits(String((totalBudget * (1 - swapRatioPost)).toFixed(6)), 6);
-    const usdcToKeep     = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
-    const wethBudgeted   = ethers.parseUnits(String((totalBudget * swapRatioPost / poolPrice).toFixed(18)), 18);
-    const wethToUse      = wethBalance < wethBudgeted ? wethBalance : wethBudgeted;
+    let usdcBudgeted     = ethers.parseUnits(String((totalBudget * (1 - swapRatioPost)).toFixed(6)), 6);
+    let wethBudgeted     = ethers.parseUnits(String((totalBudget * swapRatioPost / poolPrice).toFixed(18)), 18);
+    let usdcToKeep       = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
+    let wethToUse        = wethBalance < wethBudgeted ? wethBalance : wethBudgeted;
+
+    // 7b. Swap correctif — comble l'écart résiduel dû au price impact du premier swap
+    {
+      const wethDeficit = wethBudgeted > wethBalance ? wethBudgeted - wethBalance : 0n;
+      const usdcDeficit = usdcBudgeted > usdcBalance ? usdcBudgeted - usdcBalance : 0n;
+      let didCorrect = false;
+
+      if (wethDeficit > 0n) {
+        // Pas assez de WETH → swap USDC→WETH pour le montant manquant
+        const usdcNeeded = ethers.parseUnits(
+          String(Math.min(
+            Number(ethers.formatUnits(wethDeficit, 18)) * poolPrice,
+            Number(ethers.formatUnits(usdcBalance, 6))
+          ).toFixed(6)), 6
+        );
+        if (usdcNeeded > ethers.parseUnits("1", 6)) {
+          try {
+            await ensureAllowance(wallet, provider, USDC, SWAP_ROUTER, usdcNeeded);
+            const cd2 = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+              tokenIn: USDC, tokenOut: WETH, tickSpacing,
+              recipient: wallet.address, deadline: freshDeadline(),
+              amountIn: usdcNeeded, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+            }]);
+            let g2 = 300000n;
+            try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
+            const tx2 = await wallet.sendTransaction({ to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
+            await waitForTx(provider, tx2);
+            await new Promise(r => setTimeout(r, 2000));
+            didCorrect = true;
+          } catch (_) {}
+        }
+      } else if (usdcDeficit > ethers.parseUnits("1", 6)) {
+        // Pas assez d'USDC → swap WETH→USDC pour le montant manquant
+        const wethNeeded = ethers.parseUnits(
+          String(Math.min(
+            Number(ethers.formatUnits(usdcDeficit, 6)) / poolPrice,
+            Number(ethers.formatUnits(wethBalance, 18))
+          ).toFixed(18)), 18
+        );
+        if (wethNeeded > ethers.parseUnits("0.0003", 18)) {
+          try {
+            await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethNeeded);
+            const cd2 = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+              tokenIn: WETH, tokenOut: USDC, tickSpacing,
+              recipient: wallet.address, deadline: freshDeadline(),
+              amountIn: wethNeeded, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+            }]);
+            let g2 = 300000n;
+            try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
+            const tx2 = await wallet.sendTransaction({ to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
+            await waitForTx(provider, tx2);
+            await new Promise(r => setTimeout(r, 2000));
+            didCorrect = true;
+          } catch (_) {}
+        }
+      }
+
+      if (didCorrect) {
+        try { wethBalance = await readBal(WETH); usdcBalance = await readBal(USDC); } catch (_) {}
+        try {
+          const s0c = await provider.call({ to: POOL, data: "0x3850c7bd" });
+          const sqc = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], s0c)[0];
+          const pc  = Number(sqc) / Number(2n ** 96n);
+          const pp  = pc * pc * 1e12;
+          if (pp > 100 && pp < 100000) poolPrice = pp;
+        } catch (_) {}
+        const ratioFinal = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
+        usdcBudgeted = ethers.parseUnits(String((totalBudget * (1 - ratioFinal)).toFixed(6)), 6);
+        wethBudgeted = ethers.parseUnits(String((totalBudget * ratioFinal / poolPrice).toFixed(18)), 18);
+        usdcToKeep   = usdcBalance < usdcBudgeted ? usdcBalance : usdcBudgeted;
+        wethToUse    = wethBalance < wethBudgeted ? wethBalance : wethBudgeted;
+      }
+    }
 
     // 8. Approve WETH + USDC → NFPM (seulement si insuffisant)
     try {
