@@ -175,6 +175,20 @@ export async function POST(req) {
 
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
+    // Certains RPCs Base ne supportent pas "pending" + erreurs transitoires → patch + retry
+    const _rawSend = provider.send.bind(provider);
+    provider.send = async function(method, params) {
+      const p = (method === "eth_getTransactionCount" && params[1] === "pending")
+        ? [params[0], "latest"] : params;
+      for (let i = 0; i < 3; i++) {
+        try { return await _rawSend(method, p); } catch (e) {
+          const msg = e?.message ?? String(e);
+          if (i < 2 && (msg.includes("Temporary internal error") || msg.includes("Please retry")))
+            { await new Promise(r => setTimeout(r, 1500 * (i + 1))); continue; }
+          throw e;
+        }
+      }
+    };
     const wallet   = new ethers.Wallet(privateKey, provider);
 
     // 1. tickSpacing + prix réel du pool (slot0)
