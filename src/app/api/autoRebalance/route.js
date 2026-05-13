@@ -163,7 +163,7 @@ async function handleCase1() {
   const liveMaxPrice = livePrice * sqrtRatio;
 
   // 4. Créer nouvelle position 80% WETH / 20% USDC
-  const amountUSDC = parseFloat(closeData?.lpUsdcRaw) || usdcPlaced;
+  const amountUSDC = parseFloat(closeData?.principalUsdc) || usdcPlaced;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",
@@ -257,7 +257,7 @@ async function handleCase2() {
   const liveMaxPrice = livePrice * sqrtRatio;
 
   // 4. Créer nouvelle position 20% WETH / 80% USDC
-  const amountUSDC = parseFloat(closeData?.lpUsdcRaw) || usdcPlaced;
+  const amountUSDC = parseFloat(closeData?.principalUsdc) || usdcPlaced;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",

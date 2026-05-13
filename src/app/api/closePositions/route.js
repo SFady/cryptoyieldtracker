@@ -235,6 +235,8 @@ export async function POST() {
     const currTick      = Number(toInt(word(s0Hex, 1)));
     const fg0           = toUint(word(fg0Hex, 0));
     const fg1           = toUint(word(fg1Hex, 0));
+    const sqrtPf        = Number(toUint(word(s0Hex, 0))) / Number(2n ** 96n);
+    const wethPriceUsdc = sqrtPf * sqrtPf * 1e12;
     try {
       // Combiner les tokenIds unstakés (garantis dans le wallet) + ceux trouvés via balanceOf
       // tokenOfOwnerByIndex peut ne pas refléter immédiatement un NFT fraîchement transféré depuis le gauge
@@ -423,8 +425,12 @@ export async function POST() {
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
     // Solde USDC total avant AERO (principal LP + wallet existant, sans AERO)
-    const stableBalLp = await readBal(stablecoin, wallet.address);
-    const lpUsdcRaw   = Number(ethers.formatUnits(stableBalLp, 6)).toFixed(2);
+    const stableBalLp   = await readBal(stablecoin, wallet.address);
+    const lpUsdcRaw     = Number(ethers.formatUnits(stableBalLp, 6)).toFixed(2);
+    // Principal = solde avant AERO moins fees WETH et USDC accumulées
+    const feesInUsdc    = Number(ethers.formatUnits(totalFeesWei0, 18)) * wethPriceUsdc
+                        + Number(ethers.formatUnits(totalFeesUsdc1, 6));
+    const principalUsdc = Math.max(0, parseFloat(lpUsdcRaw) - feesInUsdc).toFixed(2);
 
     // 4a. Swap AERO → USDC (non-bloquant)
     let aeroSwapHash = null;
@@ -459,7 +465,7 @@ export async function POST() {
       try {
         for (const tokenId of collectedList) {
           await sql`UPDATE lp_events
-                    SET usdc_on_close = ${finalUsdcRaw},
+                    SET usdc_on_close = ${principalUsdc},
                         action2       = 'CLOSE_OK',
                         closed_at     = NOW()
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
@@ -474,8 +480,9 @@ export async function POST() {
       swapHash,
       aeroSwapHash,
       finalUsdc,
-      finalUsdcRaw: parseFloat(finalUsdcRaw),
-      lpUsdcRaw:    parseFloat(lpUsdcRaw),
+      finalUsdcRaw:   parseFloat(finalUsdcRaw),
+      lpUsdcRaw:      parseFloat(lpUsdcRaw),
+      principalUsdc:  parseFloat(principalUsdc),
       ...(unstakeErrors.length > 0 ? { unstakeWarnings: unstakeErrors } : {}),
     });
 
