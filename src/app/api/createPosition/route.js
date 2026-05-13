@@ -227,6 +227,17 @@ export async function POST(req) {
       if (s < bestScore) { bestScore = s; tickLower = lo; tickUpper = hi; }
     }
 
+    // Pour le cas 50/50 : placement symétrique autour du tick central
+    // geomMean d'un pair symétrique = tickToPrice(center) ≈ poolPrice → ratio ≈ 50/50 garanti
+    // pairScore seul peut rater la symétrie quand tickSpacing > largeur théorique du range
+    if (Math.abs(effectiveRatio - 0.5) < 0.02) {
+      const poolTick   = priceToTick(poolPrice);
+      const centerTick = Math.round(poolTick / tickSpacing) * tickSpacing;
+      const halfTicks  = Math.max(tickSpacing, Math.ceil((rawUpper - rawLower) / 2 / tickSpacing) * tickSpacing);
+      tickLower = centerTick - halfTicks;
+      tickUpper = centerTick + halfTicks;
+    }
+
     if (tickLower >= tickUpper)
       return Response.json({ error: `Range invalide : tickLower(${tickLower}) >= tickUpper(${tickUpper}) — élargis la fourchette de prix` }, { status: 400 });
 
