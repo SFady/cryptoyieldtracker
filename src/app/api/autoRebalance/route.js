@@ -86,27 +86,22 @@ export async function POST(req) {
     return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 3. Exécuter le cas et libérer le verrou
+  // 3. Exécuter le cas et retirer le verrou (skip ou erreur explicite → DELETE, timeout Vercel → reste en base)
+  const releaseLock = async () => {
+    try { await sql`DELETE FROM lp_events WHERE action1 = 'RUNNING' AND token_id = ${lockId}`; } catch (_) {}
+  };
+
   try {
     let result;
     if (forceCase === 1) result = await handleCase1();
     else if (forceCase === 4) result = await handleCase4();
     else result = Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
-    await sql`
-      UPDATE lp_events SET action2 = ${result.ok ? 'DONE' : 'ERROR'}
-      WHERE action1 = 'RUNNING' AND token_id = ${lockId}
-    `;
+    await releaseLock();
     return result;
   } catch (e) {
-    const msg = e?.message ?? String(e);
-    try {
-      await sql`
-        UPDATE lp_events SET action2 = 'ERROR', error_msg = ${msg}
-        WHERE action1 = 'RUNNING' AND token_id = ${lockId}
-      `;
-    } catch (_) {}
-    return Response.json({ error: msg }, { status: 500 });
+    await releaseLock();
+    return Response.json({ error: e?.message ?? String(e) }, { status: 500 });
   }
 }
 
