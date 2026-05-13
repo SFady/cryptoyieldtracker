@@ -327,13 +327,37 @@ export async function POST() {
           } catch (e) { throw new Error(`[decreaseLiquidity tokenId=${tokenId}] ${e.message ?? e.shortMessage}`); }
         }
 
-        // Collecter fees + tokens retirÃ©s
+        // Collecter fees + tokens retirés
         try {
           const collectData = NFPM_IFACE.encodeFunctionData("collect", [{ tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128 }]);
-          let collectGas = 200000n;
+
+          // Simulation pour obtenir le vrai revert avant d'envoyer la tx
+          try {
+            await provider.call({ to: NFPM, from: wallet.address, data: collectData });
+          } catch (simErr) {
+            const simMsg = simErr.shortMessage ?? simErr.message ?? "";
+            if (simMsg && !simMsg.includes("missing revert data"))
+              throw new Error(`[sim collect] ${simMsg}`);
+          }
+
+          let collectGas = 400000n;
           try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
           const tx = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
-          await waitForTx(provider, tx);
+
+          try {
+            await waitForTx(provider, tx);
+          } catch (waitErr) {
+            // "could not coalesce error" = ethers ne parse pas la réponse → vérifier le receipt directement
+            if ((waitErr.message ?? waitErr.shortMessage ?? "").includes("could not coalesce")) {
+              await new Promise(r => setTimeout(r, 3000));
+              const receipt = await provider.getTransactionReceipt(tx.hash);
+              if (!receipt || receipt.status === 0)
+                throw new Error(`revert on-chain collect (hash=${tx.hash})`);
+            } else {
+              throw waitErr;
+            }
+          }
+
           collectedList.push(tokenId.toString());
         } catch (e) {
           throw new Error(`[collect tokenId=${tokenId}] ${e.shortMessage ?? e.message}`);
