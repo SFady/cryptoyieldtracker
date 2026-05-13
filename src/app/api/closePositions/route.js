@@ -232,20 +232,26 @@ export async function POST() {
       ethCall(POOL, "0xf3058399"),  // feeGrowthGlobal0X128
       ethCall(POOL, "0x46141319"),  // feeGrowthGlobal1X128
     ]);
-    const currTick = Number(toInt(word(s0Hex, 1)));
-    const fg0      = toUint(word(fg0Hex, 0));
-    const fg1      = toUint(word(fg1Hex, 0));
+    const currTick      = Number(toInt(word(s0Hex, 1)));
+    const fg0           = toUint(word(fg0Hex, 0));
+    const fg1           = toUint(word(fg1Hex, 0));
+    const sqrtP         = Number(toUint(word(s0Hex, 0))) / Number(2n ** 96n);
+    const wethPriceUsdc = sqrtP * sqrtP * 1e12;
     try {
-      // balanceOf peut Ãªtre surÃ©valuÃ© sur le NFPM Aerodrome (compte aussi les NFTs stakÃ©s),
-      // donc on boucle avec try/catch et on s'arrÃªte au premier index invalide.
-      const [count] = await view(NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
-      const tokenIds = [];
-      for (let i = 0n; i < count; i++) {
-        try {
-          const [tid] = await view(NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
-          tokenIds.push(tid);
-        } catch (_) { break; }
-      }
+      // Combiner les tokenIds unstakés (garantis dans le wallet) + ceux trouvés via balanceOf
+      // tokenOfOwnerByIndex peut ne pas refléter immédiatement un NFT fraîchement transféré depuis le gauge
+      const tokenIdSet = new Set();
+      for (const id of unstakedList) tokenIdSet.add(BigInt(id));
+      try {
+        const [count] = await view(NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
+        for (let i = 0n; i < count; i++) {
+          try {
+            const [tid] = await view(NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
+            tokenIdSet.add(tid);
+          } catch (_) { break; }
+        }
+      } catch (_) {}
+      const tokenIds = [...tokenIdSet];
 
       for (const tokenId of tokenIds) {
         let pos;
@@ -339,31 +345,7 @@ export async function POST() {
       throw new Error(e.message); // propage le message dÃ©taillÃ©
     }
 
-    // 4a. Swap AERO â†’ USDC (rÃ©compenses du gauge, via V2 router AMM)
-    // Non-bloquant : si le swap Ã©choue (montant trop faible, pool insuffisant), on continue
-    let aeroSwapHash = null;
-    try {
-      const aeroBal = await readBal(AERO, wallet.address);
-      const MIN_AERO = ethers.parseUnits("0.01", 18); // ignore dust < 0.01 AERO
-
-      if (aeroBal >= MIN_AERO) {
-        const txApp = await wallet.sendTransaction({
-          to: AERO,
-          data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
-        });
-        await waitForTx(provider, txApp);
-
-        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
-        const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-          aeroBal, 0n, routes, wallet.address, freshDeadline(),
-        ]);
-        const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
-        aeroSwapHash = txAeroSwap.hash;
-        await waitForTx(provider, txAeroSwap);
-      }
-    } catch (_) {} // non-bloquant — AERO reste en wallet si le swap échoue
-
-    // 4. Swap tout le WETH â†’ USDC
+    // 4. Swap tout le WETH → USDC
     let swapHash = null;
     try {
       const wethBal = await readBal(WETH, wallet.address);
@@ -386,7 +368,6 @@ export async function POST() {
               await waitForTx(provider, txApp);
               approved = true;
             } catch (approveErr) {
-              // RPC timeout (408/524) — la tx a peut-être abouti quand même
               await new Promise(r => setTimeout(r, 5000));
               try {
                 const h2 = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
@@ -419,6 +400,36 @@ export async function POST() {
       }
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
 
+    // Solde LP principal uniquement (WETH converti, avant AERO, sans fees WETH ni USDC)
+    const stableBalLp  = await readBal(stablecoin, wallet.address);
+    const feesUsdc     = Number(ethers.formatUnits(totalFeesWei0, 18)) * wethPriceUsdc
+                       + Number(ethers.formatUnits(totalFeesUsdc1, 6));
+    const lpPrincipal  = Math.max(0, Number(ethers.formatUnits(stableBalLp, 6)) - feesUsdc);
+    const lpUsdcRaw    = lpPrincipal.toFixed(2);
+
+    // 4a. Swap AERO → USDC (non-bloquant)
+    let aeroSwapHash = null;
+    try {
+      const aeroBal = await readBal(AERO, wallet.address);
+      const MIN_AERO = ethers.parseUnits("0.01", 18);
+
+      if (aeroBal >= MIN_AERO) {
+        const txApp = await wallet.sendTransaction({
+          to: AERO,
+          data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
+        });
+        await waitForTx(provider, txApp);
+
+        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
+        const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+          aeroBal, 0n, routes, wallet.address, freshDeadline(),
+        ]);
+        const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
+        aeroSwapHash = txAeroSwap.hash;
+        await waitForTx(provider, txAeroSwap);
+      }
+    } catch (_) {}
+
     // 5. Solde stablecoin final
     const stableBal    = await readBal(stablecoin, wallet.address);
     const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
@@ -445,6 +456,7 @@ export async function POST() {
       aeroSwapHash,
       finalUsdc,
       finalUsdcRaw: parseFloat(finalUsdcRaw),
+      lpUsdcRaw:    parseFloat(lpUsdcRaw),
       ...(unstakeErrors.length > 0 ? { unstakeWarnings: unstakeErrors } : {}),
     });
 

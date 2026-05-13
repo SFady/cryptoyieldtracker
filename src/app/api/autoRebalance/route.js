@@ -119,7 +119,7 @@ async function handleCase1() {
   const liveMaxPrice = livePrice * sqrtRatio;
 
   // 4. Créer nouvelle position 80% WETH / 20% USDC
-  const amountUSDC = parseFloat(closeData?.finalUsdcRaw) || usdcPlaced;
+  const amountUSDC = parseFloat(closeData?.lpUsdcRaw) || usdcPlaced;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",
@@ -164,7 +164,6 @@ async function handleCase4() {
   try {
     const rows = await sql`
       SELECT action2 FROM lp_events
-      WHERE action1 = 'CREATE_OK'
       ORDER BY created_at DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== "CLOSE_OK")
