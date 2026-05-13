@@ -367,7 +367,7 @@ async function handleCase4() {
     const msg = e?.message ?? e?.shortMessage ?? String(e);
     await sendErrorEmail(
       "[CryptoYieldTracker] Erreur — Cas 4 création position",
-      `Prix ETH : $${currentPrice}\nRange    : ${newRangePct}%\nMin      : $${minPrice.toFixed(0)}\nMax      : $${maxPrice.toFixed(0)}\n\nErreur : ${msg}`
+      `Prix ETH : $${livePrice4}\nRange    : ${newRangePct}%\nMin      : $${minPrice.toFixed(0)}\nMax      : $${maxPrice.toFixed(0)}\n\nErreur : ${msg}`
     );
     return Response.json({ error: msg }, { status: 500 });
   }
