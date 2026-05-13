@@ -173,16 +173,23 @@ async function handleCase4() {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 2. Range via ATR
-  let newRangePct;
+  // 2. Range via percentiles 24h (cron_runs), minimum 2%
+  let newRangePct = 2;
   try {
-    const res = await fetch(`${base}/api/atr`, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const atr = await res.json();
-    newRangePct = Math.max(2, atr.range2x);
-  } catch (e) {
-    return Response.json({ error: `atr failed: ${e.message}` }, { status: 500 });
-  }
+    const rows = await sql`
+      SELECT
+        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
+        COUNT(*)::int AS cnt
+      FROM cron_runs
+      WHERE weth IS NOT NULL
+        AND ran_at > NOW() - INTERVAL '24 hours'
+    `;
+    const { p05, p95, cnt } = rows[0];
+    if (cnt >= 10 && p05 > 0)
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+  } catch (_) {}
+  newRangePct = parseFloat(newRangePct.toFixed(2));
 
   const livePrice4 = await getPoolWethPrice(0);
   const sqrtRatio  = Math.sqrt(1 + newRangePct / 100);
@@ -195,7 +202,7 @@ async function handleCase4() {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        amountUSDC:   100,
+        amountUSDC:   999999,
         minPrice,
         maxPrice,
         currentPrice: livePrice4,
