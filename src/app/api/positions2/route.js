@@ -39,7 +39,6 @@ const RPC_URLS = [
   "https://base.drpc.org",
   "https://base-rpc.publicnode.com",
   "https://base.llamarpc.com",
-  "https://base.meowrpc.com",
   "https://mainnet.base.org",
 ];
 
