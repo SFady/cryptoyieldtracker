@@ -240,9 +240,9 @@ export async function GET() {
     }
 
     if (!tokenId) {
-      const data = { positions: [] };
-      global._cytPositionsCache = { data, time: Date.now() };
-      return Response.json(data);
+      if (global._cytPositionsCache.data?.positions?.length > 0)
+        return Response.json(global._cytPositionsCache.data);
+      return Response.json({ positions: [] });
     }
 
     if (!posHex) posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId)).catch(() => null);
@@ -257,9 +257,9 @@ export async function GET() {
         global._pos1ActiveId = { id: tokenId, time: Date.now() };
         if (detectedPool) activePool = detectedPool;
       } else {
-        const data = { positions: [] };
-        global._cytPositionsCache = { data, time: Date.now() };
-        return Response.json(data);
+        if (global._cytPositionsCache.data?.positions?.length > 0)
+          return Response.json(global._cytPositionsCache.data);
+        return Response.json({ positions: [] });
       }
     }
 
