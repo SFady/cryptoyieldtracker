@@ -52,6 +52,15 @@ async function sendErrorEmail(subject, body) {
   } catch (_) {}
 }
 
+async function acquireLock() {
+  const lockId = `LOCK_${Date.now()}`;
+  await sql`INSERT INTO lp_events (action1, token_id) VALUES ('RUNNING', ${lockId})`;
+  const release = async () => {
+    try { await sql`DELETE FROM lp_events WHERE action1 = 'RUNNING' AND token_id = ${lockId}`; } catch (_) {}
+  };
+  return release;
+}
+
 async function handleRequest(forceCase) {
   if (![1, 2, 3, 4].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
@@ -93,33 +102,11 @@ async function handleRequest(forceCase) {
     return Response.json({ error: `Error check échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 3. Acquérir le verrou
-  const lockId = `LOCK_${Date.now()}`;
-  try {
-    await sql`INSERT INTO lp_events (action1, token_id) VALUES ('RUNNING', ${lockId})`;
-  } catch (e) {
-    return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 });
-  }
-
-  // 4. Exécuter le cas et retirer le verrou (skip ou erreur explicite → DELETE, timeout Vercel → reste en base)
-  const releaseLock = async () => {
-    try { await sql`DELETE FROM lp_events WHERE action1 = 'RUNNING' AND token_id = ${lockId}`; } catch (_) {}
-  };
-
-  try {
-    let result;
-    if (forceCase === 1) result = await handleCase1();
-    else if (forceCase === 2) result = await handleCase2();
-    else if (forceCase === 3) result = await handleCase3();
-    else if (forceCase === 4) result = await handleCase4();
-    else result = Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
-
-    await releaseLock();
-    return result;
-  } catch (e) {
-    await releaseLock();
-    return Response.json({ error: e?.message ?? String(e) }, { status: 500 });
-  }
+  // 3. Déléguer au cas — le lock est acquis à l'intérieur, après les vérifications de conditions
+  if (forceCase === 1) return handleCase1();
+  if (forceCase === 2) return handleCase2();
+  if (forceCase === 3) return handleCase3();
+  if (forceCase === 4) return handleCase4();
 }
 
 export async function GET(req) {
@@ -166,65 +153,41 @@ async function handleCase1() {
   if (!isNaN(rangeMin) && livePrice >= rangeMin)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} >= borne basse $${rangeMin} — pas hors range bas` });
 
-  const newRangePct = Math.max(2, rangePct * 1.5);
-  const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);
-
-  // 3. Fermer la position actuelle
-  let closeData;
-  try {
-    const res = await fetch(`${base}/api/closePositions`, {
-      method: "POST",
-      signal: AbortSignal.timeout(240000),
-    });
-    closeData = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
-      throw new Error(errMsg);
-    }
-  } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
-    return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
-  }
-
+  const newRangePct  = Math.max(2, rangePct * 1.5);
+  const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
-  const amountUSDC1  = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
 
-  // 4. Créer nouvelle position 80% WETH / 20% USDC
+  // 3. Toutes les conditions sont remplies → acquérir le lock
+  let release;
+  try { release = await acquireLock(); }
+  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+
   try {
+    // 4. Fermer la position actuelle
+    let closeData;
+    try {
+      const res = await fetch(`${base}/api/closePositions`, { method: "POST", signal: AbortSignal.timeout(240000) });
+      closeData = await res.json();
+      if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
+    } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
+
+    const amountUSDC1 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
+
+    // 5. Créer nouvelle position 80% WETH / 20% USDC
     const res = await fetch(`${base}/api/createPosition`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        amountUSDC:  amountUSDC1,
-        minPrice:    liveMinPrice,
-        maxPrice:    liveMaxPrice,
-        currentPrice: livePrice,
-        targetRatio: 0.70,
-        poolNum:     2,
-        caseNum:     1,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amountUSDC: amountUSDC1, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.70, poolNum: 2, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
-      throw new Error(errMsg);
-    }
-    return Response.json({
-      ok:           true,
-      case:         1,
-      newRangePct,
-      livePrice,
-      minPrice:     liveMinPrice.toFixed(0),
-      maxPrice:     liveMaxPrice.toFixed(0),
-      amountUSDC:   amountUSDC1,
-      closeResult:  closeData,
-      createResult: data,
-    });
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
+
+    await release();
+    return Response.json({ ok: true, case: 1, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), amountUSDC: amountUSDC1, createResult: data });
   } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
-    return Response.json({ case: 1, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
+    await release();
+    return Response.json({ case: 1, error: e?.message ?? String(e) }, { status: 500 });
   }
 }
 
@@ -262,65 +225,41 @@ async function handleCase2() {
   if (!isNaN(rangeMax) && livePrice <= rangeMax)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} <= borne haute $${rangeMax} — pas hors range haut` });
 
-  const newRangePct = Math.max(2, rangePct * 1.5);
-  const sqrtRatio   = Math.sqrt(1 + newRangePct / 100);
-
-  // 3. Fermer la position actuelle
-  let closeData;
-  try {
-    const res = await fetch(`${base}/api/closePositions`, {
-      method: "POST",
-      signal: AbortSignal.timeout(240000),
-    });
-    closeData = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
-      throw new Error(errMsg);
-    }
-  } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
-    return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
-  }
-
+  const newRangePct  = Math.max(2, rangePct * 1.5);
+  const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
-  const amountUSDC2  = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
 
-  // 4. Créer nouvelle position 20% WETH / 80% USDC
+  // 3. Toutes les conditions sont remplies → acquérir le lock
+  let release;
+  try { release = await acquireLock(); }
+  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+
   try {
+    // 4. Fermer la position actuelle
+    let closeData;
+    try {
+      const res = await fetch(`${base}/api/closePositions`, { method: "POST", signal: AbortSignal.timeout(240000) });
+      closeData = await res.json();
+      if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
+    } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
+
+    const amountUSDC2 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
+
+    // 5. Créer nouvelle position 20% WETH / 80% USDC
     const res = await fetch(`${base}/api/createPosition`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        amountUSDC:  amountUSDC2,
-        minPrice:     liveMinPrice,
-        maxPrice:     liveMaxPrice,
-        currentPrice: livePrice,
-        targetRatio:  0.30,
-        poolNum:      2,
-        caseNum:      2,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amountUSDC: amountUSDC2, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.30, poolNum: 2, caseNum: 2 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
-      throw new Error(errMsg);
-    }
-    return Response.json({
-      ok:           true,
-      case:         2,
-      newRangePct,
-      livePrice,
-      minPrice:     liveMinPrice.toFixed(0),
-      maxPrice:     liveMaxPrice.toFixed(0),
-      amountUSDC:   amountUSDC2,
-      closeResult:  closeData,
-      createResult: data,
-    });
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
+
+    await release();
+    return Response.json({ ok: true, case: 2, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), amountUSDC: amountUSDC2, createResult: data });
   } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
-    return Response.json({ case: 2, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
+    await release();
+    return Response.json({ case: 2, error: e?.message ?? String(e) }, { status: 500 });
   }
 }
 
@@ -388,60 +327,36 @@ async function handleCase3() {
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
 
-  // 6. Fermer la position actuelle
-  let closeData;
-  try {
-    const res = await fetch(`${base}/api/closePositions`, {
-      method: "POST",
-      signal: AbortSignal.timeout(240000),
-    });
-    closeData = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
-      throw new Error(errMsg);
-    }
-  } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
-    return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
-  }
+  // 6. Toutes les conditions sont remplies → acquérir le lock
+  let release;
+  try { release = await acquireLock(); }
+  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
 
-  // 7. Créer nouvelle position 50/50 avec le range calculé
-  const amountUSDC3 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
   try {
+    // 7. Fermer la position actuelle
+    let closeData;
+    try {
+      const res = await fetch(`${base}/api/closePositions`, { method: "POST", signal: AbortSignal.timeout(240000) });
+      closeData = await res.json();
+      if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
+    } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
+
+    const amountUSDC3 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
+
+    // 8. Créer nouvelle position 50/50 avec le range calculé
     const res = await fetch(`${base}/api/createPosition`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        amountUSDC:  amountUSDC3,
-        minPrice:     liveMinPrice,
-        maxPrice:     liveMaxPrice,
-        currentPrice: livePrice,
-        targetRatio:  0.5,
-        poolNum:      2,
-        caseNum:      3,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amountUSDC: amountUSDC3, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 3 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
-      throw new Error(errMsg);
-    }
-    return Response.json({
-      ok:           true,
-      case:         3,
-      ageHours:     ageHours.toFixed(1),
-      newRangePct,
-      livePrice,
-      minPrice:     liveMinPrice.toFixed(0),
-      maxPrice:     liveMaxPrice.toFixed(0),
-      amountUSDC:   amountUSDC3,
-      closeResult:  closeData,
-      createResult: data,
-    });
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
+
+    await release();
+    return Response.json({ ok: true, case: 3, ageHours: ageHours.toFixed(1), newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), amountUSDC: amountUSDC3, createResult: data });
   } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
-    return Response.json({ case: 3, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
+    await release();
+    return Response.json({ case: 3, error: e?.message ?? String(e) }, { status: 500 });
   }
 }
 
@@ -481,42 +396,33 @@ async function handleCase4() {
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
   const livePrice4 = await getPoolWethPrice(0);
-  const sqrtRatio  = Math.sqrt(1 + newRangePct / 100);
-  const minPrice   = livePrice4 / sqrtRatio;
-  const maxPrice   = livePrice4 * sqrtRatio;
+  if (!livePrice4 || livePrice4 < 100 || livePrice4 > 100000)
+    return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice4}` });
 
-  // 3. Créer nouvelle position 50/50 — 100 USDC
+  const sqrtRatio = Math.sqrt(1 + newRangePct / 100);
+  const minPrice  = livePrice4 / sqrtRatio;
+  const maxPrice  = livePrice4 * sqrtRatio;
+
+  // 3. Toutes les conditions sont remplies → acquérir le lock
+  let release;
+  try { release = await acquireLock(); }
+  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+
   try {
+    // 4. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        amountUSDC:   999999,
-        minPrice,
-        maxPrice,
-        currentPrice: livePrice4,
-        targetRatio:  0.5,
-        poolNum:      2,
-        caseNum:      4,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amountUSDC: 999999, minPrice, maxPrice, currentPrice: livePrice4, targetRatio: 0.5, poolNum: 2, caseNum: 4 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
-    if (!res.ok) {
-      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
-      throw new Error(errMsg);
-    }
-    return Response.json({
-      ok:          true,
-      case:        4,
-      newRangePct,
-      livePrice:   livePrice4,
-      minPrice:    minPrice.toFixed(0),
-      maxPrice:    maxPrice.toFixed(0),
-      createResult: data,
-    });
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
+
+    await release();
+    return Response.json({ ok: true, case: 4, newRangePct, livePrice: livePrice4, minPrice: minPrice.toFixed(0), maxPrice: maxPrice.toFixed(0), createResult: data });
   } catch (e) {
-    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    await release();
+    const msg = e?.message ?? String(e);
     await sendErrorEmail(
       "[CryptoYieldTracker] Erreur — Cas 4 création position",
       `Prix ETH : $${livePrice4}\nRange    : ${newRangePct}%\nMin      : $${minPrice.toFixed(0)}\nMax      : $${maxPrice.toFixed(0)}\n\nErreur : ${msg}`
