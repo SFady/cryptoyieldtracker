@@ -122,7 +122,7 @@ async function handleCase1() {
     const rows = await sql`
       SELECT usdc_placed, range_pct, range_min, action2 FROM lp_events
       WHERE action1 = 'CREATE_OK'
-      ORDER BY created_at DESC LIMIT 1
+      ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
@@ -217,7 +217,7 @@ async function handleCase2() {
     const rows = await sql`
       SELECT usdc_placed, range_pct, range_max, action2 FROM lp_events
       WHERE action1 = 'CREATE_OK'
-      ORDER BY created_at DESC LIMIT 1
+      ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
@@ -312,7 +312,7 @@ async function handleCase3() {
     const rows = await sql`
       SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at FROM lp_events
       WHERE action1 = 'CREATE_OK'
-      ORDER BY created_at DESC LIMIT 1
+      ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
@@ -426,7 +426,7 @@ async function handleCase4() {
     const rows = await sql`
       SELECT action2 FROM lp_events
       WHERE action1 != 'RUNNING'
-      ORDER BY created_at DESC LIMIT 1
+      ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== "CLOSE_OK")
       return Response.json({ skipped: true, reason: "Dernière position non fermée ou inexistante" });
