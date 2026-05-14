@@ -395,7 +395,7 @@ export async function GET() {
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
       .map((r) => {
-        const pos        = r.value;
+        const pos         = r.value;
         const aeroUSD     = aeroUsdById[pos.tokenId] ?? 0;
         const feesNum     = parseFloat(pos.totalFeesUSD);
         const totalRevUSD = feesNum + aeroUSD;
@@ -405,6 +405,10 @@ export async function GET() {
           totalRevenueUSD: totalRevUSD.toFixed(2),
         };
       });
+
+    // Si toutes les buildPosition ont échoué (RPC) → ne pas empoisonner le cache
+    if (results.length > 0 && results.every(r => r.status === "rejected"))
+      throw new Error(results[0].reason?.message ?? "RPC indisponible");
 
     // Solde USDC non utilisé dans le wallet
     let usdcWallet = "0.00";
