@@ -575,6 +575,8 @@ export async function POST(req) {
       ? `⚠ Budget plafonné à $${totalBudget.toFixed(2)} (demandé $${amountUSDC}, disponible $${totalAvailable.toFixed(2)})`
       : null;
 
+    const rangePct = ((tickUpperPrice / tickLowerPrice - 1) * 100).toFixed(2);
+
     const payload = {
       message:    `Position #${tokenId} créée — LP ${Math.round(swapRatio*100)}% WETH / ${Math.round((1-swapRatio)*100)}% USDC · range $${tickLowerPrice.toFixed(0)}→$${tickUpperPrice.toFixed(0)}`,
       tokenId:    tokenId.toString(),
@@ -597,7 +599,6 @@ export async function POST(req) {
       ...(simWarning     ? { simWarning }                : {}),
     };
 
-    const rangePct = ((tickUpperPrice / tickLowerPrice - 1) * 100).toFixed(2);
     try {
       const usdcRestant = Number(ethers.formatUnits(await readBal(USDC), 6));
       const usdcPlaced  = usdcAvailable - usdcRestant;
