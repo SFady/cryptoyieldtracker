@@ -95,6 +95,7 @@ export async function POST(req) {
     let result;
     if (forceCase === 1) result = await handleCase1();
     else if (forceCase === 2) result = await handleCase2();
+    else if (forceCase === 3) result = await handleCase3();
     else if (forceCase === 4) result = await handleCase4();
     else result = Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
@@ -175,6 +176,7 @@ async function handleCase1() {
         currentPrice: livePrice,
         targetRatio: 0.70,
         poolNum:     2,
+        caseNum:     1,
       }),
       signal: AbortSignal.timeout(240000),
     });
@@ -269,6 +271,7 @@ async function handleCase2() {
         currentPrice: livePrice,
         targetRatio:  0.30,
         poolNum:      2,
+        caseNum:      2,
       }),
       signal: AbortSignal.timeout(240000),
     });
@@ -291,6 +294,126 @@ async function handleCase2() {
   } catch (e) {
     const msg = e?.message ?? e?.shortMessage ?? String(e);
     return Response.json({ case: 2, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
+  }
+}
+
+async function handleCase3() {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  // 1. Prix WETH on-chain
+  const livePrice = await getPoolWethPrice(0);
+  if (!livePrice || livePrice < 100 || livePrice > 100000)
+    return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice}` });
+
+  // 2. Vérifier position ouverte en DB
+  let lastPos;
+  try {
+    const rows = await sql`
+      SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at FROM lp_events
+      WHERE action1 = 'CREATE_OK'
+      ORDER BY created_at DESC LIMIT 1
+    `;
+    if (rows.length === 0 || rows[0].action2 !== null)
+      return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
+    lastPos = rows[0];
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  const usdcPlaced = parseFloat(lastPos.usdc_placed);
+  const rangePct   = parseFloat(lastPos.range_pct);
+  const rangeMin   = parseFloat(lastPos.range_min);
+  const rangeMax   = parseFloat(lastPos.range_max);
+  if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
+    return Response.json({ skipped: true, reason: "Données position invalides en DB" });
+
+  // 3. Vérifier que le prix est IN range
+  if (!isNaN(rangeMin) && !isNaN(rangeMax) && (livePrice < rangeMin || livePrice > rangeMax))
+    return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} hors range [$${rangeMin}–$${rangeMax}] — cas 1 ou 2 approprié` });
+
+  // 4. Vérifier que la position est ouverte depuis > 12h
+  const openedAt  = new Date(lastPos.created_at);
+  const ageHours  = (Date.now() - openedAt.getTime()) / 3_600_000;
+  if (ageHours < 12)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 12h minimum` });
+
+  // 5. Calculer le range via percentiles 24h (même logique que cas 4)
+  let newRangePct = 2;
+  try {
+    const rows = await sql`
+      SELECT
+        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
+        COUNT(*)::int AS cnt
+      FROM cron_runs
+      WHERE weth IS NOT NULL
+        AND ran_at > NOW() - INTERVAL '24 hours'
+    `;
+    const { p05, p95, cnt } = rows[0];
+    if (cnt >= 10 && p05 > 0)
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+  } catch (_) {}
+  newRangePct = parseFloat(newRangePct.toFixed(2));
+
+  const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
+  const liveMinPrice = livePrice / sqrtRatio;
+  const liveMaxPrice = livePrice * sqrtRatio;
+
+  // 6. Fermer la position actuelle
+  let closeData;
+  try {
+    const res = await fetch(`${base}/api/closePositions`, {
+      method: "POST",
+      signal: AbortSignal.timeout(240000),
+    });
+    closeData = await res.json();
+    if (!res.ok) {
+      const errMsg = typeof closeData?.error === "string" ? closeData.error : (closeData?.error ? JSON.stringify(closeData.error) : "close failed");
+      throw new Error(errMsg);
+    }
+  } catch (e) {
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    return Response.json({ error: `closePositions failed: ${msg}` }, { status: 500 });
+  }
+
+  // 7. Créer nouvelle position 50/50 avec le range calculé
+  const amountUSDC = parseFloat(closeData?.principalUsdc) || usdcPlaced;
+  try {
+    const res = await fetch(`${base}/api/createPosition`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        amountUSDC,
+        minPrice:     liveMinPrice,
+        maxPrice:     liveMaxPrice,
+        currentPrice: livePrice,
+        targetRatio:  0.5,
+        poolNum:      2,
+        caseNum:      3,
+      }),
+      signal: AbortSignal.timeout(240000),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const errMsg = typeof data?.error === "string" ? data.error : (data?.error ? JSON.stringify(data.error) : "createPosition failed");
+      throw new Error(errMsg);
+    }
+    return Response.json({
+      ok:           true,
+      case:         3,
+      ageHours:     ageHours.toFixed(1),
+      newRangePct,
+      livePrice,
+      minPrice:     liveMinPrice.toFixed(0),
+      maxPrice:     liveMaxPrice.toFixed(0),
+      amountUSDC,
+      closeResult:  closeData,
+      createResult: data,
+    });
+  } catch (e) {
+    const msg = e?.message ?? e?.shortMessage ?? String(e);
+    return Response.json({ case: 3, closeResult: closeData, error: `createPosition failed: ${msg}` }, { status: 500 });
   }
 }
 
@@ -346,6 +469,7 @@ async function handleCase4() {
         currentPrice: livePrice4,
         targetRatio:  0.5,
         poolNum:      2,
+        caseNum:      4,
       }),
       signal: AbortSignal.timeout(240000),
     });
