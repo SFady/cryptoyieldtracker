@@ -218,30 +218,12 @@ export async function GET() {
     const rpcUrl = await pickRpc();
     const call   = makeCall(rpcUrl);
 
-    let tokenId = null;
+    let tokenId = global._pos1ActiveId.id;
     let posHex  = null;
 
-    // 1. DB first — most reliable source for the active tokenId
-    try {
-      const rows = await sql`
-        SELECT token_id FROM lp_events
-        WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
-        ORDER BY id DESC LIMIT 1
-      `;
-      if (rows.length > 0 && rows[0].token_id) tokenId = BigInt(rows[0].token_id);
-    } catch (_) {}
-
-    if (tokenId) {
-      posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId)).catch(() => null);
-      const liq  = posHex ? toUint(word(posHex, 7))  : 0n;
-      const ow0  = posHex ? toUint(word(posHex, 10)) : 0n;
-      const ow1  = posHex ? toUint(word(posHex, 11)) : 0n;
-      if (!posHex || (liq === 0n && ow0 === 0n && ow1 === 0n)) { tokenId = null; posHex = null; }
-    }
-
-    // 2. Fallback — RPC scan (wallet-based, slower, can fail under rate limits)
     if (!tokenId) {
       [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
+      if (tokenId) global._pos1ActiveId = { id: tokenId, time: Date.now() };
     }
 
     if (!tokenId) {
@@ -251,10 +233,19 @@ export async function GET() {
     }
 
     if (!posHex) posHex = await call(NFPM, "0x99fbab88" + pad64(tokenId)).catch(() => null);
-    if (!posHex) {
-      const data = { positions: [] };
-      global._cytPositionsCache = { data, time: Date.now() };
-      return Response.json(data);
+    const liquidity  = posHex ? toUint(word(posHex, 7))  : 0n;
+    const owed0check = posHex ? toUint(word(posHex, 10)) : 0n;
+    const owed1check = posHex ? toUint(word(posHex, 11)) : 0n;
+
+    if (!posHex || (liquidity === 0n && owed0check === 0n && owed1check === 0n)) {
+      [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
+      if (tokenId) {
+        global._pos1ActiveId = { id: tokenId, time: Date.now() };
+      } else {
+        const data = { positions: [] };
+        global._cytPositionsCache = { data, time: Date.now() };
+        return Response.json(data);
+      }
     }
 
     const pHex = posHex;

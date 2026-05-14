@@ -309,7 +309,50 @@ export async function GET() {
     const rpc     = makeRpc(rpcUrl);
     const ethCall = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);
 
-    const { tokenIds, gaugeAddr, stakedIds } = await discoverTokenIds(rpc, ethCall);
+    // DB first — évite le scan RPC multi-appels sous rate limit
+    let fastTokenId = null;
+    try {
+      const rows = await sql`
+        SELECT token_id FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (rows.length > 0 && rows[0].token_id) fastTokenId = BigInt(rows[0].token_id);
+    } catch (_) {}
+
+    if (fastTokenId) {
+      try {
+        const posHex = await ethCall(NFPM, "0x99fbab88" + pad64(fastTokenId));
+        const liq = toUint(word(posHex, 7));
+        const ow0 = toUint(word(posHex, 10));
+        const ow1 = toUint(word(posHex, 11));
+        if (liq === 0n && ow0 === 0n && ow1 === 0n) fastTokenId = null; // fermée on-chain
+      } catch (_) { fastTokenId = null; }
+    }
+
+    let tokenIds, gaugeAddr, stakedIds;
+    if (fastTokenId) {
+      // Position connue via DB → gauge scan minimal pour les rewards AERO uniquement
+      tokenIds  = [fastTokenId];
+      gaugeAddr = null;
+      stakedIds = [];
+      try {
+        const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL])).catch(() => null);
+        if (gaugeHex) {
+          const [addr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
+          if (addr && addr !== ethers.ZeroAddress) {
+            gaugeAddr = addr;
+            const stakedHex = await ethCall(addr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
+            if (stakedHex && stakedHex !== "0x") {
+              const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+              for (const id of staked) stakedIds.push(BigInt(id));
+            }
+          }
+        }
+      } catch (_) {}
+    } else {
+      ({ tokenIds, gaugeAddr, stakedIds } = await discoverTokenIds(rpc, ethCall));
+    }
 
     if (tokenIds.length === 0) {
       const data = { positions: [] };

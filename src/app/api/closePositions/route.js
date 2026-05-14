@@ -69,7 +69,7 @@ const POOL_IFACE = new ethers.Interface([
   "function token1() view returns (address)",
 ]);
 
-async function waitForTx(provider, tx) {
+async function waitForTx(_provider, tx) {
   try {
     const r = await tx.wait();
     if (r?.status === 0) throw new Error("reverted");
@@ -77,16 +77,27 @@ async function waitForTx(provider, tx) {
   } catch (_) {
     for (let i = 0; i < 30; i++) {
       await new Promise(res => setTimeout(res, 2000));
-      try {
-        const r = await provider.getTransactionReceipt(tx.hash);
-        if (r) {
-          if (r.status === 0) throw new Error(`revert on-chain (hash=${tx.hash})`);
-          return r;
+      // Polll via tous les RPCs — évite le rate-limit du RPC principal
+      let found = false;
+      for (const url of RPC_URLS) {
+        try {
+          const res  = await fetch(url, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [tx.hash] }),
+            signal:  AbortSignal.timeout(6000),
+          });
+          const json = await res.json();
+          if (json.result) {
+            if (json.result.status === "0x0") throw new Error(`revert on-chain (hash=${tx.hash})`);
+            found = true;
+            return json.result;
+          }
+        } catch (e) {
+          if (e.message?.startsWith("revert on-chain")) throw e;
         }
-      } catch (pollErr) {
-        if (pollErr.message?.startsWith("revert on-chain")) throw pollErr;
-        // erreur RPC transitoire (408, timeout) → on continue le polling
       }
+      if (found) break;
     }
     throw new Error(`timeout confirmation tx ${tx.hash}`);
   }
