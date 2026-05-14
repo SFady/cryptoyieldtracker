@@ -18,6 +18,10 @@ const VOTER_IFACE = new ethers.Interface([
 const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
 ]);
+const FACTORY_IFACE = new ethers.Interface([
+  "function factory() view returns (address)",
+  "function getPool(address tokenA, address tokenB, int24 tickSpacing) view returns (address)",
+]);
 
 const RPC_URLS = [
   "https://base.drpc.org",
@@ -118,30 +122,34 @@ const ZERO_TOPIC     = "0x000000000000000000000000000000000000000000000000000000
 const WETH_ADDR = "0x4200000000000000000000000000000000000006";
 const USDC_ADDR = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
-// Retourne [tokenId, posHex] pour éviter un double appel positions()
+// Retourne [tokenId, posHex, poolAddr] — poolAddr = adresse du pool de la position trouvée
 async function scanActive(rpcUrl, call) {
   // 0. Positions stakées dans le gauge Aerodrome
-  try {
-    const gaugeHex = await call(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL])).catch(() => null);
-    if (gaugeHex) {
-      const [gaugeAddr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
-      if (gaugeAddr && gaugeAddr !== ethers.ZeroAddress) {
-        const stakedHex = await call(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
-        if (stakedHex && stakedHex !== "0x") {
-          const [stakedIds] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
-          const hexes = await Promise.all(stakedIds.map(id =>
-            call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null)
-          ));
-          for (let i = 0; i < stakedIds.length; i++) {
-            const h = hexes[i];
-            if (!h) continue;
-            if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
-              return [stakedIds[i], h];
+  // Vérifie les gauges de tous les pools configurés (WALLET1_POOL en priorité, puis POOL par défaut)
+  const poolsToCheck = [...new Set([process.env.WALLET1_POOL, POOL].filter(Boolean))];
+  for (const pool of poolsToCheck) {
+    try {
+      const gaugeHex = await call(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [pool])).catch(() => null);
+      if (gaugeHex) {
+        const [gaugeAddr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
+        if (gaugeAddr && gaugeAddr !== ethers.ZeroAddress) {
+          const stakedHex = await call(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
+          if (stakedHex && stakedHex !== "0x") {
+            const [stakedIds] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+            const hexes = await Promise.all(stakedIds.map(id =>
+              call(NFPM, "0x99fbab88" + pad64(id)).catch(() => null)
+            ));
+            for (let i = 0; i < stakedIds.length; i++) {
+              const h = hexes[i];
+              if (!h) continue;
+              if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
+                return [stakedIds[i], h, pool];
+            }
           }
         }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   // 1. NFTs dans le wallet — toutes les positions en parallèle
   const countHex = await call(NFPM, "0x70a08231" + walletPad);
@@ -159,7 +167,7 @@ async function scanActive(rpcUrl, call) {
       const h = hexes[i];
       if (!h) continue;
       if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
-        return [ids[i], h];
+        return [ids[i], h, null];
     }
   }
 
@@ -185,9 +193,9 @@ async function scanActive(rpcUrl, call) {
     const h = hexes[i];
     if (!h) continue;
     if (toAddr(word(h, 2)) === WETH_ADDR && toAddr(word(h, 3)) === USDC_ADDR && toUint(word(h, 7)) > 0n)
-      return [ids[i], h];
+      return [ids[i], h, null];
   }
-  return [null, null];
+  return [null, null, null];
 }
 
 // ── CL math ───────────────────────────────────────────────────────────────────
@@ -221,9 +229,15 @@ export async function GET() {
     let tokenId = global._pos1ActiveId.id;
     let posHex  = null;
 
+    let activePool = POOL; // pool utilisé pour les calculs de fees
+
     if (!tokenId) {
-      [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
-      if (tokenId) global._pos1ActiveId = { id: tokenId, time: Date.now() };
+      let detectedPool;
+      [tokenId, posHex, detectedPool] = await scanActive(rpcUrl, call).catch(() => [null, null, null]);
+      if (tokenId) {
+        global._pos1ActiveId = { id: tokenId, time: Date.now() };
+        if (detectedPool) activePool = detectedPool;
+      }
     }
 
     if (!tokenId) {
@@ -238,9 +252,11 @@ export async function GET() {
     const owed1check = posHex ? toUint(word(posHex, 11)) : 0n;
 
     if (!posHex || (liquidity === 0n && owed0check === 0n && owed1check === 0n)) {
-      [tokenId, posHex] = await scanActive(rpcUrl, call).catch(() => [null, null]);
+      let detectedPool;
+      [tokenId, posHex, detectedPool] = await scanActive(rpcUrl, call).catch(() => [null, null, null]);
       if (tokenId) {
         global._pos1ActiveId = { id: tokenId, time: Date.now() };
+        if (detectedPool) activePool = detectedPool;
       } else {
         const data = { positions: [] };
         global._cytPositionsCache = { data, time: Date.now() };
@@ -250,25 +266,43 @@ export async function GET() {
 
     const pHex = posHex;
 
-    const t0addr     = toAddr(word(pHex, 2));
-    const t1addr     = toAddr(word(pHex, 3));
-    const tickLower  = Number(toInt(word(pHex, 5)));
-    const tickUpper  = Number(toInt(word(pHex, 6)));
-    const liq        = toUint(word(pHex, 7));
-    const fgLast0    = toUint(word(pHex, 8));
-    const fgLast1    = toUint(word(pHex, 9));
-    const owed0      = toUint(word(pHex, 10));
-    const owed1      = toUint(word(pHex, 11));
+    const t0addr      = toAddr(word(pHex, 2));
+    const t1addr      = toAddr(word(pHex, 3));
+    const tickSpacing = Number(toInt(word(pHex, 4)));
+    const tickLower   = Number(toInt(word(pHex, 5)));
+    const tickUpper   = Number(toInt(word(pHex, 6)));
+    const liq         = toUint(word(pHex, 7));
+    const fgLast0     = toUint(word(pHex, 8));
+    const fgLast1     = toUint(word(pHex, 9));
+    const owed0       = toUint(word(pHex, 10));
+    const owed1       = toUint(word(pHex, 11));
+
+    // Si le pool détecté via le gauge ne correspond pas au tickSpacing, auto-détecter via factory
+    if (activePool === POOL && tickSpacing !== 100) {
+      try {
+        const factoryHex = await call(NFPM, FACTORY_IFACE.encodeFunctionData("factory")).catch(() => null);
+        if (factoryHex) {
+          const [factoryAddr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], factoryHex);
+          if (factoryAddr && factoryAddr !== ethers.ZeroAddress) {
+            const poolHex = await call(factoryAddr, FACTORY_IFACE.encodeFunctionData("getPool", [t0addr, t1addr, tickSpacing])).catch(() => null);
+            if (poolHex) {
+              const [detectedPool] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], poolHex);
+              if (detectedPool && detectedPool !== ethers.ZeroAddress) activePool = detectedPool;
+            }
+          }
+        }
+      } catch (_) {}
+    }
 
     const t0 = TOKENS[t0addr] ?? { symbol: "TK0", decimals: 18 };
     const t1 = TOKENS[t1addr] ?? { symbol: "TK1", decimals: 6  };
 
     const [s0Hex, fg0Hex, fg1Hex, tLowHex, tUpHex] = await Promise.all([
-      call(POOL, "0x3850c7bd"),
-      call(POOL, "0xf3058399"),
-      call(POOL, "0x46141319"),
-      call(POOL, "0xf30dba93" + pad64(tickLower)),
-      call(POOL, "0xf30dba93" + pad64(tickUpper)),
+      call(activePool, "0x3850c7bd"),
+      call(activePool, "0xf3058399"),
+      call(activePool, "0x46141319"),
+      call(activePool, "0xf30dba93" + pad64(tickLower)),
+      call(activePool, "0xf30dba93" + pad64(tickUpper)),
     ]);
 
     const sqrtP    = toUint(word(s0Hex, 0));
