@@ -120,7 +120,7 @@ async function handleCase1() {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min, action2 FROM lp_events
+      SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining FROM lp_events
       WHERE action1 = 'CREATE_OK'
       ORDER BY id DESC LIMIT 1
     `;
@@ -131,9 +131,10 @@ async function handleCase1() {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  const usdcPlaced = parseFloat(lastPos.usdc_placed);
-  const rangePct   = parseFloat(lastPos.range_pct);
-  const rangeMin   = parseFloat(lastPos.range_min);
+  const usdcPlaced    = parseFloat(lastPos.usdc_placed);
+  const rangePct      = parseFloat(lastPos.range_pct);
+  const rangeMin      = parseFloat(lastPos.range_min);
+  const usdcRemaining = parseFloat(lastPos.usdc_remaining) || 0;
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
@@ -162,15 +163,15 @@ async function handleCase1() {
 
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
+  const amountUSDC1  = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
 
   // 4. Créer nouvelle position 80% WETH / 20% USDC
-  const amountUSDC = parseFloat(closeData?.principalUsdc) || usdcPlaced;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        amountUSDC,
+        amountUSDC:  amountUSDC1,
         minPrice:    liveMinPrice,
         maxPrice:    liveMaxPrice,
         currentPrice: livePrice,
@@ -192,7 +193,7 @@ async function handleCase1() {
       livePrice,
       minPrice:     liveMinPrice.toFixed(0),
       maxPrice:     liveMaxPrice.toFixed(0),
-      amountUSDC,
+      amountUSDC:   amountUSDC1,
       closeResult:  closeData,
       createResult: data,
     });
@@ -215,7 +216,7 @@ async function handleCase2() {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_max, action2 FROM lp_events
+      SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining FROM lp_events
       WHERE action1 = 'CREATE_OK'
       ORDER BY id DESC LIMIT 1
     `;
@@ -226,9 +227,10 @@ async function handleCase2() {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  const usdcPlaced = parseFloat(lastPos.usdc_placed);
-  const rangePct   = parseFloat(lastPos.range_pct);
-  const rangeMax   = parseFloat(lastPos.range_max);
+  const usdcPlaced    = parseFloat(lastPos.usdc_placed);
+  const rangePct      = parseFloat(lastPos.range_pct);
+  const rangeMax      = parseFloat(lastPos.range_max);
+  const usdcRemaining = parseFloat(lastPos.usdc_remaining) || 0;
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
@@ -257,15 +259,15 @@ async function handleCase2() {
 
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
+  const amountUSDC2  = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
 
   // 4. Créer nouvelle position 20% WETH / 80% USDC
-  const amountUSDC = parseFloat(closeData?.principalUsdc) || usdcPlaced;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        amountUSDC,
+        amountUSDC:  amountUSDC2,
         minPrice:     liveMinPrice,
         maxPrice:     liveMaxPrice,
         currentPrice: livePrice,
@@ -287,7 +289,7 @@ async function handleCase2() {
       livePrice,
       minPrice:     liveMinPrice.toFixed(0),
       maxPrice:     liveMaxPrice.toFixed(0),
-      amountUSDC,
+      amountUSDC:   amountUSDC2,
       closeResult:  closeData,
       createResult: data,
     });
@@ -310,7 +312,7 @@ async function handleCase3() {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at FROM lp_events
+      SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at, usdc_remaining FROM lp_events
       WHERE action1 = 'CREATE_OK'
       ORDER BY id DESC LIMIT 1
     `;
@@ -321,10 +323,11 @@ async function handleCase3() {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  const usdcPlaced = parseFloat(lastPos.usdc_placed);
-  const rangePct   = parseFloat(lastPos.range_pct);
-  const rangeMin   = parseFloat(lastPos.range_min);
-  const rangeMax   = parseFloat(lastPos.range_max);
+  const usdcPlaced    = parseFloat(lastPos.usdc_placed);
+  const rangePct      = parseFloat(lastPos.range_pct);
+  const rangeMin      = parseFloat(lastPos.range_min);
+  const rangeMax      = parseFloat(lastPos.range_max);
+  const usdcRemaining = parseFloat(lastPos.usdc_remaining) || 0;
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
@@ -378,13 +381,13 @@ async function handleCase3() {
   }
 
   // 7. Créer nouvelle position 50/50 avec le range calculé
-  const amountUSDC = parseFloat(closeData?.principalUsdc) || usdcPlaced;
+  const amountUSDC3 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
   try {
     const res = await fetch(`${base}/api/createPosition`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        amountUSDC,
+        amountUSDC:  amountUSDC3,
         minPrice:     liveMinPrice,
         maxPrice:     liveMaxPrice,
         currentPrice: livePrice,
@@ -407,7 +410,7 @@ async function handleCase3() {
       livePrice,
       minPrice:     liveMinPrice.toFixed(0),
       maxPrice:     liveMaxPrice.toFixed(0),
-      amountUSDC,
+      amountUSDC:   amountUSDC3,
       closeResult:  closeData,
       createResult: data,
     });
