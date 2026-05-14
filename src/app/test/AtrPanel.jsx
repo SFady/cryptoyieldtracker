@@ -231,10 +231,30 @@ function TestRebalanceSection() {
   const [status,     setStatus]     = useState({});
   const [results,    setResults]    = useState({});
   const [confirming, setConfirming] = useState({});
+  const [lastRow,    setLastRow]    = useState(undefined); // undefined = chargement
   const timers = useRef({});
+
+  useEffect(() => {
+    fetch("/api/lpStatus")
+      .then(r => r.json())
+      .then(d => setLastRow(d.lastRow ?? null))
+      .catch(() => setLastRow(null));
+  }, []);
+
+  const hasError = lastRow &&
+    ((lastRow.action1 && lastRow.action1.includes("ERR")) ||
+     (lastRow.action2 && lastRow.action2.includes("ERR")));
 
   function handleClick(caseNum) {
     if (status[caseNum] === "loading") return;
+    if (hasError) {
+      const reason = lastRow.error_msg
+        ? lastRow.error_msg.slice(0, 120)
+        : `${lastRow.action1}${lastRow.action2 ? " / " + lastRow.action2 : ""}`;
+      setResults(r => ({ ...r, [caseNum]: `⚠ Bloqué — erreur détectée en base :\n${reason}` }));
+      setStatus(s => ({ ...s, [caseNum]: "error" }));
+      return;
+    }
     if (!confirming[caseNum]) {
       setConfirming(c => ({ ...c, [caseNum]: true }));
       timers.current[caseNum] = setTimeout(() => {
