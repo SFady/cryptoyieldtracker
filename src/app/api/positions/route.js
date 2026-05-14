@@ -40,7 +40,7 @@ global._pos1ActiveId      = global._pos1ActiveId      ?? { id: null, time: 0 };
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
 function isRetryable(msg) {
-  return /rate.?limit|too many|limit exceed|exceed.*capaci|compute unit|temporary internal|overload|usage.?limit|reached.*limit|upgrade|block range|range.*limit|limited to.*range/i.test(msg);
+  return /rate.?limit|too many|limit exceed|exceed.*capaci|compute unit|temporary internal|overload|usage.?limit|reached.*limit|upgrade|block range|range.*limit|limited to.*range|method.*not.?support|not supported/i.test(msg);
 }
 
 async function rpcFetch(urls, method, params, timeoutMs = 8000) {

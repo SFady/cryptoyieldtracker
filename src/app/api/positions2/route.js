@@ -49,7 +49,7 @@ global._cytPos2Cache = { data: null, time: 0 };
 // ── RPC — un seul nœud sélectionné par requête ────────────────────────────────
 
 function isRetryable(msg) {
-  return /rate.?limit|too many|limit exceed|exceed.*capaci|compute unit|temporary internal|overload|usage.?limit|reached.*limit|upgrade|block range|range.*limit|limited to.*range/i.test(msg);
+  return /rate.?limit|too many|limit exceed|exceed.*capaci|compute unit|temporary internal|overload|usage.?limit|reached.*limit|upgrade|block range|range.*limit|limited to.*range|method.*not.?support|not supported/i.test(msg);
 }
 
 async function pickRpc() {
@@ -326,8 +326,9 @@ export async function GET() {
         const liq = toUint(word(posHex, 7));
         const ow0 = toUint(word(posHex, 10));
         const ow1 = toUint(word(posHex, 11));
-        if (liq === 0n && ow0 === 0n && ow1 === 0n) fastTokenId = null; // fermée on-chain
-      } catch (_) { fastTokenId = null; }
+        // Seulement si confirmé fermé on-chain on abandonne le tokenId
+        if (liq === 0n && ow0 === 0n && ow1 === 0n) fastTokenId = null;
+      } catch (_) { /* RPC failure ≠ position fermée — on garde fastTokenId */ }
     }
 
     let tokenIds, gaugeAddr, stakedIds;
