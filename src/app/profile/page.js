@@ -389,7 +389,7 @@ function RangeBar({ low, high, current, inRange }) {
   const dotLeft = Math.max(2, Math.min(98, 15 + pct * 70));
   const color   = inRange ? "#00e5a0" : "#c97070";
   return (
-    <div style={{ position: "relative", width: 190, height: 34, flexShrink: 0 }}>
+    <div style={{ position: "relative", width: "100%", height: 34 }}>
       {/* Track */}
       <div style={{
         position: "absolute", left: "15%", right: "15%",
