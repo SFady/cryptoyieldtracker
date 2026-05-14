@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 
 export const runtime     = "nodejs";
-export const maxDuration = 10;
+export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -45,14 +45,38 @@ function checkAuth(req) {
 async function handle(req) {
   if (!checkAuth(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const ranAt = new Date().toISOString();
+
+  // 1. Enregistrement du prix
+  let price = null;
   try {
-    const price = await getPoolWethPrice();
+    price = await getPoolWethPrice();
     await sql`DELETE FROM cron_runs WHERE ran_at < NOW() - INTERVAL '24 hours'`;
     await sql`INSERT INTO cron_runs (ran_at, weth) VALUES (NOW(), ${price ?? null})`;
-    return Response.json({ ok: true, ranAt, weth: price });
   } catch (e) {
     return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
   }
+
+  // 2. Rebalance — ordre : 4 → 1 → 2 → 3, s'arrête au premier cas qui s'exécute
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  const rebalanceResults = {};
+  if (base) {
+    for (const caseNum of [4, 1, 2, 3]) {
+      try {
+        const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}`, {
+          signal: AbortSignal.timeout(280000),
+        });
+        const data = await res.json();
+        rebalanceResults[caseNum] = data;
+        if (data?.ok === true) break;
+        if (res.status === 409) break;
+      } catch (e) {
+        rebalanceResults[caseNum] = { error: e.message };
+        break;
+      }
+    }
+  }
+
+  return Response.json({ ok: true, ranAt, weth: price, rebalanceResults });
 }
 
 export const GET  = handle;

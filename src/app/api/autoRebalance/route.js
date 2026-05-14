@@ -52,10 +52,7 @@ async function sendErrorEmail(subject, body) {
   } catch (_) {}
 }
 
-export async function POST(req) {
-  const body = await req.json().catch(() => ({}));
-  const { forceCase } = body;
-
+async function handleRequest(forceCase) {
   if (![1, 2, 3, 4].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
@@ -78,7 +75,25 @@ export async function POST(req) {
     return Response.json({ error: `Lock check échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 2. Acquérir le verrou
+  // 2. Vérifier l'absence d'erreur en base (même garde que le frontend)
+  try {
+    const errRows = await sql`
+      SELECT action1, action2, error_msg FROM lp_events
+      WHERE action1 != 'RUNNING'
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (errRows.length > 0) {
+      const { action1, action2, error_msg } = errRows[0];
+      if ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR")))
+        return Response.json({
+          error: `Bloqué — erreur détectée en base : ${error_msg ?? action1}`,
+        }, { status: 409 });
+    }
+  } catch (e) {
+    return Response.json({ error: `Error check échoué : ${e.message}` }, { status: 500 });
+  }
+
+  // 3. Acquérir le verrou
   const lockId = `LOCK_${Date.now()}`;
   try {
     await sql`INSERT INTO lp_events (action1, token_id) VALUES ('RUNNING', ${lockId})`;
@@ -86,7 +101,7 @@ export async function POST(req) {
     return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 3. Exécuter le cas et retirer le verrou (skip ou erreur explicite → DELETE, timeout Vercel → reste en base)
+  // 4. Exécuter le cas et retirer le verrou (skip ou erreur explicite → DELETE, timeout Vercel → reste en base)
   const releaseLock = async () => {
     try { await sql`DELETE FROM lp_events WHERE action1 = 'RUNNING' AND token_id = ${lockId}`; } catch (_) {}
   };
@@ -105,6 +120,16 @@ export async function POST(req) {
     await releaseLock();
     return Response.json({ error: e?.message ?? String(e) }, { status: 500 });
   }
+}
+
+export async function GET(req) {
+  const forceCase = parseInt(new URL(req.url).searchParams.get("case") ?? "0");
+  return handleRequest(forceCase);
+}
+
+export async function POST(req) {
+  const { forceCase } = await req.json().catch(() => ({}));
+  return handleRequest(forceCase);
 }
 
 async function handleCase1() {
