@@ -329,11 +329,15 @@ async function handleCase3() {
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
+  // 6. Vérifier que le nouveau range est au moins 1.5x plus petit que l'actuel
+  if (newRangePct > rangePct / 1.5)
+    return Response.json({ skipped: true, reason: `Nouveau range ${newRangePct}% pas assez inférieur au range actuel ${rangePct}% (seuil : ${(rangePct / 1.5).toFixed(2)}%)` });
+
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
 
-  // 6. Toutes les conditions sont remplies → acquérir le lock
+  // 7. Toutes les conditions sont remplies → acquérir le lock
   let release;
   try { release = await acquireLock(); }
   catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
