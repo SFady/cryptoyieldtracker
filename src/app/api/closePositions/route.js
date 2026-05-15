@@ -36,6 +36,7 @@ const MAX_UINT128 = (1n << 128n) - 1n;
 const ERC20_IFACE = new ethers.Interface([
   "function balanceOf(address) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function transfer(address to, uint256 amount) returns (bool)",
 ]);
 
 const NFPM_IFACE = new ethers.Interface([
@@ -184,7 +185,9 @@ function calcFees(liquidity, fgInside, fgInsideLast, owed) {
 }
 
 
-export async function POST() {
+export async function POST(req) {
+  const body = await req.json().catch(() => ({}));
+  const keepWeth = body.keepWeth === true;
   try {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
@@ -408,9 +411,10 @@ export async function POST() {
       throw new Error(e.message); // propage le message dÃ©taillÃ©
     }
 
-    // 4. Swap tout le WETH → USDC
+    // 4. Swap tout le WETH → USDC (skippé si keepWeth=true)
+    const usdcBeforeSwaps = await readBal(stablecoin, wallet.address).catch(() => 0n);
     let swapHash = null;
-    try {
+    if (!keepWeth) try {
       const wethBal = await readBal(WETH, wallet.address);
 
       if (wethBal > 0n) {
@@ -466,6 +470,7 @@ export async function POST() {
         }
       }
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
+    // end if (!keepWeth)
 
     // Solde USDC total avant AERO (principal LP + wallet existant, sans AERO)
     const stableBalLp   = await readBal(stablecoin, wallet.address);
@@ -496,6 +501,22 @@ export async function POST() {
         const txAeroSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData });
         aeroSwapHash = txAeroSwap.hash;
         await waitForTx(provider, txAeroSwap);
+      }
+    } catch (_) {}
+
+    // 4b. Transfert des fees converties vers DESTINATION_WALLET
+    try {
+      const dest = process.env.DESTINATION_WALLET;
+      if (dest) {
+        const usdcAfterSwaps = await readBal(stablecoin, wallet.address);
+        const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
+        if (delta > 0n) {
+          const txTransfer = await sendTx(wallet, {
+            to: stablecoin,
+            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
+          });
+          await waitForTx(provider, txTransfer);
+        }
       }
     } catch (_) {}
 

@@ -164,27 +164,30 @@ async function handleCase1() {
   catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
 
   try {
-    // 4. Fermer la position actuelle
+    // 4. Fermer la position — garder le WETH en wallet, envoyer fees USDC+AERO vers destination
     let closeData;
     try {
-      const res = await fetch(`${base}/api/closePositions`, { method: "POST", signal: AbortSignal.timeout(240000) });
+      const res = await fetch(`${base}/api/closePositions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keepWeth: true }),
+        signal: AbortSignal.timeout(240000),
+      });
       closeData = await res.json();
       if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    const amountUSDC1 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
-
-    // 5. Créer nouvelle position 80% WETH / 20% USDC
+    // 5. Créer nouvelle position 75% WETH / 25% USDC — utilise tout le wallet (USDC + WETH)
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: amountUSDC1, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.70, poolNum: 2, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.75, poolNum: 2, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
     await release();
-    return Response.json({ ok: true, case: 1, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), amountUSDC: amountUSDC1, createResult: data });
+    return Response.json({ ok: true, case: 1, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
   } catch (e) {
     await release();
     return Response.json({ case: 1, error: e?.message ?? String(e) }, { status: 500 });
@@ -236,27 +239,30 @@ async function handleCase2() {
   catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
 
   try {
-    // 4. Fermer la position actuelle
+    // 4. Fermer la position — garder le WETH en wallet, envoyer fees USDC+AERO vers destination
     let closeData;
     try {
-      const res = await fetch(`${base}/api/closePositions`, { method: "POST", signal: AbortSignal.timeout(240000) });
+      const res = await fetch(`${base}/api/closePositions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keepWeth: true }),
+        signal: AbortSignal.timeout(240000),
+      });
       closeData = await res.json();
       if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    const amountUSDC2 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
-
-    // 5. Créer nouvelle position 20% WETH / 80% USDC
+    // 5. Créer nouvelle position 25% WETH / 75% USDC — utilise tout le wallet (USDC + WETH)
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: amountUSDC2, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.30, poolNum: 2, caseNum: 2 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.25, poolNum: 2, caseNum: 2 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
     await release();
-    return Response.json({ ok: true, case: 2, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), amountUSDC: amountUSDC2, createResult: data });
+    return Response.json({ ok: true, case: 2, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
   } catch (e) {
     await release();
     return Response.json({ case: 2, error: e?.message ?? String(e) }, { status: 500 });
@@ -333,27 +339,30 @@ async function handleCase3() {
   catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
 
   try {
-    // 7. Fermer la position actuelle
+    // 7. Fermer la position — garder le WETH en wallet, envoyer fees USDC+AERO vers destination
     let closeData;
     try {
-      const res = await fetch(`${base}/api/closePositions`, { method: "POST", signal: AbortSignal.timeout(240000) });
+      const res = await fetch(`${base}/api/closePositions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keepWeth: true }),
+        signal: AbortSignal.timeout(240000),
+      });
       closeData = await res.json();
       if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    const amountUSDC3 = (parseFloat(closeData?.principalUsdc) || usdcPlaced) + usdcRemaining;
-
-    // 8. Créer nouvelle position 50/50 avec le range calculé
+    // 8. Créer nouvelle position 50/50 — utilise tout le wallet (USDC + WETH)
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: amountUSDC3, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 3 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 3 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
     await release();
-    return Response.json({ ok: true, case: 3, ageHours: ageHours.toFixed(1), newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), amountUSDC: amountUSDC3, createResult: data });
+    return Response.json({ ok: true, case: 3, ageHours: ageHours.toFixed(1), newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
   } catch (e) {
     await release();
     return Response.json({ case: 3, error: e?.message ?? String(e) }, { status: 500 });

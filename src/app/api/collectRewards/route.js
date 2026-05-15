@@ -25,6 +25,7 @@ const RPC_URLS = [
 const ERC20_IFACE = new ethers.Interface([
   "function balanceOf(address) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function transfer(address to, uint256 amount) returns (bool)",
 ]);
 
 const NFPM_IFACE = new ethers.Interface([
@@ -198,6 +199,7 @@ export async function POST(req) {
     await waitForTx(provider, txDeposit);
 
     // 6. Swap WETH → USDC
+    const usdcBeforeSwaps = await readBal(USDC).catch(() => 0n);
     let wethSwapHash = null;
     const wethBal = await readBal(WETH);
     if (wethBal > 0n) {
@@ -241,7 +243,22 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 8. Solde USDC final
+    // 8. Transfert des fees converties vers DESTINATION_WALLET
+    try {
+      const dest = process.env.DESTINATION_WALLET;
+      if (dest) {
+        const usdcAfterSwaps = await readBal(USDC);
+        const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
+        if (delta > 0n) {
+          await wallet.sendTransaction({
+            to: USDC,
+            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
+          });
+        }
+      }
+    } catch (_) {}
+
+    // 9. Solde USDC final
     const usdcBal = await readBal(USDC);
     const finalUsdc = Number(ethers.formatUnits(usdcBal, 6)).toFixed(2);
 
