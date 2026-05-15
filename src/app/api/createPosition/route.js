@@ -66,6 +66,28 @@ const ERC20_IFACE = new ethers.Interface([
   "function allowance(address owner, address spender) view returns (uint256)",
 ]);
 
+// "replacement fee too low" = tx pendante avec même nonce → retry avec gas +25%
+async function sendTx(wallet, params) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await wallet.sendTransaction(params);
+    } catch (e) {
+      const msg = e.message ?? e.shortMessage ?? "";
+      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
+        const feeData = await wallet.provider.getFeeData();
+        params = {
+          ...params,
+          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
+          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
+        };
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 // tx.wait() échoue souvent sur Base RPCs même quand la tx réussit → fallback par polling
 async function waitForTx(provider, tx) {
   try {
@@ -95,7 +117,7 @@ async function ensureAllowance(wallet, provider, token, spender, amount) {
   } catch (_) {
     // timeout ou erreur RPC → on envoie l'approve quand même
   }
-  const tx = await wallet.sendTransaction({
+  const tx = await sendTx(wallet, {
     to: token,
     data: ERC20_IFACE.encodeFunctionData("approve", [spender, ethers.MaxUint256]),
   });
@@ -330,7 +352,7 @@ export async function POST(req) {
       let swapGas = 300000n;
       try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
       try {
-        const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapCalldata, gasLimit: swapGas });
+        const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapCalldata, gasLimit: swapGas });
         txSwapHash = txSwap.hash;
         await waitForTx(provider, txSwap);
         await new Promise(r => setTimeout(r, 4000));
@@ -387,7 +409,7 @@ export async function POST(req) {
             }]);
             let g2 = 300000n;
             try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
-            const tx2 = await wallet.sendTransaction({ to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
+            const tx2 = await sendTx(wallet, { to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
             await waitForTx(provider, tx2);
             await new Promise(r => setTimeout(r, 2000));
             didCorrect = true;
@@ -411,7 +433,7 @@ export async function POST(req) {
             }]);
             let g2 = 300000n;
             try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
-            const tx2 = await wallet.sendTransaction({ to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
+            const tx2 = await sendTx(wallet, { to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
             await waitForTx(provider, tx2);
             await new Promise(r => setTimeout(r, 2000));
             didCorrect = true;
@@ -480,7 +502,7 @@ export async function POST(req) {
         gasLimit = est * 3n / 2n;
       } catch (_) {}
 
-      const mintTx = await wallet.sendTransaction({
+      const mintTx = await sendTx(wallet, {
         to: NFPM,
         data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]),
         gasLimit,
@@ -505,7 +527,7 @@ export async function POST(req) {
       const wethRem = await readBal(WETH);
       if (wethRem > 0n) {
         await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethRem);
-        const txSweep = await wallet.sendTransaction({
+        const txSweep = await sendTx(wallet, {
           to: SWAP_ROUTER,
           data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
             tokenIn:           WETH,
@@ -526,7 +548,7 @@ export async function POST(req) {
 
     // 11. Double approbation : approve(tokenId) + setApprovalForAll pour couvrir les deux cas
     try {
-      const txApproveId = await wallet.sendTransaction({
+      const txApproveId = await sendTx(wallet, {
         to: NFPM,
         data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
       });
@@ -545,7 +567,7 @@ export async function POST(req) {
       } catch (_) { /* RPC transient — on envoie setApprovalForAll par précaution */ }
 
       if (needsApproval) {
-        const txAll = await wallet.sendTransaction({
+        const txAll = await sendTx(wallet, {
           to: NFPM,
           data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
         });
@@ -566,7 +588,7 @@ export async function POST(req) {
       const depositData = GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]);
       let gaugeGas = 300000n;
       try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {}
-      const txGauge = await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
+      const txGauge = await sendTx(wallet, { to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
       txGaugeHash = txGauge.hash;
       await waitForTx(provider, txGauge);
     } catch (e) { throw new Error(`[étape 12 – deposit gauge] tokenId=${tokenId} | ${e.message ?? e.shortMessage}`); }

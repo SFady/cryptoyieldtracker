@@ -103,6 +103,27 @@ async function waitForTx(_provider, tx) {
   }
 }
 
+async function sendTx(wallet, params) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await wallet.sendTransaction(params);
+    } catch (e) {
+      const msg = e.message ?? e.shortMessage ?? "";
+      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
+        const feeData = await wallet.provider.getFeeData();
+        params = {
+          ...params,
+          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
+          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
+        };
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function pickRpc() {
   return new Promise((resolve) => {
     let done = false;
@@ -194,7 +215,7 @@ export async function POST() {
       for (const tokenId of stakedIds) {
         // Claim rewards AERO (silencieux)
         try {
-          const tx = await wallet.sendTransaction({
+          const tx = await sendTx(wallet, {
             to: gaugeAddr,
             data: GAUGE_IFACE.encodeFunctionData('getReward', [tokenId]),
           });
@@ -221,7 +242,7 @@ export async function POST() {
           const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [tokenId]);
           let withdrawGas = 300000n;
           try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (_) {}
-          const tx = await wallet.sendTransaction({ to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
+          const tx = await sendTx(wallet, { to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
           await waitForTx(provider, tx);
           unstakedList.push(tokenId.toString());
         } catch (e) {
@@ -338,7 +359,7 @@ export async function POST() {
             gasLimit = est * 3n / 2n;
           } catch (_) {}
           try {
-            const tx = await wallet.sendTransaction({
+            const tx = await sendTx(wallet, {
               to: NFPM,
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
               gasLimit,
@@ -362,7 +383,7 @@ export async function POST() {
 
           let collectGas = 400000n;
           try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
-          const tx = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
+          const tx = await sendTx(wallet, { to: NFPM, data: collectData, gasLimit: collectGas });
 
           try {
             await waitForTx(provider, tx);
@@ -403,7 +424,7 @@ export async function POST() {
           if (!allowanceOk) {
             let approved = false;
             try {
-              const txApp = await wallet.sendTransaction({
+              const txApp = await sendTx(wallet, {
                 to: WETH,
                 data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
               });
@@ -435,7 +456,7 @@ export async function POST() {
         let swapGas = 300000n;
         try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
         try {
-          const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
+          const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
           swapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 2000));
@@ -462,7 +483,7 @@ export async function POST() {
       const MIN_AERO = ethers.parseUnits("0.01", 18);
 
       if (aeroBal >= MIN_AERO) {
-        const txApp = await wallet.sendTransaction({
+        const txApp = await sendTx(wallet, {
           to: AERO,
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         });
@@ -472,7 +493,7 @@ export async function POST() {
         const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
           aeroBal, 0n, routes, wallet.address, freshDeadline(),
         ]);
-        const txAeroSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
+        const txAeroSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData });
         aeroSwapHash = txAeroSwap.hash;
         await waitForTx(provider, txAeroSwap);
       }
