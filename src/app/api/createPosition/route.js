@@ -289,14 +289,20 @@ export async function POST(req) {
 
     // 4. Lire les soldes réels avant swap
     const readBal = async (token) => {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (const url of RPC_URLS) {
         try {
-          const h = await provider.call({ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) });
-          if (h && h !== "0x") return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
+          const res  = await fetch(url, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: token, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) }, "latest"] }),
+            signal:  AbortSignal.timeout(6000),
+          });
+          const json = await res.json();
+          if (json.result && json.result !== "0x")
+            return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], json.result)[0];
         } catch (_) {}
-        await new Promise(r => setTimeout(r, 1500));
       }
-      throw new Error(`balanceOf(${token}) échoué après 3 tentatives`);
+      throw new Error(`balanceOf(${token}) échoué sur tous les RPCs`);
     };
 
     let usdcBalBefore, wethBalBefore;
