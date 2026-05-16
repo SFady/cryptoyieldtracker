@@ -329,9 +329,12 @@ async function handleCase3() {
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
-  // 6. Vérifier que le nouveau range est au moins 1.5x plus petit que l'actuel
-  if (newRangePct > rangePct / 1.5)
-    return Response.json({ skipped: true, reason: `Nouveau range ${newRangePct}% pas assez inférieur au range actuel ${rangePct}% (seuil : ${(rangePct / 1.5).toFixed(2)}%)` });
+  // 6. Rebalancer si le range actuel de la position est > 1.5x le nouveau range (percentile)
+  const actualRangePct = (!isNaN(rangeMin) && !isNaN(rangeMax) && rangeMin > 0)
+    ? parseFloat(((rangeMax / rangeMin - 1) * 100).toFixed(2))
+    : rangePct;
+  if (actualRangePct <= newRangePct * 1.5)
+    return Response.json({ skipped: true, reason: `Range actuel ${actualRangePct}% pas assez supérieur au nouveau range ${newRangePct}% (seuil : ${(newRangePct * 1.5).toFixed(2)}%)` });
 
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;

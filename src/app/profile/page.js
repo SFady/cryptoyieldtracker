@@ -125,10 +125,12 @@ function Empty() {
 function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const totalRevUSD = pos.totalRevenueUSD ?? pos.totalFeesUSD;
-  const feePct      = showFeePercent && pos.openTimestamp && pos.initialUSD
+  const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
+        if (aeroUSD <= 0) return "0.00";
+        const base = parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
         const days = Math.max(0.001, (Date.now() - pos.openTimestamp) / 86_400_000);
-        return ((parseFloat(totalRevUSD) / pos.initialUSD) * (30 / days) * 100).toFixed(2);
+        return ((aeroUSD / base) * (30 / days) * 100).toFixed(2);
       })()
     : null;
   const [collecting, setCollecting] = React.useState(false);

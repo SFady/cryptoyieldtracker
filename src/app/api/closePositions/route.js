@@ -508,17 +508,25 @@ export async function POST(req) {
     try {
       const dest = process.env.DESTINATION_WALLET;
       if (dest) {
-        const usdcAfterSwaps = await readBal(stablecoin, wallet.address);
+        let usdcAfterSwaps = 0n;
+        for (let i = 0; i < 4; i++) {
+          try { usdcAfterSwaps = await readBal(stablecoin, wallet.address); break; } catch (_) {}
+          await new Promise(r => setTimeout(r, 2000));
+        }
         const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
+        console.log(`[transfer] before=${usdcBeforeSwaps} after=${usdcAfterSwaps} delta=${delta} dest=${dest}`);
         if (delta > 0n) {
           const txTransfer = await sendTx(wallet, {
             to: stablecoin,
             data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
           });
           await waitForTx(provider, txTransfer);
+          console.log(`[transfer] OK hash=${txTransfer.hash}`);
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.log(`[transfer] erreur: ${err.message ?? err}`);
+    }
 
     // 5. Solde stablecoin final
     const stableBal    = await readBal(stablecoin, wallet.address);
