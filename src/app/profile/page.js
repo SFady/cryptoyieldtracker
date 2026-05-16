@@ -65,12 +65,16 @@ export default function ProfilePage() {
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
           : null;
-        return <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} totalOverride={total2} mt />;
+        return (
+          <>
+            <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} totalOverride={total2} mt />
+            {loading2 && <Spinner label="Découverte des positions…" />}
+            {error2   && <ErrorBox msg={error2} />}
+            {pos2 && pos2.length === 0 && !loading2 && <Empty />}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} />)}
+          </>
+        );
       })()}
-      {loading2 && <Spinner label="Découverte des positions…" />}
-      {error2   && <ErrorBox msg={error2} />}
-      {pos2 && pos2.length === 0 && !loading2 && <Empty />}
-      {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} />)}
 
     </>
   );
@@ -140,7 +144,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet, wethWalletUSD }) {
+function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet, wethWalletUSD, greenTotal }) {
   const aeroUSD      = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const wethPoolUSD  = parseFloat(pos.pool?.find(t => t.symbol === "WETH")?.usd ?? "0");
   const stablePoolUSD = parseFloat(pos.pool?.find(t => t.symbol !== "WETH")?.usd ?? "0");
@@ -152,9 +156,10 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
         if (totalRevUSD <= 0) return "0.00";
-        const base = parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
+        const base = greenTotal || parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
         const minutes = Math.max(1, (Date.now() - pos.openTimestamp) / 60_000);
-        return ((totalRevUSD / minutes * 1440) / base * 100).toFixed(2);
+        const hours = minutes / 60;
+        return ((totalRevUSD / hours * 24 * 30) / base * 100).toFixed(2);
       })()
     : null;
   const [collecting, setCollecting] = React.useState(false);
