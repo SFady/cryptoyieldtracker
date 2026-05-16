@@ -124,13 +124,13 @@ function Empty() {
 
 function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
-  const totalRevUSD = pos.totalRevenueUSD ?? pos.totalFeesUSD;
+
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
         if (aeroUSD <= 0) return "0.00";
         const base = parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
-        const days = Math.max(0.001, (Date.now() - pos.openTimestamp) / 86_400_000);
-        return ((aeroUSD / base) * (30 / days) * 100).toFixed(2);
+        const minutes = Math.max(1, (Date.now() - pos.openTimestamp) / 60_000);
+        return ((aeroUSD / minutes * 1440) / base * 100).toFixed(2);
       })()
     : null;
   const [collecting, setCollecting] = React.useState(false);
@@ -220,7 +220,7 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
-        <TotalRow label="Total revenus" value={`$${totalRevUSD}`} highlight percent={feePct} percentSuffix="%/mois" />
+        <TotalRow label="Total revenus" value={`$${aeroUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
 
       {/* Footer */}
