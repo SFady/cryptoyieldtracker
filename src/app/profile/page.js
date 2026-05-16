@@ -21,6 +21,8 @@ export default function ProfilePage() {
 
   const [pos2, setPos2]           = useState(null);
   const [usdcWallet2, setUsdcWallet2] = useState(null);
+  const [wethWallet2, setWethWallet2] = useState(null);
+  const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
 
@@ -34,7 +36,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
@@ -50,11 +52,25 @@ export default function ProfilePage() {
       {pos1 && pos1.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent />)}
 
       {/* ── Wallet 2 : WETH/USDC ── */}
-      <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} includeAero extraUSD={parseFloat(usdcWallet2 || 0)} mt />
+      {(() => {
+        const total2 = pos2
+          ? pos2.reduce((s, p) => {
+              const wethPool   = parseFloat(p.pool?.find(t => t.symbol === "WETH")?.usd ?? "0");
+              const stablePool = parseFloat(p.pool?.find(t => t.symbol !== "WETH")?.usd ?? "0");
+              const wethFees   = parseFloat(p.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
+              const stableFees = parseFloat(p.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
+              const partialFees = wethPool >= stablePool ? stableFees : wethFees;
+              return s + parseFloat(p.totalPoolUSD ?? "0") + partialFees;
+            }, 0)
+            + parseFloat(usdcWallet2 || 0)
+            + parseFloat(wethWalletUSD2 || 0)
+          : null;
+        return <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} totalOverride={total2} mt />;
+      })()}
       {loading2 && <Spinner label="Découverte des positions…" />}
       {error2   && <ErrorBox msg={error2} />}
       {pos2 && pos2.length === 0 && !loading2 && <Empty />}
-      {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} />)}
+      {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} />)}
 
     </>
   );
@@ -62,13 +78,15 @@ export default function ProfilePage() {
 
 // ── Composants ────────────────────────────────────────────────────────────────
 
-function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0 }) {
-  const total = positions && positions.length > 0
-    ? (positions.reduce((s, p) => {
-        const aero = includeAero ? parseFloat(p.aeroRevenueUSD ?? 0) : 0;
-        return s + parseFloat(p.totalUSD) + aero;
-      }, 0) + extraUSD).toFixed(2)
-    : null;
+function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0, totalOverride = null }) {
+  const total = totalOverride !== null
+    ? totalOverride.toFixed(2)
+    : positions && positions.length > 0
+      ? (positions.reduce((s, p) => {
+          const aero = includeAero ? parseFloat(p.aeroRevenueUSD ?? 0) : 0;
+          return s + parseFloat(p.totalUSD) + aero;
+        }, 0) + extraUSD).toFixed(2)
+      : null;
   return (
     <div className="section-header" style={mt ? { marginTop: 28 } : {}}>
       <span style={{
@@ -122,15 +140,21 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
-  const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
+function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet, wethWalletUSD }) {
+  const aeroUSD      = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
+  const wethPoolUSD  = parseFloat(pos.pool?.find(t => t.symbol === "WETH")?.usd ?? "0");
+  const stablePoolUSD = parseFloat(pos.pool?.find(t => t.symbol !== "WETH")?.usd ?? "0");
+  const wethFeesUSD  = parseFloat(pos.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
+  const stableFeesUSD = parseFloat(pos.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
+  const poolFeesUSD  = wethPoolUSD >= stablePoolUSD ? wethFeesUSD : stableFeesUSD;
+  const totalRevUSD  = aeroUSD + poolFeesUSD;
 
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
-        if (aeroUSD <= 0) return "0.00";
+        if (totalRevUSD <= 0) return "0.00";
         const base = parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
         const minutes = Math.max(1, (Date.now() - pos.openTimestamp) / 60_000);
-        return ((aeroUSD / minutes * 1440) / base * 100).toFixed(2);
+        return ((totalRevUSD / minutes * 1440) / base * 100).toFixed(2);
       })()
     : null;
   const [collecting, setCollecting] = React.useState(false);
@@ -207,10 +231,15 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
         <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />
       </Section>
 
-      {/* USDC non utilisé */}
-      {usdcWallet && parseFloat(usdcWallet) > 0 && (
-        <Section label="USDC non utilisé">
-          <TokenRow token={{ symbol: "USDC", balance: usdcWallet, usd: usdcWallet }} accent="#00e5a0" />
+      {/* Solde non utilisé */}
+      {(usdcWallet !== null || wethWallet !== null) && (
+        <Section label="Solde non utilisé">
+          {usdcWallet && parseFloat(usdcWallet) > 0 && (
+            <TokenRow token={{ symbol: "USDC", balance: usdcWallet, usd: usdcWallet }} accent="#00e5a0" />
+          )}
+          {wethWallet !== null && (
+            <TokenRow token={{ symbol: "WETH", balance: wethWallet ?? "0.000000", usd: wethWalletUSD ?? "0.00" }} accent="#627eea" />
+          )}
         </Section>
       )}
 
@@ -220,7 +249,7 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet }) {
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
-        <TotalRow label="Total revenus" value={`$${aeroUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
+        <TotalRow label="Total revenus" value={`$${totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
 
       {/* Footer */}

@@ -187,7 +187,9 @@ function calcFees(liquidity, fgInside, fgInsideLast, owed) {
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
-  const keepWeth = body.keepWeth === true;
+  const keepWeth        = body.keepWeth === true;
+  const sellWethFees    = body.sellWethFees === true;
+  const transferUsdcFees = body.transferUsdcFees === true;
   try {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
@@ -414,6 +416,32 @@ export async function POST(req) {
     // 4. Swap tout le WETH → USDC (skippé si keepWeth=true)
     const usdcBeforeSwaps = await readBal(stablecoin, wallet.address).catch(() => 0n);
     let swapHash = null;
+    // 4-fees. Si sellWethFees=true : vendre uniquement les fees WETH (pas le principal)
+    if (keepWeth && sellWethFees && totalFeesWei0 > 0n) try {
+      const wethBal = await readBal(WETH, wallet.address);
+      const feeWethToSell = totalFeesWei0 < wethBal ? totalFeesWei0 : wethBal;
+      if (feeWethToSell > 0n) {
+        try {
+          const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
+          const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
+          if (current < feeWethToSell) {
+            const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
+            await waitForTx(provider, txApp);
+          }
+        } catch (_) {}
+        const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+          tokenIn: WETH, tokenOut: stablecoin, tickSpacing,
+          recipient: wallet.address, deadline: freshDeadline(),
+          amountIn: feeWethToSell, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+        }]);
+        let swapGas = 300000n;
+        try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
+        const txFeeSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
+        swapHash = txFeeSwap.hash;
+        await waitForTx(provider, txFeeSwap);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (e) { console.log(`[sellWethFees] ${e.message ?? e}`); }
     if (!keepWeth) try {
       const wethBal = await readBal(WETH, wallet.address);
 
@@ -522,6 +550,21 @@ export async function POST(req) {
           });
           await waitForTx(provider, txTransfer);
           console.log(`[transfer] OK hash=${txTransfer.hash}`);
+        }
+        // transferUsdcFees: envoyer les fees USDC directement vers DESTINATION_WALLET (sans swap)
+        if (keepWeth && transferUsdcFees && totalFeesUsdc1 > 0n) {
+          try {
+            const usdcBal = await readBal(stablecoin, wallet.address).catch(() => 0n);
+            const feeUsdcToSend = totalFeesUsdc1 < usdcBal ? totalFeesUsdc1 : usdcBal;
+            if (feeUsdcToSend > 0n) {
+              const txFeeTransfer = await sendTx(wallet, {
+                to: stablecoin,
+                data: ERC20_IFACE.encodeFunctionData("transfer", [dest, feeUsdcToSend]),
+              });
+              await waitForTx(provider, txFeeTransfer);
+              console.log(`[transferUsdcFees] OK amount=${feeUsdcToSend} hash=${txFeeTransfer.hash}`);
+            }
+          } catch (e) { console.log(`[transferUsdcFees] erreur: ${e.message ?? e}`); }
         }
       }
     } catch (err) {

@@ -409,15 +409,26 @@ export async function GET() {
     if (results.length > 0 && results.every(r => r.status === "rejected"))
       throw new Error(results[0].reason?.message ?? "RPC indisponible");
 
-    // Solde USDC non utilisé dans le wallet
+    // Solde USDC + WETH non utilisé dans le wallet
     let usdcWallet = "0.00";
+    let wethWallet = "0.00";
     try {
       const hex = await ethCall(USDC, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
       const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
       usdcWallet = Number(ethers.formatUnits(raw, 6)).toFixed(2);
     } catch (_) {}
+    let wethWalletUSD = "0.00";
+    try {
+      const WETH = "0x4200000000000000000000000000000000000006";
+      const hex = await ethCall(WETH, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
+      const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
+      const wethAmt = Number(ethers.formatUnits(raw, 18));
+      wethWallet = wethAmt.toFixed(6);
+      const wethPriceNum = parseFloat(positions[0]?.wethPrice ?? "0");
+      if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
+    } catch (_) {}
 
-    const data = { positions, usdcWallet };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD };
     global._cytPos2Cache = { data, time: Date.now() };
     return Response.json(data);
 
