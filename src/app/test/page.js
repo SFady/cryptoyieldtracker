@@ -16,7 +16,7 @@ export default async function TestPage() {
         color: "#6666aa",
         marginBottom: 20,
       }}>
-        ATR Bot — Développement
+        ATR Bot — Développement 
       </div>
       <AtrPanel />
     </div>
