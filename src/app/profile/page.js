@@ -176,6 +176,20 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet
     : null;
   const [collecting, setCollecting] = React.useState(false);
   const [collectResult, setCollectResult] = React.useState(null);
+  const [confirming, setConfirming] = React.useState(false);
+  const confirmTimer = React.useRef(null);
+
+  function handleCollectClick() {
+    if (collecting) return;
+    if (!confirming) {
+      setConfirming(true);
+      confirmTimer.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(confirmTimer.current);
+      setConfirming(false);
+      handleCollect();
+    }
+  }
 
   async function handleCollect() {
     setCollecting(true);
@@ -285,52 +299,33 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet
       </div>
 
       {/* Bouton collecter */}
-      {showCollect && (() => {
-        const COLLECT_COST = 0.50;
-        const MAX_LOSS_PCT = 0.05;
-        const MIN_FEES     = COLLECT_COST / MAX_LOSS_PCT; // $10
-        const totalRev     = parseFloat(pos.totalRevenueUSD ?? pos.totalFeesUSD ?? 0);
-        const lossPct      = totalRev > 0 ? ((COLLECT_COST / totalRev) * 100).toFixed(0) : null;
-        const tooLow       = totalRev < MIN_FEES;
-        const remaining    = (MIN_FEES - totalRev).toFixed(2);
-        return (
-          <div style={{ padding: "10px 18px", borderTop: "1px solid rgba(124,77,255,0.1)", background: "rgba(10,10,30,0.4)" }}>
-            {tooLow && (
-              <div style={{
-                marginBottom: 8, fontSize: "0.72rem", fontFamily: "monospace",
-                color: "#c97070", background: "rgba(180,100,100,0.08)",
-                border: "1px solid rgba(180,100,100,0.25)", borderRadius: 6,
-                padding: "6px 10px",
-              }}>
-                ⚠ Coût estimé ~{lossPct}% (${COLLECT_COST.toFixed(2)}) — attendre encore ${remaining} de fees
-              </div>
-            )}
-            <button
-              onClick={handleCollect}
-              disabled={collecting || tooLow}
-              style={{
-                fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700,
-                padding: "6px 16px", borderRadius: 6,
-                cursor: (collecting || tooLow) ? "not-allowed" : "pointer",
-                background: (collecting || tooLow) ? "rgba(124,77,255,0.05)" : "rgba(124,77,255,0.2)",
-                border: "1px solid rgba(124,77,255,0.4)",
-                color: (collecting || tooLow) ? "#444466" : "#c4a6ff",
-                transition: "all 0.2s",
-              }}
-            >
-              {collecting ? "En cours…" : "Collecter fees + AERO → USDC"}
-            </button>
-            {collectResult && (
-              <div style={{
-                marginTop: 8, fontSize: "0.75rem", fontFamily: "monospace",
-                color: collectResult.ok ? "#00e5a0" : "#c97070",
-              }}>
-                {collectResult.ok ? "✓" : "⚠"} {collectResult.msg}
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {showCollect && (
+        <div style={{ padding: "10px 18px", borderTop: "1px solid rgba(124,77,255,0.1)", background: "rgba(10,10,30,0.4)" }}>
+          <button
+            onClick={handleCollectClick}
+            disabled={collecting}
+            style={{
+              fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700,
+              padding: "6px 16px", borderRadius: 6,
+              cursor: collecting ? "not-allowed" : "pointer",
+              background: collecting ? "rgba(124,77,255,0.05)" : confirming ? "rgba(240,180,41,0.15)" : "rgba(124,77,255,0.2)",
+              border: `1px solid ${confirming ? "rgba(240,180,41,0.6)" : "rgba(124,77,255,0.4)"}`,
+              color: collecting ? "#444466" : confirming ? "#f0b429" : "#c4a6ff",
+              transition: "all 0.2s",
+            }}
+          >
+            {collecting ? "En cours…" : confirming ? "⚠ CONFIRMER ?" : "Collecter fees + AERO → USDC"}
+          </button>
+          {collectResult && (
+            <div style={{
+              marginTop: 8, fontSize: "0.75rem", fontFamily: "monospace",
+              color: collectResult.ok ? "#00e5a0" : "#c97070",
+            }}>
+              {collectResult.ok ? "✓" : "⚠"} {collectResult.msg}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
