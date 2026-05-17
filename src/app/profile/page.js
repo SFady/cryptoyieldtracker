@@ -292,7 +292,12 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet
         fontSize: "0.72rem", fontFamily: "monospace", color: "#6666aa",
       }}>
         <span>#{pos.tokenId}</span>
-        {pos.mintDate  && <span>ouvert le {pos.mintDate}</span>}
+        {pos.openTimestamp && (() => {
+          const totalMin = Math.floor((Date.now() - pos.openTimestamp) / 60_000);
+          const h = Math.floor(totalMin / 60);
+          const m = totalMin % 60;
+          return <span>Ouvert depuis {h}h {String(m).padStart(2, "0")}min</span>;
+        })()}
         {pos.ethPrice  && <span>ETH = ${pos.ethPrice}</span>}
         {pos.wethPrice && <span>ETH = ${pos.wethPrice}</span>}
         {pos.btcPrice  && <span>BTC = ${pos.btcPrice}</span>}

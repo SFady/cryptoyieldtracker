@@ -143,10 +143,9 @@ async function handleCase1() {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  const usdcPlaced    = parseFloat(lastPos.usdc_placed);
-  const rangePct      = parseFloat(lastPos.range_pct);
-  const rangeMin      = parseFloat(lastPos.range_min);
-  const usdcRemaining = parseFloat(lastPos.usdc_remaining) || 0;
+  const usdcPlaced = parseFloat(lastPos.usdc_placed);
+  const rangePct   = parseFloat(lastPos.range_pct);
+  const rangeMin   = parseFloat(lastPos.range_min);
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
@@ -218,10 +217,9 @@ async function handleCase2() {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  const usdcPlaced    = parseFloat(lastPos.usdc_placed);
-  const rangePct      = parseFloat(lastPos.range_pct);
-  const rangeMax      = parseFloat(lastPos.range_max);
-  const usdcRemaining = parseFloat(lastPos.usdc_remaining) || 0;
+  const usdcPlaced = parseFloat(lastPos.usdc_placed);
+  const rangePct   = parseFloat(lastPos.range_pct);
+  const rangeMax   = parseFloat(lastPos.range_max);
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
@@ -294,10 +292,9 @@ async function handleCase3() {
   }
 
   const usdcPlaced    = parseFloat(lastPos.usdc_placed);
-  const rangePct      = parseFloat(lastPos.range_pct);
-  const rangeMin      = parseFloat(lastPos.range_min);
-  const rangeMax      = parseFloat(lastPos.range_max);
-  const usdcRemaining = parseFloat(lastPos.usdc_remaining) || 0;
+  const rangePct = parseFloat(lastPos.range_pct);
+  const rangeMin = parseFloat(lastPos.range_min);
+  const rangeMax = parseFloat(lastPos.range_max);
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
@@ -305,11 +302,32 @@ async function handleCase3() {
   if (!isNaN(rangeMin) && !isNaN(rangeMax) && (livePrice < rangeMin || livePrice > rangeMax))
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} hors range [$${rangeMin}–$${rangeMax}] — cas 1 ou 2 approprié` });
 
-  // 4. Vérifier que la position est ouverte depuis > 12h
+  // 4. Vérifier que la position est ouverte depuis > 6h
   const openedAt  = new Date(lastPos.created_at);
   const ageHours  = (Date.now() - openedAt.getTime()) / 3_600_000;
   if (ageHours < 6)
     return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 6h minimum` });
+
+  // 4b. Si position > 24h et pas de AERO_CLAIM dans les 24 dernières heures → collecter
+  if (ageHours >= 24) {
+    try {
+      const claimRows = await sql`
+        SELECT id FROM lp_events
+        WHERE action1 = 'AERO_CLAIM'
+          AND created_at > NOW() - INTERVAL '24 hours'
+        LIMIT 1
+      `;
+      if (claimRows.length === 0) {
+        try {
+          await fetch(`${base}/api/claimAero`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(120000),
+          });
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
 
   // 5. Calculer le range via percentiles 24h (même logique que cas 4)
   let newRangePct = 2;
