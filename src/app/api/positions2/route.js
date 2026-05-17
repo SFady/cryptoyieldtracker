@@ -428,7 +428,24 @@ export async function GET() {
       if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
     } catch (_) {}
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD };
+    // Range percentile 5%–95% sur les 24h dernières
+    let percentileRangePct = null;
+    try {
+      const pRows = await sql`
+        SELECT
+          PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
+          COUNT(*)::int AS cnt
+        FROM cron_runs
+        WHERE weth IS NOT NULL
+          AND ran_at > NOW() - INTERVAL '24 hours'
+      `;
+      const { p05, p95, cnt } = pRows[0];
+      if (cnt >= 10 && p05 > 0)
+        percentileRangePct = parseFloat(((p95 - p05) / p05 * 100).toFixed(2));
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct };
     global._cytPos2Cache = { data, time: Date.now() };
     return Response.json(data);
 
