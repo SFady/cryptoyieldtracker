@@ -18,6 +18,24 @@ async function logEvent(fields) {
   } catch (_) {}
 }
 
+async function sendErrorEmail(subject, body) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body:    JSON.stringify({
+        from:    "onboarding@resend.dev",
+        to:      "sylvain.fady@gmail.com",
+        subject,
+        html:    `<pre style="font-family:monospace">${body}</pre>`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (_) {}
+}
+
 const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
 const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // Aerodrome Slipstream SwapRouter (Initial Deployment, même que NFPM)
 const WETH        = "0x4200000000000000000000000000000000000006";
@@ -660,6 +678,7 @@ export async function POST(req) {
       pool_num:  poolNum ?? null,
       type:      caseNum ?? null,
     });
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — createPosition", `Cas : ${caseNum ?? "?"}\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }
 }

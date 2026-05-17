@@ -11,6 +11,24 @@ async function logEvent(fields) {
   } catch (_) {}
 }
 
+async function sendErrorEmail(subject, body) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body:    JSON.stringify({
+        from:    "onboarding@resend.dev",
+        to:      "sylvain.fady@gmail.com",
+        subject,
+        html:    `<pre style="font-family:monospace">${body}</pre>`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (_) {}
+}
+
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
@@ -614,6 +632,7 @@ export async function POST(req) {
   } catch (e) {
     const msg = e.message ?? e.shortMessage ?? String(e);
     await logEvent({ action1: "CLOSE_ERR", error_msg: msg });
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — closePositions", `Erreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }
 }

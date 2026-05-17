@@ -179,7 +179,7 @@ async function handleCase1() {
     // 5. Créer nouvelle position 75% WETH / 25% USDC — utilise tout le wallet (USDC + WETH)
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.75, poolNum: 2, caseNum: 1, _cas1_marker: true }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.75, poolNum: 2, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -189,7 +189,9 @@ async function handleCase1() {
     return Response.json({ ok: true, case: 1, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
   } catch (e) {
     await release();
-    return Response.json({ case: 1, error: e?.message ?? String(e) }, { status: 500 });
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 1", `Prix ETH : $${livePrice}\n\nErreur : ${msg}`);
+    return Response.json({ case: 1, error: msg }, { status: 500 });
   }
 }
 
@@ -263,7 +265,9 @@ async function handleCase2() {
     return Response.json({ ok: true, case: 2, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
   } catch (e) {
     await release();
-    return Response.json({ case: 2, error: e?.message ?? String(e) }, { status: 500 });
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 2", `Prix ETH : $${livePrice}\n\nErreur : ${msg}`);
+    return Response.json({ case: 2, error: msg }, { status: 500 });
   }
 }
 
@@ -390,7 +394,9 @@ async function handleCase3() {
     return Response.json({ ok: true, case: 3, ageHours: ageHours.toFixed(1), newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
   } catch (e) {
     await release();
-    return Response.json({ case: 3, error: e?.message ?? String(e) }, { status: 500 });
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 3", `Prix ETH : $${livePrice}\n\nErreur : ${msg}`);
+    return Response.json({ case: 3, error: msg }, { status: 500 });
   }
 }
 
