@@ -543,6 +543,7 @@ export async function POST(req) {
         }
         const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
         console.log(`[transfer] before=${usdcBeforeSwaps} after=${usdcAfterSwaps} delta=${delta} dest=${dest}`);
+        const source = sellWethFees ? "cas1" : transferUsdcFees ? "cas2" : keepWeth ? "cas3" : "close";
         if (delta > 0n) {
           const txTransfer = await sendTx(wallet, {
             to: stablecoin,
@@ -550,6 +551,10 @@ export async function POST(req) {
           });
           await waitForTx(provider, txTransfer);
           console.log(`[transfer] OK hash=${txTransfer.hash}`);
+          try {
+            const amt = parseFloat(ethers.formatUnits(delta, 6));
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${source + "-aero"}, ${txTransfer.hash})`;
+          } catch (_) {}
         }
         // transferUsdcFees: envoyer les fees USDC directement vers DESTINATION_WALLET (sans swap)
         if (keepWeth && transferUsdcFees && totalFeesUsdc1 > 0n) {
@@ -563,6 +568,10 @@ export async function POST(req) {
               });
               await waitForTx(provider, txFeeTransfer);
               console.log(`[transferUsdcFees] OK amount=${feeUsdcToSend} hash=${txFeeTransfer.hash}`);
+              try {
+                const amt = parseFloat(ethers.formatUnits(feeUsdcToSend, 6));
+                await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${"cas2-usdc"}, ${txFeeTransfer.hash})`;
+              } catch (_) {}
             }
           } catch (e) { console.log(`[transferUsdcFees] erreur: ${e.message ?? e}`); }
         }

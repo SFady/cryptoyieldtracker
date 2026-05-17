@@ -78,7 +78,7 @@ async function readBal(token, address) {
   return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
 }
 
-async function waitForTx(provider, tx) {
+async function waitForTx(tx) {
   try {
     const r = await tx.wait();
     if (r?.status === 0) throw new Error("reverted");
@@ -140,7 +140,7 @@ export async function POST() {
         to: gaugeAddr,
         data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
       });
-      await waitForTx(provider, tx);
+      await waitForTx(tx);
     } catch (e) {
       return Response.json({ error: `[getReward] ${e.message ?? e}` }, { status: 500 });
     }
@@ -156,14 +156,14 @@ export async function POST() {
           to: AERO,
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         });
-        await waitForTx(provider, txApp);
+        await waitForTx(txApp);
         const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
         const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
           aeroBal, 0n, routes, wallet.address, freshDeadline(),
         ]);
         const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
         aeroSwapHash = txSwap.hash;
-        await waitForTx(provider, txSwap);
+        await waitForTx(txSwap);
       }
     } catch (_) {}
 
@@ -181,7 +181,11 @@ export async function POST() {
             data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
           });
           transferHash = txTransfer.hash;
-          await waitForTx(provider, txTransfer);
+          await waitForTx(txTransfer);
+          try {
+            const amt = parseFloat(ethers.formatUnits(delta, 6));
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${"claimAero"}, ${transferHash})`;
+          } catch (_) {}
         }
       }
     } catch (e) {

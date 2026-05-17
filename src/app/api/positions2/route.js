@@ -445,7 +445,24 @@ export async function GET() {
         percentileRangePct = parseFloat(((p95 - p05) / p05 * 100).toFixed(2));
     } catch (_) {}
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct };
+    // Historique des envois vers DESTINATION_WALLET
+    let transferHistory = [];
+    try {
+      const tRows = await sql`
+        SELECT created_at, amount_usdc, source, tx_hash
+        FROM dest_transfers
+        ORDER BY created_at DESC
+        LIMIT 20
+      `;
+      transferHistory = tRows.map(r => ({
+        date:   new Date(r.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }),
+        amount: parseFloat(r.amount_usdc).toFixed(2),
+        source: r.source,
+        txHash: r.tx_hash,
+      }));
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory };
     global._cytPos2Cache = { data, time: Date.now() };
     return Response.json(data);
 
