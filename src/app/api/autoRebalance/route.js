@@ -7,11 +7,12 @@ const sql = neon(process.env.DATABASE_URL);
 
 const POOL_ADDRESS = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const RPC_URLS = [
+  process.env.ALCHEMY_RPC_URL,
   "https://base.drpc.org",
   "https://base-rpc.publicnode.com",
   "https://base.llamarpc.com",
   "https://mainnet.base.org",
-];
+].filter(Boolean);
 
 async function getPoolWethPrice(fallback) {
   for (const url of RPC_URLS) {

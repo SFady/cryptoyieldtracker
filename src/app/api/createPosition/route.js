@@ -72,11 +72,12 @@ function findCenterForRatio(targetRatio, P, halfFrac) {
 }
 
 const RPC_URLS = [
+  process.env.ALCHEMY_RPC_URL,
   "https://base.drpc.org",
   "https://base-rpc.publicnode.com",
   "https://base.llamarpc.com",
   "https://mainnet.base.org",
-];
+].filter(Boolean);
 
 const ERC20_IFACE = new ethers.Interface([
   "function approve(address spender, uint256 amount) returns (bool)",

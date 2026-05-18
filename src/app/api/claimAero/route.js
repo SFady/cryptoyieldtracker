@@ -14,11 +14,12 @@ const POOL       = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER      = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
 const RPC_URLS = [
+  process.env.ALCHEMY_RPC_URL,
   "https://base.drpc.org",
   "https://base-rpc.publicnode.com",
   "https://base.llamarpc.com",
   "https://mainnet.base.org",
-];
+].filter(Boolean);
 
 const ERC20_IFACE = new ethers.Interface([
   "function balanceOf(address) view returns (uint256)",
