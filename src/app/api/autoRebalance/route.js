@@ -174,6 +174,7 @@ async function handleCase1() {
       });
       closeData = await res.json();
       if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
+      if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
     // 5. Créer nouvelle position 75% WETH / 25% USDC — utilise tout le wallet (USDC + WETH)
@@ -250,6 +251,7 @@ async function handleCase2() {
       });
       closeData = await res.json();
       if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
+      if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
     // 5. Créer nouvelle position 25% WETH / 75% USDC — utilise tout le wallet (USDC + WETH)
@@ -379,6 +381,7 @@ async function handleCase3() {
       });
       closeData = await res.json();
       if (!res.ok) throw new Error(typeof closeData?.error === "string" ? closeData.error : JSON.stringify(closeData?.error ?? "close failed"));
+      if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
     // 8. Créer nouvelle position 50/50 — utilise tout le wallet (USDC + WETH)

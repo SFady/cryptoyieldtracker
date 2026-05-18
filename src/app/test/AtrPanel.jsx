@@ -375,7 +375,7 @@ function ClosePanel() {
     setStatus("loading");
     setMsg("");
     try {
-      const res  = await fetch("/api/closePositions", { method: "POST" });
+      const res  = await fetch("/api/closePositions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ noTransfer: true }) });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setStatus("ok");

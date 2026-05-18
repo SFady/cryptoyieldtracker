@@ -205,9 +205,10 @@ function calcFees(liquidity, fgInside, fgInsideLast, owed) {
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
-  const keepWeth        = body.keepWeth === true;
-  const sellWethFees    = body.sellWethFees === true;
+  const keepWeth         = body.keepWeth === true;
+  const sellWethFees     = body.sellWethFees === true;
   const transferUsdcFees = body.transferUsdcFees === true;
+  const noTransfer       = body.noTransfer === true;
   try {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
@@ -245,22 +246,6 @@ export async function POST(req) {
           await waitForTx(provider, tx);
         } catch (_) {}
 
-        // Simulation — si revert reel (pas juste RPC transient) on skippe ce tokenId
-        let simOk = true;
-        try {
-          await provider.call({
-            to: gaugeAddr, from: wallet.address,
-            data: GAUGE_IFACE.encodeFunctionData('withdraw', [tokenId]),
-          });
-        } catch (simErr) {
-          const msg = simErr.shortMessage ?? simErr.message ?? '';
-          if (msg && !msg.includes('missing revert data')) {
-            unstakeErrors.push(`tokenId=${tokenId}: ${msg}`);
-            simOk = false;
-          }
-        }
-        if (!simOk) continue;
-
         try {
           const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [tokenId]);
           let withdrawGas = 300000n;
@@ -269,7 +254,7 @@ export async function POST(req) {
           await waitForTx(provider, tx);
           unstakedList.push(tokenId.toString());
         } catch (e) {
-          unstakeErrors.push(`tokenId=${tokenId}: ${e.shortMessage ?? e.message}`);
+          throw new Error(`[withdraw tokenId=${tokenId}] ${e.shortMessage ?? e.message}`);
         }
       }
     } catch (e) {
@@ -555,9 +540,9 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 4b. Transfert des fees converties vers DESTINATION_WALLET
+    // 4b. Transfert des fees converties vers DESTINATION_WALLET (skippé si noTransfer=true)
     try {
-      const dest = process.env.DESTINATION_WALLET;
+      const dest = noTransfer ? null : process.env.DESTINATION_WALLET;
       if (dest) {
         let usdcAfterSwaps = 0n;
         for (let i = 0; i < 4; i++) {
