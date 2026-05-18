@@ -462,7 +462,18 @@ export async function GET() {
       }));
     } catch (_) {}
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory };
+    // Prochain cron = dernière exécution + 30 min
+    let nextCronAt = null;
+    try {
+      const cronRows = await sql`SELECT MAX(ran_at) AS last FROM cron_runs`;
+      if (cronRows[0]?.last) {
+        const next = new Date(cronRows[0].last);
+        next.setMinutes(next.getMinutes() + 30);
+        nextCronAt = next.toISOString();
+      }
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt };
     global._cytPos2Cache = { data, time: Date.now() };
     return Response.json(data);
 

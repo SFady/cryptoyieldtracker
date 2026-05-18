@@ -25,6 +25,7 @@ export default function ProfilePage() {
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [transferHistory2, setTransferHistory2] = useState([]);
+  const [nextCronAt2, setNextCronAt2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
 
@@ -38,7 +39,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setTransferHistory2(d.transferHistory ?? []); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setTransferHistory2(d.transferHistory ?? []); setNextCronAt2(d.nextCronAt ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
@@ -70,8 +71,8 @@ export default function ProfilePage() {
         return (
           <>
             <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} totalOverride={total2} mt />
-            {percentileRange2 !== null && (
-              <div style={{ padding: "4px 0 2px 0", marginBottom: 10, display: "flex", gap: 6, alignItems: "center" }}>
+            <div style={{ padding: "4px 0 2px 0", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {percentileRange2 !== null && (
                 <span style={{
                   fontSize: "0.65rem", fontFamily: "monospace",
                   padding: "2px 8px", borderRadius: 4,
@@ -79,8 +80,17 @@ export default function ProfilePage() {
                 }}>
                   Range percentile 24h : {percentileRange2}%
                 </span>
-              </div>
-            )}
+              )}
+              {nextCronAt2 && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#86efac",
+                }}>
+                  Prochain cron : {new Date(nextCronAt2).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
             {loading2 && <Spinner label="Découverte des positions…" />}
             {error2   && <ErrorBox msg={error2} />}
             {pos2 && pos2.length === 0 && !loading2 && <Empty />}
