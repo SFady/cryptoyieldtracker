@@ -518,6 +518,11 @@ export async function POST(req) {
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
     // end if (!keepWeth)
 
+    // Lecture du solde après WETH fee swap (avant AERO) pour isoler la part AERO en CAS 1
+    const usdcAfterWethFeeSwap = (keepWeth && sellWethFees)
+      ? await readBal(stablecoin, wallet.address).catch(() => usdcBeforeSwaps)
+      : usdcBeforeSwaps;
+
     // Solde USDC total avant AERO (principal LP + wallet existant, sans AERO)
     const stableBalLp   = await readBal(stablecoin, wallet.address);
     const lpUsdcRaw     = Number(ethers.formatUnits(stableBalLp, 6)).toFixed(2);
@@ -560,17 +565,26 @@ export async function POST(req) {
           await new Promise(r => setTimeout(r, 2000));
         }
         const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
-        console.log(`[transfer] before=${usdcBeforeSwaps} after=${usdcAfterSwaps} delta=${delta} dest=${dest}`);
         const source = sellWethFees ? "cas1" : transferUsdcFees ? "cas2" : keepWeth ? "cas3" : "close";
-        if (delta > 0n) {
+        // CAS 1 : WETH fees → 100% external, AERO → 50% external / 50% gardé pour réinvestissement
+        let toSend;
+        if (sellWethFees) {
+          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
+          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          toSend = wethFeesUsdc + aeroUsdc / 2n;
+        } else {
+          toSend = delta;
+        }
+        console.log(`[transfer] before=${usdcBeforeSwaps} afterWethFee=${usdcAfterWethFeeSwap} after=${usdcAfterSwaps} toSend=${toSend} dest=${dest}`);
+        if (toSend > 0n) {
           const txTransfer = await sendTx(wallet, {
             to: stablecoin,
-            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
+            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
           });
           await waitForTx(provider, txTransfer);
           console.log(`[transfer] OK hash=${txTransfer.hash}`);
           try {
-            const amt = parseFloat(ethers.formatUnits(delta, 6));
+            const amt = parseFloat(ethers.formatUnits(toSend, 6));
             await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${source + "-aero"}, ${txTransfer.hash})`;
           } catch (_) {}
         }
