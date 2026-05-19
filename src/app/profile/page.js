@@ -446,8 +446,8 @@ function RangeBar({ low, high, current, inRange }) {
   const hi  = parseFloat(high);
   const cur = parseFloat(current);
   const pct = (cur - lo) / (hi - lo); // <0 = below, >1 = above
-  // Bar occupies 15%–85% of container; dot follows same scale but clamped to 2%–98%
-  const dotLeft = Math.max(2, Math.min(98, 15 + pct * 70));
+  // Track goes from 15% to 72% (right: 28%); dot uses same bounds
+  const dotLeft = Math.max(15, Math.min(72, 15 + pct * 57));
   const color   = inRange ? "#00e5a0" : "#c97070";
   return (
     <div style={{ position: "relative", width: "100%", height: 34 }}>
