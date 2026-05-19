@@ -283,6 +283,7 @@ export async function POST(req) {
     const wethPriceUsdc = sqrtPf * sqrtPf * 1e12;
     let principalWei0Acc  = 0n;
     let principalUsdc1Acc = 0n;
+    const usdcPreCollect = await readBal(stablecoin, wallet.address).catch(() => 0n);
     try {
       // Combiner les tokenIds unstakés (garantis dans le wallet) + ceux trouvés via balanceOf
       // tokenOfOwnerByIndex peut ne pas refléter immédiatement un NFT fraîchement transféré depuis le gauge
@@ -422,6 +423,10 @@ export async function POST(req) {
 
     // 4. Swap tout le WETH → USDC (skippé si keepWeth=true)
     const usdcBeforeSwaps = await readBal(stablecoin, wallet.address).catch(() => 0n);
+    // Fees USDC réelles = delta balance collect - principal simulé (plus fiable que calcFees on-chain)
+    const usdcFromCollect    = usdcBeforeSwaps > usdcPreCollect ? usdcBeforeSwaps - usdcPreCollect : 0n;
+    const actualUsdcFeesFromLP = usdcFromCollect > principalUsdc1Acc ? usdcFromCollect - principalUsdc1Acc : 0n;
+    console.log(`[fees] totalFeesUsdc1=${totalFeesUsdc1} actualUsdcFeesFromLP=${actualUsdcFeesFromLP} principalUsdc1Acc=${principalUsdc1Acc}`);
     let swapHash = null;
     // 4-fees. Si sellWethFees/halfFees/allFees : vendre uniquement les fees WETH (pas le principal)
     if (keepWeth && (sellWethFees || halfFees || allFees) && totalFeesWei0 > 0n) try {
@@ -560,12 +565,12 @@ export async function POST(req) {
           // CAS 1 : 50% de toutes les fees (WETH fees + USDC fees + AERO) → external
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
-          toSend = (wethFeesUsdc + totalFeesUsdc1 + aeroUsdc) / 2n;
+          toSend = (wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc) / 2n;
         } else if (allFees) {
-          // CAS 2 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
+          // CAS 2/3 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
-          toSend = wethFeesUsdc + totalFeesUsdc1 + aeroUsdc;
+          toSend = wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc;
         } else if (sellWethFees) {
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
