@@ -208,6 +208,8 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const keepWeth         = body.keepWeth === true;
   const sellWethFees     = body.sellWethFees === true;
+  const halfFees         = body.halfFees === true;
+  const allFees          = body.allFees === true;
   const transferUsdcFees = body.transferUsdcFees === true;
   const noTransfer       = body.noTransfer === true;
   try {
@@ -420,8 +422,8 @@ export async function POST(req) {
     // 4. Swap tout le WETH → USDC (skippé si keepWeth=true)
     const usdcBeforeSwaps = await readBal(stablecoin, wallet.address).catch(() => 0n);
     let swapHash = null;
-    // 4-fees. Si sellWethFees=true : vendre uniquement les fees WETH (pas le principal)
-    if (keepWeth && sellWethFees && totalFeesWei0 > 0n) try {
+    // 4-fees. Si sellWethFees/halfFees/allFees : vendre uniquement les fees WETH (pas le principal)
+    if (keepWeth && (sellWethFees || halfFees || allFees) && totalFeesWei0 > 0n) try {
       const wethBal = await readBal(WETH, wallet.address);
       const feeWethToSell = totalFeesWei0 < wethBal ? totalFeesWei0 : wethBal;
       if (feeWethToSell > 0n) {
@@ -504,8 +506,8 @@ export async function POST(req) {
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
     // end if (!keepWeth)
 
-    // Lecture du solde après WETH fee swap (avant AERO) pour isoler la part AERO en CAS 1
-    const usdcAfterWethFeeSwap = (keepWeth && sellWethFees)
+    // Lecture du solde après WETH fee swap (avant AERO) pour isoler la part AERO
+    const usdcAfterWethFeeSwap = (keepWeth && (sellWethFees || halfFees || allFees))
       ? await readBal(stablecoin, wallet.address).catch(() => usdcBeforeSwaps)
       : usdcBeforeSwaps;
 
@@ -551,10 +553,19 @@ export async function POST(req) {
           await new Promise(r => setTimeout(r, 2000));
         }
         const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
-        const source = sellWethFees ? "cas1" : transferUsdcFees ? "cas2" : keepWeth ? "cas3" : "close";
-        // CAS 1 : WETH fees → 100% external, AERO → 50% external / 50% gardé pour réinvestissement
+        const source = halfFees ? "cas1" : allFees ? "cas2" : sellWethFees ? "cas1-weth" : transferUsdcFees ? "cas2-old" : keepWeth ? "cas3" : "close";
         let toSend;
-        if (sellWethFees) {
+        if (halfFees) {
+          // CAS 1 : 50% de toutes les fees (WETH fees + USDC fees + AERO) → external
+          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
+          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          toSend = (wethFeesUsdc + totalFeesUsdc1 + aeroUsdc) / 2n;
+        } else if (allFees) {
+          // CAS 2 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
+          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
+          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          toSend = wethFeesUsdc + totalFeesUsdc1 + aeroUsdc;
+        } else if (sellWethFees) {
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
           toSend = wethFeesUsdc + aeroUsdc / 2n;

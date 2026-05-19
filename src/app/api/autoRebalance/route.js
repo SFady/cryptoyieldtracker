@@ -171,7 +171,7 @@ async function handleCase1() {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true, sellWethFees: true }),
+        body: JSON.stringify({ keepWeth: true, halfFees: true }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
@@ -182,7 +182,7 @@ async function handleCase1() {
     // 5. Créer nouvelle position 75% WETH / 25% USDC — utilise tout le wallet (USDC + WETH)
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.75, poolNum: 2, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -248,7 +248,7 @@ async function handleCase2() {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true, transferUsdcFees: true }),
+        body: JSON.stringify({ keepWeth: true, allFees: true }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
@@ -259,7 +259,7 @@ async function handleCase2() {
     // 5. Créer nouvelle position 25% WETH / 75% USDC — utilise tout le wallet (USDC + WETH)
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.25, poolNum: 2, caseNum: 2 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 2 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -357,7 +357,7 @@ async function handleCase3() {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true }),
+        body: JSON.stringify({ keepWeth: true, allFees: true }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
