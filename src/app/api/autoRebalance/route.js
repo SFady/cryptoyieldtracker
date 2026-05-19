@@ -63,7 +63,7 @@ async function acquireLock() {
 }
 
 async function handleRequest(forceCase) {
-  if (![1, 2, 3, 4].includes(forceCase))
+  if (![1, 2, 3, 4, 5].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
   // 1. Expirer les locks bloqués depuis > 5 min, puis vérifier si une exécution est déjà active
@@ -108,6 +108,7 @@ async function handleRequest(forceCase) {
   if (forceCase === 2) return handleCase2();
   if (forceCase === 3) return handleCase3();
   if (forceCase === 4) return handleCase4();
+  if (forceCase === 5) return handleCase5();
 }
 
 export async function GET(req) {
@@ -315,27 +316,6 @@ async function handleCase3() {
   if (ageHours < 6)
     return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 6h minimum` });
 
-  // 4b. Si position > 24h et pas de AERO_CLAIM dans les 24 dernières heures → collecter
-  if (ageHours >= 24) {
-    try {
-      const claimRows = await sql`
-        SELECT id FROM lp_events
-        WHERE action1 = 'AERO_CLAIM'
-          AND created_at > NOW() - INTERVAL '24 hours'
-        LIMIT 1
-      `;
-      if (claimRows.length === 0) {
-        try {
-          await fetch(`${base}/api/claimAero`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(120000),
-          });
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
   // 5. Calculer le range via percentiles 24h (même logique que cas 4)
   let newRangePct = 2;
   try {
@@ -401,6 +381,60 @@ async function handleCase3() {
     const msg = e?.message ?? String(e);
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 3", `Prix ETH : $${livePrice}\n\nErreur : ${msg}`);
     return Response.json({ case: 3, error: msg }, { status: 500 });
+  }
+}
+
+async function handleCase5() {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  // 1. Vérifier position ouverte en DB depuis > 24h
+  let lastPos;
+  try {
+    const rows = await sql`
+      SELECT created_at, action2 FROM lp_events
+      WHERE action1 = 'CREATE_OK'
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (rows.length === 0 || rows[0].action2 !== null)
+      return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
+    lastPos = rows[0];
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  const ageHours = (Date.now() - new Date(lastPos.created_at).getTime()) / 3_600_000;
+  if (ageHours < 24)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 24h minimum` });
+
+  // 2. Vérifier pas de AERO_CLAIM dans les 24 dernières heures
+  try {
+    const claimRows = await sql`
+      SELECT id FROM lp_events
+      WHERE action1 = 'AERO_CLAIM'
+        AND created_at > NOW() - INTERVAL '24 hours'
+      LIMIT 1
+    `;
+    if (claimRows.length > 0)
+      return Response.json({ skipped: true, reason: "AERO déjà collecté dans les 24 dernières heures" });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  // 3. Appeler claimAero
+  try {
+    const res = await fetch(`${base}/api/claimAero`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(120000),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "claimAero failed"));
+    return Response.json({ ok: true, case: 5, ...data });
+  } catch (e) {
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 5 (claim AERO)", `Erreur : ${msg}`);
+    return Response.json({ case: 5, error: msg }, { status: 500 });
   }
 }
 

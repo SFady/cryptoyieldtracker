@@ -110,6 +110,7 @@ async function waitForTx(tx) {
 }
 
 export async function POST() {
+  let rawTokenId = null;
   try {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
@@ -122,7 +123,8 @@ export async function POST() {
     `;
     if (rows.length === 0 || !rows[0].token_id)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
-    const tokenId = BigInt(rows[0].token_id);
+    rawTokenId = rows[0].token_id;
+    const tokenId = BigInt(rawTokenId);
 
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -143,7 +145,7 @@ export async function POST() {
       });
       await waitForTx(tx);
     } catch (e) {
-      return Response.json({ error: `[getReward] ${e.message ?? e}` }, { status: 500 });
+      throw new Error(`[getReward] ${e.message ?? e}`);
     }
 
     // 4. Swap AERO → USDC
@@ -201,6 +203,10 @@ export async function POST() {
     return Response.json({ ok: true, aeroSwapHash, transferHash });
 
   } catch (e) {
-    return Response.json({ error: e.message ?? String(e) }, { status: 500 });
+    const msg = e.message ?? String(e);
+    try {
+      await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id) VALUES ('AERO_CLAIM', 'CLAIM_ERR', ${msg}, ${rawTokenId})`;
+    } catch (_) {}
+    return Response.json({ error: msg }, { status: 500 });
   }
 }

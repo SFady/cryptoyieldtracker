@@ -57,11 +57,11 @@ async function handle(req) {
     return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
   }
 
-  // 2. Rebalance — ordre : 4 → 1 → 2 → 3, s'arrête au premier cas qui s'exécute
+  // 2. Rebalance — ordre : 4 → 1 → 2 → 3 → 5, s'arrête au premier cas qui s'exécute
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const rebalanceResults = {};
   if (base) {
-    for (const caseNum of [4, 1, 2, 3]) {
+    for (const caseNum of [4, 1, 2, 3, 5]) {
       try {
         const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}`, {
           signal: AbortSignal.timeout(280000),
