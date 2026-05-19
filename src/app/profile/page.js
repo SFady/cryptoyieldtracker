@@ -79,7 +79,8 @@ export default function ProfilePage() {
           ? pos2.reduce((s, p) => {
               const wethFees   = parseFloat(p.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
               const stableFees = parseFloat(p.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
-              return s + parseFloat(p.totalPoolUSD ?? "0") + wethFees + stableFees;
+              const aeroFees   = parseFloat(p.aeroRevenueUSD ?? "0");
+              return s + parseFloat(p.totalPoolUSD ?? "0") + wethFees + stableFees + aeroFees;
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
@@ -135,7 +136,8 @@ export default function ProfilePage() {
           ? pos3.reduce((s, p) => {
               const wethFees   = parseFloat(p.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
               const stableFees = parseFloat(p.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
-              return s + parseFloat(p.totalPoolUSD ?? "0") + wethFees + stableFees;
+              const aeroFees   = parseFloat(p.aeroRevenueUSD ?? "0");
+              return s + parseFloat(p.totalPoolUSD ?? "0") + wethFees + stableFees + aeroFees;
             }, 0)
             + parseFloat(usdcWallet3 || 0)
             + parseFloat(wethWalletUSD3 || 0)
