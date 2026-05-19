@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 
 const WALLET1_SHORT = "0xaf96…2499";
 const WALLET2_SHORT = "0xac38…2f6";
+const WALLET3_SHORT = "Pool 3";
 
 export default function ProfilePage() {
   const { activeUser } = useAuth();
@@ -29,6 +30,16 @@ export default function ProfilePage() {
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
 
+  const [pos3, setPos3]           = useState(null);
+  const [usdcWallet3, setUsdcWallet3] = useState(null);
+  const [wethWallet3, setWethWallet3] = useState(null);
+  const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
+  const [percentileRange3, setPercentileRange3] = useState(null);
+  const [transferHistory3, setTransferHistory3] = useState([]);
+  const [nextCronAt3, setNextCronAt3] = useState(null);
+  const [loading3, setLoading3]   = useState(true);
+  const [error3, setError3]       = useState(null);
+
   useEffect(() => {
     fetch("/api/positions")
       .then((r) => r.json())
@@ -43,6 +54,14 @@ export default function ProfilePage() {
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
+
+    setTimeout(() => {
+      fetch("/api/positions3")
+        .then((r) => r.json())
+        .then((d) => { if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setTransferHistory3(d.transferHistory ?? []); setNextCronAt3(d.nextCronAt ?? null); })
+        .catch((e) => setError3(e.message))
+        .finally(() => setLoading3(false));
+    }, 1400);
   }, []);
 
   return (
@@ -58,12 +77,9 @@ export default function ProfilePage() {
       {(() => {
         const total2 = pos2
           ? pos2.reduce((s, p) => {
-              const wethPool   = parseFloat(p.pool?.find(t => t.symbol === "WETH")?.usd ?? "0");
-              const stablePool = parseFloat(p.pool?.find(t => t.symbol !== "WETH")?.usd ?? "0");
               const wethFees   = parseFloat(p.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
               const stableFees = parseFloat(p.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
-              const partialFees = wethPool >= stablePool ? stableFees : wethFees;
-              return s + parseFloat(p.totalPoolUSD ?? "0") + partialFees;
+              return s + parseFloat(p.totalPoolUSD ?? "0") + wethFees + stableFees;
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
@@ -102,6 +118,62 @@ export default function ProfilePage() {
                 </div>
                 {transferHistory2.map((t, i) => (
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 18px", borderBottom: i < transferHistory2.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
+                    <span style={{ color: "#6666aa" }}>{t.date}</span>
+                    <span style={{ color: "#a78bfa", fontWeight: 700 }}>{t.source}</span>
+                    <span style={{ color: "#00e5a0", fontWeight: 700 }}>${t.amount}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {/* ── Wallet 3 : WETH/USDC ── */}
+      {(() => {
+        const total3 = pos3
+          ? pos3.reduce((s, p) => {
+              const wethFees   = parseFloat(p.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
+              const stableFees = parseFloat(p.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
+              return s + parseFloat(p.totalPoolUSD ?? "0") + wethFees + stableFees;
+            }, 0)
+            + parseFloat(usdcWallet3 || 0)
+            + parseFloat(wethWalletUSD3 || 0)
+          : null;
+        return (
+          <>
+            <SectionHeader label="WETH / USDC" wallet={WALLET3_SHORT} positions={pos3} totalOverride={total3} mt />
+            <div style={{ padding: "4px 0 2px 0", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {percentileRange3 !== null && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(124,77,255,0.08)", border: "1px solid rgba(124,77,255,0.25)", color: "#a78bfa",
+                }}>
+                  Range percentile 24h : {percentileRange3}%
+                </span>
+              )}
+              {nextCronAt3 && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#86efac",
+                }}>
+                  Prochain cron : {new Date(nextCronAt3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+            {loading3 && <Spinner label="Découverte des positions…" />}
+            {error3   && <ErrorBox msg={error3} />}
+            {pos3 && pos3.length === 0 && !loading3 && <Empty />}
+            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} />)}
+            {transferHistory3.length > 0 && (
+              <div style={{ marginTop: 12, background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ padding: "8px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.65rem", fontFamily: "monospace", letterSpacing: "1.5px", textTransform: "uppercase", color: "#a78bfa", fontWeight: 600 }}>
+                  Envois wallet externe
+                </div>
+                {transferHistory3.map((t, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 18px", borderBottom: i < transferHistory3.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
                     <span style={{ color: "#6666aa" }}>{t.date}</span>
                     <span style={{ color: "#a78bfa", fontWeight: 700 }}>{t.source}</span>
                     <span style={{ color: "#00e5a0", fontWeight: 700 }}>${t.amount}</span>
@@ -183,12 +255,9 @@ function Empty() {
 
 function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet, wethWalletUSD, greenTotal }) {
   const aeroUSD      = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
-  const wethPoolUSD  = parseFloat(pos.pool?.find(t => t.symbol === "WETH")?.usd ?? "0");
-  const stablePoolUSD = parseFloat(pos.pool?.find(t => t.symbol !== "WETH")?.usd ?? "0");
-  const wethFeesUSD  = parseFloat(pos.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
+  const wethFeesUSD   = parseFloat(pos.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
   const stableFeesUSD = parseFloat(pos.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
-  const poolFeesUSD  = wethPoolUSD >= stablePoolUSD ? wethFeesUSD : stableFeesUSD;
-  const totalRevUSD  = aeroUSD + poolFeesUSD;
+  const totalRevUSD   = aeroUSD + wethFeesUSD + stableFeesUSD;
 
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
@@ -303,7 +372,7 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet
       <Section label="Frais non collectés">
         {pos.fees.map((t) => <TokenRow key={t.symbol} token={t} accent="#f0b429" />)}
         {aeroUSD > 0.001 && (
-          <TokenRow token={{ symbol: "AERO", balance: "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
+          <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
         <TotalRow label="Total revenus" value={`$${totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>

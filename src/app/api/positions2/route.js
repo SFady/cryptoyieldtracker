@@ -362,13 +362,16 @@ export async function GET() {
 
     // Rewards AERO en attente pour les positions stakées
     const aeroUsdById = {};
+    const aeroBalById = {};
     if (gaugeAddr && stakedIds.length > 0) {
       const aeroPrice = await getAeroPrice();
       await Promise.allSettled(stakedIds.map(async (tokenId) => {
         try {
           const hex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("earned", [WALLET, tokenId]));
           const [earned] = GAUGE_IFACE.decodeFunctionResult("earned", hex);
-          aeroUsdById[tokenId.toString()] = (Number(earned) / 1e18) * aeroPrice;
+          const aeroAmt = Number(earned) / 1e18;
+          aeroUsdById[tokenId.toString()] = aeroAmt * aeroPrice;
+          aeroBalById[tokenId.toString()] = aeroAmt;
         } catch (_) {}
       }));
     }
@@ -396,11 +399,13 @@ export async function GET() {
       .map((r) => {
         const pos         = r.value;
         const aeroUSD     = aeroUsdById[pos.tokenId] ?? 0;
+        const aeroBal     = aeroBalById[pos.tokenId] ?? 0;
         const feesNum     = parseFloat(pos.totalFeesUSD);
         const totalRevUSD = feesNum + aeroUSD;
         return {
           ...pos,
           aeroRevenueUSD:  aeroUSD.toFixed(2),
+          aeroBalance:     aeroBal > 0 ? aeroBal.toFixed(2) : "",
           totalRevenueUSD: totalRevUSD.toFixed(2),
         };
       });
@@ -451,6 +456,7 @@ export async function GET() {
       const tRows = await sql`
         SELECT created_at, amount_usdc, source, tx_hash
         FROM dest_transfers
+        WHERE COALESCE(pool_num, 2) = 2
         ORDER BY created_at DESC
         LIMIT 20
       `;

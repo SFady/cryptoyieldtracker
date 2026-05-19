@@ -109,16 +109,19 @@ async function waitForTx(tx) {
   }
 }
 
-export async function POST() {
+export async function POST(req) {
+  const body = await req.json().catch(() => ({}));
+  const poolNum = body.poolNum ?? 2;
   let rawTokenId = null;
   try {
-    const privateKey = process.env.PRIVATE_KEY;
-    if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+    if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
 
     // 1. Récupérer le tokenId depuis la DB
     const rows = await sql`
       SELECT token_id FROM lp_events
       WHERE action1 = 'CREATE_OK' AND action2 IS NULL
+        AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || !rows[0].token_id)
@@ -173,7 +176,7 @@ export async function POST() {
     // 5. Envoyer le delta USDC vers DESTINATION_WALLET
     let transferHash = null;
     try {
-      const dest = process.env.DESTINATION_WALLET;
+      const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
       if (dest) {
         const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
         const delta = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
@@ -187,7 +190,7 @@ export async function POST() {
           await waitForTx(txTransfer);
           try {
             const amt = parseFloat(ethers.formatUnits(delta, 6));
-            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${"claimAero"}, ${transferHash})`;
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${"claimAero"}, ${transferHash}, ${poolNum})`;
           } catch (_) {}
         }
       }
@@ -197,7 +200,7 @@ export async function POST() {
 
     // 6. Logger en DB
     try {
-      await sql`INSERT INTO lp_events (action1, token_id) VALUES ('AERO_CLAIM', ${rows[0].token_id})`;
+      await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('AERO_CLAIM', ${rows[0].token_id}, ${poolNum})`;
     } catch (_) {}
 
     return Response.json({ ok: true, aeroSwapHash, transferHash });
@@ -205,7 +208,7 @@ export async function POST() {
   } catch (e) {
     const msg = e.message ?? String(e);
     try {
-      await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id) VALUES ('AERO_CLAIM', 'CLAIM_ERR', ${msg}, ${rawTokenId})`;
+      await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('AERO_CLAIM', 'CLAIM_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
     } catch (_) {}
     return Response.json({ error: msg }, { status: 500 });
   }

@@ -206,6 +206,7 @@ function calcFees(liquidity, fgInside, fgInsideLast, owed) {
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
+  const poolNum          = body.poolNum ?? 2;
   const keepWeth         = body.keepWeth === true;
   const sellWethFees     = body.sellWethFees === true;
   const halfFees         = body.halfFees === true;
@@ -213,8 +214,8 @@ export async function POST(req) {
   const transferUsdcFees = body.transferUsdcFees === true;
   const noTransfer       = body.noTransfer === true;
   try {
-    const privateKey = process.env.PRIVATE_KEY;
-    if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+    if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
 
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -545,7 +546,7 @@ export async function POST(req) {
 
     // 4b. Transfert des fees converties vers DESTINATION_WALLET (skippé si noTransfer=true)
     try {
-      const dest = noTransfer ? null : process.env.DESTINATION_WALLET;
+      const dest = noTransfer ? null : (poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET);
       if (dest) {
         let usdcAfterSwaps = 0n;
         for (let i = 0; i < 4; i++) {
@@ -582,7 +583,7 @@ export async function POST(req) {
           console.log(`[transfer] OK hash=${txTransfer.hash}`);
           try {
             const amt = parseFloat(ethers.formatUnits(toSend, 6));
-            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${source + "-aero"}, ${txTransfer.hash})`;
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${source + "-aero"}, ${txTransfer.hash}, ${poolNum})`;
           } catch (_) {}
         }
         // transferUsdcFees: envoyer les fees USDC directement vers DESTINATION_WALLET (sans swap)
@@ -599,7 +600,7 @@ export async function POST(req) {
               console.log(`[transferUsdcFees] OK amount=${feeUsdcToSend} hash=${txFeeTransfer.hash}`);
               try {
                 const amt = parseFloat(ethers.formatUnits(feeUsdcToSend, 6));
-                await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash) VALUES (${amt}, ${"cas2-usdc"}, ${txFeeTransfer.hash})`;
+                await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${"cas2-usdc"}, ${txFeeTransfer.hash}, ${poolNum})`;
               } catch (_) {}
             }
           } catch (e) { console.log(`[transferUsdcFees] erreur: ${e.message ?? e}`); }

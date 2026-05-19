@@ -63,7 +63,7 @@ async function handle(req) {
   if (base) {
     for (const caseNum of [4, 1, 2, 3, 5]) {
       try {
-        const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}`, {
+        const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=2`, {
           signal: AbortSignal.timeout(280000),
         });
         const data = await res.json();
@@ -73,6 +73,24 @@ async function handle(req) {
       } catch (e) {
         rebalanceResults[caseNum] = { error: e.message };
         break;
+      }
+    }
+
+    // Pool 3 (si PRIVATE_KEY_3 configuré)
+    if (process.env.PRIVATE_KEY_3) {
+      for (const caseNum of [4, 1, 2, 3, 5]) {
+        try {
+          const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=3`, {
+            signal: AbortSignal.timeout(280000),
+          });
+          const data = await res.json();
+          rebalanceResults[`p3_${caseNum}`] = data;
+          if (data?.ok === true) break;
+          if (res.status === 409) break;
+        } catch (e) {
+          rebalanceResults[`p3_${caseNum}`] = { error: e.message };
+          break;
+        }
       }
     }
   }

@@ -62,11 +62,11 @@ async function acquireLock() {
   return release;
 }
 
-async function handleRequest(forceCase) {
+async function handleRequest(forceCase, poolNum = 2) {
   if (![1, 2, 3, 4, 5].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
-  // 1. Expirer les locks bloqués depuis > 5 min, puis vérifier si une exécution est déjà active
+  // 1. Expirer les locks bloqués depuis > 5 min, puis vérifier si une exécution est déjà active (lock partagé)
   try {
     await sql`
       UPDATE lp_events
@@ -85,11 +85,12 @@ async function handleRequest(forceCase) {
     return Response.json({ error: `Lock check échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 2. Vérifier l'absence d'erreur en base (même garde que le frontend)
+  // 2. Vérifier l'absence d'erreur en base — filtré par pool
   try {
     const errRows = await sql`
       SELECT action1, action2, error_msg FROM lp_events
       WHERE action1 != 'RUNNING'
+        AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (errRows.length > 0) {
@@ -104,24 +105,26 @@ async function handleRequest(forceCase) {
   }
 
   // 3. Déléguer au cas — le lock est acquis à l'intérieur, après les vérifications de conditions
-  if (forceCase === 1) return handleCase1();
-  if (forceCase === 2) return handleCase2();
-  if (forceCase === 3) return handleCase3();
-  if (forceCase === 4) return handleCase4();
-  if (forceCase === 5) return handleCase5();
+  if (forceCase === 1) return handleCase1(poolNum);
+  if (forceCase === 2) return handleCase2(poolNum);
+  if (forceCase === 3) return handleCase3(poolNum);
+  if (forceCase === 4) return handleCase4(poolNum);
+  if (forceCase === 5) return handleCase5(poolNum);
 }
 
 export async function GET(req) {
-  const forceCase = parseInt(new URL(req.url).searchParams.get("case") ?? "0");
-  return handleRequest(forceCase);
+  const p = new URL(req.url).searchParams;
+  const forceCase = parseInt(p.get("case")    ?? "0");
+  const poolNum   = parseInt(p.get("poolNum") ?? "2");
+  return handleRequest(forceCase, poolNum);
 }
 
 export async function POST(req) {
-  const { forceCase } = await req.json().catch(() => ({}));
-  return handleRequest(forceCase);
+  const { forceCase, poolNum } = await req.json().catch(() => ({}));
+  return handleRequest(forceCase, poolNum ?? 2);
 }
 
-async function handleCase1() {
+async function handleCase1(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
@@ -135,7 +138,7 @@ async function handleCase1() {
   try {
     const rows = await sql`
       SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining FROM lp_events
-      WHERE action1 = 'CREATE_OK'
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
@@ -171,7 +174,7 @@ async function handleCase1() {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true, halfFees: true }),
+        body: JSON.stringify({ keepWeth: true, halfFees: true, poolNum }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
@@ -179,10 +182,10 @@ async function handleCase1() {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    // 5. Créer nouvelle position 75% WETH / 25% USDC — utilise tout le wallet (USDC + WETH)
+    // 5. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -198,7 +201,7 @@ async function handleCase1() {
   }
 }
 
-async function handleCase2() {
+async function handleCase2(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
@@ -212,7 +215,7 @@ async function handleCase2() {
   try {
     const rows = await sql`
       SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining FROM lp_events
-      WHERE action1 = 'CREATE_OK'
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
@@ -248,7 +251,7 @@ async function handleCase2() {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true, allFees: true }),
+        body: JSON.stringify({ keepWeth: true, allFees: true, poolNum }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
@@ -256,10 +259,10 @@ async function handleCase2() {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    // 5. Créer nouvelle position 25% WETH / 75% USDC — utilise tout le wallet (USDC + WETH)
+    // 5. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 2 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 2 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -275,7 +278,7 @@ async function handleCase2() {
   }
 }
 
-async function handleCase3() {
+async function handleCase3(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
@@ -289,7 +292,7 @@ async function handleCase3() {
   try {
     const rows = await sql`
       SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at, usdc_remaining FROM lp_events
-      WHERE action1 = 'CREATE_OK'
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
@@ -357,7 +360,7 @@ async function handleCase3() {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true, allFees: true }),
+        body: JSON.stringify({ keepWeth: true, allFees: true, poolNum }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
@@ -365,10 +368,10 @@ async function handleCase3() {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    // 8. Créer nouvelle position 50/50 — utilise tout le wallet (USDC + WETH)
+    // 8. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum: 2, caseNum: 3 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 3 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -384,7 +387,7 @@ async function handleCase3() {
   }
 }
 
-async function handleCase5() {
+async function handleCase5(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
@@ -393,7 +396,7 @@ async function handleCase5() {
   try {
     const rows = await sql`
       SELECT created_at, action2 FROM lp_events
-      WHERE action1 = 'CREATE_OK'
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
@@ -413,6 +416,7 @@ async function handleCase5() {
       SELECT id FROM lp_events
       WHERE action1 = 'AERO_CLAIM'
         AND created_at > NOW() - INTERVAL '24 hours'
+        AND COALESCE(pool_num, 2) = ${poolNum}
       LIMIT 1
     `;
     if (claimRows.length > 0)
@@ -426,6 +430,7 @@ async function handleCase5() {
     const res = await fetch(`${base}/api/claimAero`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ poolNum }),
       signal: AbortSignal.timeout(120000),
     });
     const data = await res.json();
@@ -438,7 +443,7 @@ async function handleCase5() {
   }
 }
 
-async function handleCase4() {
+async function handleCase4(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
@@ -446,7 +451,7 @@ async function handleCase4() {
   try {
     const rows = await sql`
       SELECT action2 FROM lp_events
-      WHERE action1 != 'RUNNING'
+      WHERE action1 != 'RUNNING' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== "CLOSE_OK")
@@ -490,7 +495,7 @@ async function handleCase4() {
     // 4. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice, maxPrice, currentPrice: livePrice4, targetRatio: 0.5, poolNum: 2, caseNum: 4 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice, maxPrice, currentPrice: livePrice4, targetRatio: 0.5, poolNum, caseNum: 4 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();

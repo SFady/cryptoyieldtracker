@@ -211,8 +211,8 @@ export async function POST(req) {
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });
 
   try {
-    const privateKey = process.env.PRIVATE_KEY;
-    if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant dans .env.local" }, { status: 500 });
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+    if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant dans .env.local` }, { status: 500 });
 
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
