@@ -207,6 +207,7 @@ function calcFees(liquidity, fgInside, fgInsideLast, owed) {
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const poolNum          = body.poolNum ?? 2;
+  const caseNum          = body.caseNum ?? null;
   const keepWeth         = body.keepWeth === true;
   const sellWethFees     = body.sellWethFees === true;
   const halfFees         = body.halfFees === true;
@@ -559,7 +560,7 @@ export async function POST(req) {
           await new Promise(r => setTimeout(r, 2000));
         }
         const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
-        const source = halfFees ? "cas1" : allFees ? "cas2" : sellWethFees ? "cas1-weth" : transferUsdcFees ? "cas2-old" : keepWeth ? "cas3" : "close";
+        const source = caseNum ? `cas${caseNum}` : halfFees ? "cas1" : allFees ? "cas2" : sellWethFees ? "cas1-weth" : transferUsdcFees ? "cas2-old" : keepWeth ? "cas3" : "close";
         let toSend;
         if (halfFees) {
           // CAS 1 : 50% de toutes les fees (WETH fees + USDC fees + AERO) → external
