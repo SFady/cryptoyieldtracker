@@ -510,7 +510,7 @@ async function handleCase4(poolNum = 2) {
       WHERE action1 != 'RUNNING' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
-    if (rows.length === 0 || rows[0].action2 !== "CLOSE_OK")
+    if (rows.length > 0 && rows[0].action2 !== "CLOSE_OK")
       return Response.json({ skipped: true, reason: "Dernière position non fermée ou inexistante" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
