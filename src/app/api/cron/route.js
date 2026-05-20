@@ -77,6 +77,8 @@ async function handle(req) {
     }
 
     // Pool 3 (si PRIVATE_KEY_3 configuré)
+    console.log("[cron] pool2 results:", JSON.stringify(rebalanceResults));
+    console.log("[cron] PRIVATE_KEY_3 présent:", !!process.env.PRIVATE_KEY_3);
     if (process.env.PRIVATE_KEY_3) {
       for (const caseNum of [4, 1, 2, 3, 5]) {
         try {
@@ -95,6 +97,7 @@ async function handle(req) {
     }
   }
 
+  console.log("[cron] pool3 results:", JSON.stringify(rebalanceResults).slice(0, 500));
   return Response.json({ ok: true, ranAt, weth: price, rebalanceResults });
 }
 
