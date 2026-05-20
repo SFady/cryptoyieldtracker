@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import checkAuthent from "../lib/checkAuthent";
 import AtrPanel from "./AtrPanel";
+import PoolControls from "./PoolControls";
 
 export default async function TestPage() {
   const session = await checkAuthent();
@@ -16,8 +17,9 @@ export default async function TestPage() {
         color: "#6666aa",
         marginBottom: 20,
       }}>
-        ATR Bot — Développement 
+        ATR Bot — Développement
       </div>
+      <PoolControls />
       <AtrPanel />
     </div>
   );
