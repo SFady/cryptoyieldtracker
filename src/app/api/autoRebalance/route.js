@@ -137,7 +137,7 @@ async function handleCase1(poolNum = 2) {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining FROM lp_events
+      SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining, created_at FROM lp_events
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
@@ -154,10 +154,30 @@ async function handleCase1(poolNum = 2) {
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
+  const ageHours1 = (Date.now() - new Date(lastPos.created_at).getTime()) / 3_600_000;
+  if (ageHours1 < 6)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours1.toFixed(1)}h — attendre 6h minimum` });
+
   if (!isNaN(rangeMin) && livePrice >= rangeMin)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} >= borne basse $${rangeMin} — pas hors range bas` });
 
-  const newRangePct  = Math.max(2, rangePct * 1.5);
+  let newRangePct = 2;
+  try {
+    const rows = await sql`
+      SELECT
+        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
+        COUNT(*)::int AS cnt
+      FROM cron_runs
+      WHERE weth IS NOT NULL
+        AND ran_at > NOW() - INTERVAL '24 hours'
+    `;
+    const { p05, p95, cnt } = rows[0];
+    if (cnt >= 10 && p05 > 0)
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100 * 1.1);
+  } catch (_) {}
+  newRangePct = parseFloat(newRangePct.toFixed(2));
+
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
@@ -214,7 +234,7 @@ async function handleCase2(poolNum = 2) {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining FROM lp_events
+      SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining, created_at FROM lp_events
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
@@ -231,10 +251,30 @@ async function handleCase2(poolNum = 2) {
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
+  const ageHours2 = (Date.now() - new Date(lastPos.created_at).getTime()) / 3_600_000;
+  if (ageHours2 < 6)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours2.toFixed(1)}h — attendre 6h minimum` });
+
   if (!isNaN(rangeMax) && livePrice <= rangeMax)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} <= borne haute $${rangeMax} — pas hors range haut` });
 
-  const newRangePct  = Math.max(2, rangePct * 1.5);
+  let newRangePct = 2;
+  try {
+    const rows = await sql`
+      SELECT
+        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
+        COUNT(*)::int AS cnt
+      FROM cron_runs
+      WHERE weth IS NOT NULL
+        AND ran_at > NOW() - INTERVAL '24 hours'
+    `;
+    const { p05, p95, cnt } = rows[0];
+    if (cnt >= 10 && p05 > 0)
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100 * 1.1);
+  } catch (_) {}
+  newRangePct = parseFloat(newRangePct.toFixed(2));
+
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
   const liveMaxPrice = livePrice * sqrtRatio;
@@ -316,8 +356,8 @@ async function handleCase3(poolNum = 2) {
   // 4. Vérifier que la position est ouverte depuis > 6h
   const openedAt  = new Date(lastPos.created_at);
   const ageHours  = (Date.now() - openedAt.getTime()) / 3_600_000;
-  if (ageHours < 12)
-    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 12h minimum` });
+  if (ageHours < 6)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 6h minimum` });
 
   // 5. Calculer le range via percentiles 24h (même logique que cas 4)
   let newRangePct = 2;
@@ -341,8 +381,8 @@ async function handleCase3(poolNum = 2) {
   const actualRangePct = (!isNaN(rangeMin) && !isNaN(rangeMax) && rangeMin > 0)
     ? parseFloat(((rangeMax / rangeMin - 1) * 100).toFixed(2))
     : rangePct;
-  if (actualRangePct <= newRangePct * 1.5)
-    return Response.json({ skipped: true, reason: `Range actuel ${actualRangePct}% pas assez supérieur au nouveau range ${newRangePct}% (seuil : ${(newRangePct * 1.5).toFixed(2)}%)` });
+  if (actualRangePct - newRangePct < 1)
+    return Response.json({ skipped: true, reason: `Écart range ${(actualRangePct - newRangePct).toFixed(2)}% insuffisant — seuil : ≥ 1% (actuel ${actualRangePct}% vs nouveau ${newRangePct}%)` });
 
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
