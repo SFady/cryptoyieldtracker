@@ -25,7 +25,6 @@ export default function ProfilePage() {
   const [wethWallet2, setWethWallet2] = useState(null);
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
-  const [transferHistory2, setTransferHistory2] = useState([]);
   const [nextCronAt2, setNextCronAt2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
@@ -35,7 +34,6 @@ export default function ProfilePage() {
   const [wethWallet3, setWethWallet3] = useState(null);
   const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
   const [percentileRange3, setPercentileRange3] = useState(null);
-  const [transferHistory3, setTransferHistory3] = useState([]);
   const [nextCronAt3, setNextCronAt3] = useState(null);
   const [loading3, setLoading3]   = useState(true);
   const [error3, setError3]       = useState(null);
@@ -50,7 +48,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setTransferHistory2(d.transferHistory ?? []); setNextCronAt2(d.nextCronAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
@@ -58,7 +56,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions3")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setTransferHistory3(d.transferHistory ?? []); setNextCronAt3(d.nextCronAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
         .catch((e) => setError3(e.message))
         .finally(() => setLoading3(false));
     }, 1400);
@@ -112,20 +110,6 @@ export default function ProfilePage() {
             {error2   && <ErrorBox msg={error2} />}
             {pos2 && pos2.length === 0 && !loading2 && <Empty />}
             {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} />)}
-            {transferHistory2.length > 0 && (
-              <div style={{ marginTop: 12, background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden" }}>
-                <div style={{ padding: "8px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.65rem", fontFamily: "monospace", letterSpacing: "1.5px", textTransform: "uppercase", color: "#a78bfa", fontWeight: 600 }}>
-                  Envois wallet externe
-                </div>
-                {transferHistory2.map((t, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 18px", borderBottom: i < transferHistory2.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
-                    <span style={{ color: "#6666aa" }}>{t.date}</span>
-                    <span style={{ color: "#a78bfa", fontWeight: 700 }}>{t.source}</span>
-                    <span style={{ color: "#00e5a0", fontWeight: 700 }}>${t.amount}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </>
         );
       })()}
@@ -169,20 +153,6 @@ export default function ProfilePage() {
             {error3   && <ErrorBox msg={error3} />}
             {pos3 && pos3.length === 0 && !loading3 && <Empty />}
             {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} />)}
-            {transferHistory3.length > 0 && (
-              <div style={{ marginTop: 12, background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden" }}>
-                <div style={{ padding: "8px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.65rem", fontFamily: "monospace", letterSpacing: "1.5px", textTransform: "uppercase", color: "#a78bfa", fontWeight: 600 }}>
-                  Envois wallet externe
-                </div>
-                {transferHistory3.map((t, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 18px", borderBottom: i < transferHistory3.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
-                    <span style={{ color: "#6666aa" }}>{t.date}</span>
-                    <span style={{ color: "#a78bfa", fontWeight: 700 }}>{t.source}</span>
-                    <span style={{ color: "#00e5a0", fontWeight: 700 }}>${t.amount}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </>
         );
       })()}
