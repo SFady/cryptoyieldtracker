@@ -41,7 +41,7 @@ export default function PoolControls() {
         const res  = await fetch("/api/closePositions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ poolNum }),
+          body: JSON.stringify({ poolNum, sendAllUsdc: true }),
         });
         const data = await res.json();
         if (res.ok) setResult({ ok: true,  msg: `Fermé ✓ — ${data.collected?.length ?? 0} position(s)` });
