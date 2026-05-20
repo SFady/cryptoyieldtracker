@@ -355,7 +355,21 @@ export async function GET() {
     }
 
     if (tokenIds.length === 0) {
-      const data = { positions: [] };
+      const walletPad = WALLET.slice(2).toLowerCase().padStart(64, "0");
+      let usdcWallet = "0.00", wethWallet = "0.00", wethWalletUSD = "0.00";
+      try {
+        const hex = await ethCall(USDC, "0x70a08231" + walletPad);
+        const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
+        usdcWallet = Number(ethers.formatUnits(raw, 6)).toFixed(2);
+      } catch (_) {}
+      try {
+        const WETH = "0x4200000000000000000000000000000000000006";
+        const hex = await ethCall(WETH, "0x70a08231" + walletPad);
+        const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
+        const wethAmt = Number(ethers.formatUnits(raw, 18));
+        wethWallet = wethAmt.toFixed(6);
+      } catch (_) {}
+      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
       global._cytPos2Cache = { data, time: Date.now() };
       return Response.json(data);
     }
