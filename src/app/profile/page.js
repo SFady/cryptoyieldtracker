@@ -151,7 +151,23 @@ export default function ProfilePage() {
             </div>
             {loading3 && <Spinner label="Découverte des positions…" />}
             {error3   && <ErrorBox msg={error3} />}
-            {pos3 && pos3.length === 0 && !loading3 && <Empty />}
+            {pos3 && pos3.length === 0 && !loading3 && (
+              <>
+                <Empty />
+                {(parseFloat(usdcWallet3 || 0) > 0 || parseFloat(wethWallet3 || 0) > 0) && (
+                  <div style={{ background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
+                    <Section label="Solde non utilisé">
+                      {parseFloat(usdcWallet3 || 0) > 0 && (
+                        <TokenRow token={{ symbol: "USDC", balance: usdcWallet3, usd: usdcWallet3 }} accent="#00e5a0" />
+                      )}
+                      {parseFloat(wethWallet3 || 0) > 0 && (
+                        <TokenRow token={{ symbol: "WETH", balance: wethWallet3, usd: wethWalletUSD3 ?? "0.00" }} accent="#627eea" />
+                      )}
+                    </Section>
+                  </div>
+                )}
+              </>
+            )}
             {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} />)}
           </>
         );
