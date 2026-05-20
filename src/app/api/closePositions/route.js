@@ -214,7 +214,6 @@ export async function POST(req) {
   const allFees          = body.allFees === true;
   const transferUsdcFees = body.transferUsdcFees === true;
   const noTransfer       = body.noTransfer === true;
-  const sendAllUsdc      = body.sendAllUsdc === true;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
@@ -635,32 +634,12 @@ export async function POST(req) {
       } catch (_) {}
     }
 
-    // sendAllUsdc : envoyer tout le solde USDC vers la destination (bouton manuel uniquement)
-    let sendAllUsdcHash = null;
-    if (sendAllUsdc) {
-      try {
-        const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
-        const bal  = await readBal(stablecoin, wallet.address);
-        if (dest && bal > 0n) {
-          const tx = await wallet.sendTransaction({
-            to:   stablecoin,
-            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, bal]),
-          });
-          await tx.wait();
-          sendAllUsdcHash = tx.hash;
-        }
-      } catch (e) {
-        console.log(`[closePositions] sendAllUsdc erreur: ${e.message ?? e}`);
-      }
-    }
-
     return Response.json({
       message:      `Tout fermé. Solde final : $${finalUsdc}`,
       unstaked:     unstakedList,
       collected:    collectedList,
       swapHash,
       aeroSwapHash,
-      sendAllUsdcHash,
       finalUsdc,
       finalUsdcRaw:   parseFloat(finalUsdcRaw),
       lpUsdcRaw:      parseFloat(lpUsdcRaw),
