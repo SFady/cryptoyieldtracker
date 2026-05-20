@@ -314,6 +314,37 @@ export async function POST(req) {
 
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
+    // 3b. CAS 3 — sweep AERO résiduel → USDC (en cas d'échec du swap dans closePositions)
+    if (caseNum === 3) {
+      try {
+        const aeroBalRaw = await (async () => {
+          for (const url of RPC_URLS) {
+            try {
+              const res  = await fetch(url, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: AERO, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) }, "latest"] }),
+                signal: AbortSignal.timeout(6000),
+              });
+              const json = await res.json();
+              if (json.result && json.result !== "0x")
+                return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], json.result)[0];
+            } catch (_) {}
+          }
+          return 0n;
+        })();
+        if (aeroBalRaw >= ethers.parseUnits("0.01", 18)) {
+          const txAppAero = await sendTx(wallet, { to: AERO, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
+          await waitForTx(provider, txAppAero);
+          const swapAero = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+            aeroBalRaw, 0n, [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }], wallet.address, Math.floor(Date.now() / 1000) + 600,
+          ]);
+          const txAero = await sendTx(wallet, { to: V2_ROUTER, data: swapAero });
+          await waitForTx(provider, txAero);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      } catch (_) {}
+    }
+
     // 4. Lire les soldes réels avant swap
     const readBal = async (token) => {
       for (const url of RPC_URLS) {
