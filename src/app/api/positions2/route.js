@@ -314,6 +314,7 @@ export async function GET() {
       const rows = await sql`
         SELECT token_id FROM lp_events
         WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+          AND COALESCE(pool_num, 2) = 2
         ORDER BY id DESC LIMIT 1
       `;
       if (rows.length > 0 && rows[0].token_id) fastTokenId = BigInt(rows[0].token_id);
