@@ -137,7 +137,7 @@ async function handleCase1(poolNum = 2) {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining, created_at FROM lp_events
+      SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining FROM lp_events
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
@@ -154,9 +154,17 @@ async function handleCase1(poolNum = 2) {
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
-  const ageHours1 = (Date.now() - new Date(lastPos.created_at).getTime()) / 3_600_000;
-  if (ageHours1 < 6)
-    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours1.toFixed(1)}h — attendre 6h minimum` });
+  try {
+    const cnt = await sql`
+      SELECT COUNT(*)::int AS n FROM lp_events
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+        AND created_at > NOW() - INTERVAL '24 hours'
+    `;
+    if (cnt[0].n >= 2)
+      return Response.json({ skipped: true, reason: `2 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
 
   if (!isNaN(rangeMin) && livePrice >= rangeMin)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} >= borne basse $${rangeMin} — pas hors range bas` });
@@ -234,7 +242,7 @@ async function handleCase2(poolNum = 2) {
   let lastPos;
   try {
     const rows = await sql`
-      SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining, created_at FROM lp_events
+      SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining FROM lp_events
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
@@ -251,9 +259,17 @@ async function handleCase2(poolNum = 2) {
   if (!usdcPlaced || isNaN(usdcPlaced) || !rangePct || isNaN(rangePct))
     return Response.json({ skipped: true, reason: "Données position invalides en DB" });
 
-  const ageHours2 = (Date.now() - new Date(lastPos.created_at).getTime()) / 3_600_000;
-  if (ageHours2 < 6)
-    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours2.toFixed(1)}h — attendre 6h minimum` });
+  try {
+    const cnt = await sql`
+      SELECT COUNT(*)::int AS n FROM lp_events
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+        AND created_at > NOW() - INTERVAL '24 hours'
+    `;
+    if (cnt[0].n >= 2)
+      return Response.json({ skipped: true, reason: `2 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
 
   if (!isNaN(rangeMax) && livePrice <= rangeMax)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} <= borne haute $${rangeMax} — pas hors range haut` });
