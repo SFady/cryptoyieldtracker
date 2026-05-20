@@ -1,3 +1,4 @@
+import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
 
 export const runtime     = "nodejs";
@@ -533,6 +534,38 @@ async function handleCase4(poolNum = 2) {
       newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
+
+  // Vérifier le solde USDC du wallet (min 50$) — skippe par défaut si lecture impossible
+  {
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+    const USDC_ADDR  = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+    let usdcBal      = 0;
+    let balRead      = false;
+    try {
+      const walletAddr = privateKey ? new ethers.Wallet(privateKey).address : null;
+      if (walletAddr) {
+        const walletPad = walletAddr.slice(2).toLowerCase().padStart(64, "0");
+        for (const url of RPC_URLS) {
+          try {
+            const res  = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: USDC_ADDR, data: "0x70a08231" + walletPad }, "latest"] }),
+              signal: AbortSignal.timeout(6000),
+            });
+            const json = await res.json();
+            if (json.result && json.result !== "0x") {
+              usdcBal  = Number(ethers.toBigInt(json.result)) / 1e6;
+              balRead  = true;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    if (!balRead || usdcBal < 50)
+      return Response.json({ skipped: true, reason: `Solde USDC insuffisant : $${usdcBal.toFixed(2)} (min $50)${!balRead ? " — lecture RPC échouée" : ""}` });
+  }
 
   const livePrice4 = await getPoolWethPrice(0);
   if (!livePrice4 || livePrice4 < 100 || livePrice4 > 100000)
