@@ -206,15 +206,23 @@ async function buildPosition(tokenId, ethCall, openData) {
   const tickLower     = Number(toInt(word(posHex, 5)));
   const tickUpper     = Number(toInt(word(posHex, 6)));
   const liquidity     = toUint(word(posHex, 7));
-  const owed0 = toUint(word(posHex, 10));
-  const owed1 = toUint(word(posHex, 11));
+  const fgInside0Last = toUint(word(posHex, 8));
+  const fgInside1Last = toUint(word(posHex, 9));
+  const owed0         = toUint(word(posHex, 10));
+  const owed1         = toUint(word(posHex, 11));
 
   if (liquidity === 0n && owed0 === 0n && owed1 === 0n) return null;
 
   const t0 = TOKENS[token0Addr] ?? { symbol: "TK0", decimals: 18 };
   const t1 = TOKENS[token1Addr] ?? { symbol: "TK1", decimals: 6  };
 
-  const s0Hex = await ethCall(POOL, "0x3850c7bd");
+  const [s0Hex, fg0Hex, fg1Hex, tickLoHex, tickHiHex] = await Promise.all([
+    ethCall(POOL, "0x3850c7bd"),
+    ethCall(POOL, "0xf3058399").catch(() => null),
+    ethCall(POOL, "0x46141319").catch(() => null),
+    ethCall(POOL, "0xf30dba93" + pad64(tickLower)).catch(() => null),
+    ethCall(POOL, "0xf30dba93" + pad64(tickUpper)).catch(() => null),
+  ]);
 
   const sqrtP    = toUint(word(s0Hex, 0));
   const currTick = Number(toInt(word(s0Hex, 1)));
@@ -223,9 +231,34 @@ async function buildPosition(tokenId, ethCall, openData) {
 
   const bal0 = Number(a0) / 10 ** t0.decimals;
   const bal1 = Number(a1) / 10 ** t1.decimals;
-  const fee0 = Number(owed0) / 10 ** t0.decimals;
-  const fee1 = Number(owed1) / 10 ** t1.decimals;
   const inRange = currTick >= tickLower && currTick < tickUpper;
+
+  let fee0 = Number(owed0) / 10 ** t0.decimals;
+  let fee1 = Number(owed1) / 10 ** t1.decimals;
+  try {
+    const sub256    = (a, b) => mod256(a - b);
+    const fgGlobal0 = toUint(word(fg0Hex, 0));
+    const fgGlobal1 = toUint(word(fg1Hex, 0));
+    const fgOutLo0  = toUint(word(tickLoHex, 2));
+    const fgOutLo1  = toUint(word(tickLoHex, 3));
+    const fgOutHi0  = toUint(word(tickHiHex, 2));
+    const fgOutHi1  = toUint(word(tickHiHex, 3));
+
+    const fgBelow0  = currTick >= tickLower ? fgOutLo0 : sub256(fgGlobal0, fgOutLo0);
+    const fgBelow1  = currTick >= tickLower ? fgOutLo1 : sub256(fgGlobal1, fgOutLo1);
+    const fgAbove0  = currTick <  tickUpper ? fgOutHi0 : sub256(fgGlobal0, fgOutHi0);
+    const fgAbove1  = currTick <  tickUpper ? fgOutHi1 : sub256(fgGlobal1, fgOutHi1);
+
+    const fgInside0 = sub256(sub256(fgGlobal0, fgBelow0), fgAbove0);
+    const fgInside1 = sub256(sub256(fgGlobal1, fgBelow1), fgAbove1);
+
+    const Q128      = 1n << 128n;
+    const pending0  = (liquidity * sub256(fgInside0, fgInside0Last)) / Q128 + owed0;
+    const pending1  = (liquidity * sub256(fgInside1, fgInside1Last)) / Q128 + owed1;
+
+    fee0 = Number(pending0) / 10 ** t0.decimals;
+    fee1 = Number(pending1) / 10 ** t1.decimals;
+  } catch (_) {}
 
   const ethPrice = Number((sqrtP * sqrtP * 10n ** 12n) / (1n << 192n));
   const usd = (sym, amt) => sym === "WETH" ? amt * ethPrice : amt;
