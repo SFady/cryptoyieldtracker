@@ -107,7 +107,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} />)}
           </>
         );
       })()}
@@ -166,7 +166,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} />)}
+            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={3} usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} />)}
           </>
         );
       })()}
@@ -239,7 +239,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet, wethWalletUSD, greenTotal }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal }) {
   const aeroUSD      = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const wethFeesUSD   = parseFloat(pos.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
   const stableFeesUSD = parseFloat(pos.fees?.find(t => t.symbol !== "WETH")?.usd ?? "0");
@@ -275,10 +275,10 @@ function PositionCard({ pos, showFeePercent, showCollect, usdcWallet, wethWallet
     setCollecting(true);
     setCollectResult(null);
     try {
-      const res  = await fetch("/api/collectRewards", {
+      const res  = await fetch("/api/collectFees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokenId: pos.tokenId }),
+        body: JSON.stringify({ poolNum }),
       });
       const data = await res.json();
       if (data.error) setCollectResult({ ok: false, msg: data.error });
