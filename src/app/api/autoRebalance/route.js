@@ -161,8 +161,8 @@ async function handleCase1(poolNum = 2) {
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
         AND created_at > NOW() - INTERVAL '24 hours'
     `;
-    if (cnt[0].n >= 2)
-      return Response.json({ skipped: true, reason: `2 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
+    if (cnt[0].n >= 4)
+      return Response.json({ skipped: true, reason: `4 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -183,7 +183,7 @@ async function handleCase1(poolNum = 2) {
     `;
     const { p05, p95, cnt } = rows[0];
     if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100 * 1.1);
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100 * 1.25);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
@@ -211,10 +211,10 @@ async function handleCase1(poolNum = 2) {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    // 5. Créer nouvelle position 50/50
+    // 5. Créer nouvelle position 75% WETH / 25% USDC
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.75, poolNum, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -266,8 +266,8 @@ async function handleCase2(poolNum = 2) {
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
         AND created_at > NOW() - INTERVAL '24 hours'
     `;
-    if (cnt[0].n >= 2)
-      return Response.json({ skipped: true, reason: `2 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
+    if (cnt[0].n >= 4)
+      return Response.json({ skipped: true, reason: `4 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
