@@ -312,9 +312,6 @@ export async function POST(req) {
           } catch (e) {
             fbWithdrawErr = e.message ?? String(e);
             console.log(`[fallback] withdraw FAILED: ${fbWithdrawErr}`);
-            // Gauge refused withdraw — try decreaseLiquidity+collect directly (wallet may be approved by gauge via NFPM.approve)
-            unstakedList.push(dbTokenId.toString());
-            console.log(`[fallback] tentative decreaseLiquidity+collect directe tokenId=${dbTokenId}`);
           }
           fallbackDebug = { dbTokenId: dbTokenId.toString(), ownerAddr, gaugeAddr, actualGauge, fbWithdrawErr };
         }
