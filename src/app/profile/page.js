@@ -33,8 +33,10 @@ export default function ProfilePage() {
   const [loading3, setLoading3]   = useState(true);
   const [error3, setError3]       = useState(null);
 
+  const SHOW_POOL2 = false;
+
   useEffect(() => {
-    setTimeout(() => {
+    if (SHOW_POOL2) setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
         .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); })
@@ -54,7 +56,7 @@ export default function ProfilePage() {
   return (
     <>
       {/* ── Wallet 2 : WETH/USDC ── */}
-      {(() => {
+      {SHOW_POOL2 && (() => {
         const total2 = pos2
           ? pos2.reduce((s, p) => {
               const wethFees   = parseFloat(p.fees?.find(t => t.symbol === "WETH")?.usd ?? "0");
