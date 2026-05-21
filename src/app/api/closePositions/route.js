@@ -240,6 +240,7 @@ export async function POST(req) {
     // 2. Unstake toutes les positions du gauge
     const unstakedList  = [];
     const unstakeErrors = [];
+    let fallbackDebug   = null;
     try {
       const [stakedIds] = await view(gaugeAddr, GAUGE_IFACE, 'stakedValues', [wallet.address]);
       for (const tokenId of stakedIds) {
@@ -266,39 +267,54 @@ export async function POST(req) {
 
       // Fallback DB : si stakedValues retourne vide, utiliser ownerOf pour trouver le vrai gauge
       if (stakedIds.length === 0) {
-        try {
-          const rows = await sql`
-            SELECT token_id FROM lp_events
-            WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
-              AND COALESCE(pool_num, 2) = ${poolNum}
-            ORDER BY id DESC LIMIT 1
-          `;
-          if (rows[0]?.token_id) {
-            const dbTokenId = BigInt(rows[0].token_id);
-            // ownerOf → si pas le wallet, c'est le gauge réel (potentiellement différent du voter)
-            let actualGauge = gaugeAddr;
-            try {
-              const [owner] = await view(NFPM, NFPM_IFACE, 'ownerOf', [dbTokenId]);
-              if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
-                actualGauge = owner;
-              }
-            } catch (_) {}
-            try {
-              try {
-                const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
-                await waitForTx(provider, txReward);
-              } catch (_) {}
-              const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);
-              let withdrawGas = 300000n;
-              try { const est = await provider.estimateGas({ to: actualGauge, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (_) {}
-              const txW = await sendTx(wallet, { to: actualGauge, data: withdrawData, gasLimit: withdrawGas });
-              await waitForTx(provider, txW);
-              unstakedList.push(dbTokenId.toString());
-            } catch (_) {
-              // Non staké = déjà dans wallet, sera trouvé via balanceOf
+        const dbRows = await sql`
+          SELECT token_id FROM lp_events
+          WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+            AND COALESCE(pool_num, 2) = ${poolNum}
+          ORDER BY id DESC LIMIT 1
+        `;
+        if (dbRows[0]?.token_id) {
+          const dbTokenId = BigInt(dbRows[0].token_id);
+          let actualGauge  = gaugeAddr;
+          let ownerAddr    = null;
+          let fbWithdrawErr = null;
+          try {
+            const [owner] = await view(NFPM, NFPM_IFACE, 'ownerOf', [dbTokenId]);
+            ownerAddr = owner;
+            console.log(`[fallback] tokenId=${dbTokenId} ownerOf=${owner} gaugeAddr(voter)=${gaugeAddr}`);
+            if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
+              actualGauge = owner;
             }
+          } catch (e) {
+            console.log(`[fallback] ownerOf error: ${e.message ?? e}`);
           }
-        } catch (_) {}
+          try {
+            try {
+              const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
+              await waitForTx(provider, txReward);
+              console.log(`[fallback] getReward OK actualGauge=${actualGauge}`);
+            } catch (e) {
+              console.log(`[fallback] getReward error: ${e.message ?? e}`);
+            }
+            const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);
+            let withdrawGas = 300000n;
+            try {
+              const est = await provider.estimateGas({ to: actualGauge, from: wallet.address, data: withdrawData });
+              withdrawGas = est * 3n / 2n;
+              console.log(`[fallback] estimateGas withdraw OK gas=${withdrawGas}`);
+            } catch (e) {
+              console.log(`[fallback] estimateGas withdraw error: ${e.message ?? e}`);
+            }
+            const txW = await sendTx(wallet, { to: actualGauge, data: withdrawData, gasLimit: withdrawGas });
+            await waitForTx(provider, txW);
+            console.log(`[fallback] withdraw OK tokenId=${dbTokenId} hash=${txW.hash}`);
+            unstakedList.push(dbTokenId.toString());
+          } catch (e) {
+            fbWithdrawErr = e.message ?? String(e);
+            console.log(`[fallback] withdraw FAILED: ${fbWithdrawErr}`);
+          }
+          fallbackDebug = { dbTokenId: dbTokenId.toString(), ownerAddr, gaugeAddr, actualGauge, fbWithdrawErr };
+        }
       }
     } catch (e) {
       throw new Error(`[unstake] ${e.shortMessage ?? e.message}`);
@@ -688,6 +704,7 @@ export async function POST(req) {
       lpUsdcRaw:      parseFloat(lpUsdcRaw),
       principalUsdc:  parseFloat(principalUsdc),
       ...(unstakeErrors.length > 0 ? { unstakeWarnings: unstakeErrors } : {}),
+      ...(fallbackDebug ? { fallbackDebug } : {}),
     });
 
   } catch (e) {
