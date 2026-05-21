@@ -262,6 +262,35 @@ export async function POST(req) {
           throw new Error(`[withdraw tokenId=${tokenId}] ${e.shortMessage ?? e.message}`);
         }
       }
+
+      // Fallback DB : si stakedValues retourne vide, tenter le tokenId actif en DB
+      if (stakedIds.length === 0) {
+        try {
+          const rows = await sql`
+            SELECT token_id FROM lp_events
+            WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+              AND COALESCE(pool_num, 2) = ${poolNum}
+            ORDER BY id DESC LIMIT 1
+          `;
+          if (rows[0]?.token_id) {
+            const dbTokenId = BigInt(rows[0].token_id);
+            try {
+              try {
+                const txReward = await sendTx(wallet, { to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
+                await waitForTx(provider, txReward);
+              } catch (_) {}
+              const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);
+              let withdrawGas = 300000n;
+              try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (_) {}
+              const txW = await sendTx(wallet, { to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
+              await waitForTx(provider, txW);
+              unstakedList.push(dbTokenId.toString());
+            } catch (_) {
+              // Non staké = déjà dans wallet, sera trouvé via balanceOf
+            }
+          }
+        } catch (_) {}
+      }
     } catch (e) {
       throw new Error(`[unstake] ${e.shortMessage ?? e.message}`);
     }

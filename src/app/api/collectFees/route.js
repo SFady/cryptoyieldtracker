@@ -46,6 +46,7 @@ const MAX_UINT128 = (1n << 128n) - 1n;
 
 const ERC20_IFACE = new ethers.Interface([
   "function balanceOf(address) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
   "function transfer(address to, uint256 amount) returns (bool)",
 ]);
@@ -325,6 +326,7 @@ export async function POST(req) {
     try {
       await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('FEE_COLLECT', 'COLLECT_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
     } catch (_) {}
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }
 }

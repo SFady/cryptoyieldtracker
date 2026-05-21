@@ -193,12 +193,6 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
   };
 }
 
-function calcFees(liq, fgInside, fgInsideLast, owed) {
-  const Q128 = 1n << 128n;
-  const delta = mod256(fgInside - fgInsideLast);
-  if (delta > (1n << 200n)) return owed;
-  return owed + (liq * delta) / Q128;
-}
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -212,51 +206,25 @@ async function buildPosition(tokenId, ethCall, openData) {
   const tickLower     = Number(toInt(word(posHex, 5)));
   const tickUpper     = Number(toInt(word(posHex, 6)));
   const liquidity     = toUint(word(posHex, 7));
-  const fgInsideLast0 = toUint(word(posHex, 8));
-  const fgInsideLast1 = toUint(word(posHex, 9));
-  const owed0         = toUint(word(posHex, 10));
-  const owed1         = toUint(word(posHex, 11));
+  const owed0 = toUint(word(posHex, 10));
+  const owed1 = toUint(word(posHex, 11));
 
   if (liquidity === 0n && owed0 === 0n && owed1 === 0n) return null;
 
   const t0 = TOKENS[token0Addr] ?? { symbol: "TK0", decimals: 18 };
   const t1 = TOKENS[token1Addr] ?? { symbol: "TK1", decimals: 6  };
 
-  const [s0Hex, fg0Hex, fg1Hex, tLowHex, tUpHex] = await Promise.all([
-    ethCall(POOL, "0x3850c7bd"),
-    ethCall(POOL, "0xf3058399"),
-    ethCall(POOL, "0x46141319"),
-    ethCall(POOL, "0xf30dba93" + pad64(tickLower)),
-    ethCall(POOL, "0xf30dba93" + pad64(tickUpper)),
-  ]);
+  const s0Hex = await ethCall(POOL, "0x3850c7bd");
 
   const sqrtP    = toUint(word(s0Hex, 0));
   const currTick = Number(toInt(word(s0Hex, 1)));
-  const fg0 = toUint(word(fg0Hex, 0));
-  const fg1 = toUint(word(fg1Hex, 0));
-
-  const fgLow0 = toUint(word(tLowHex, 3));
-  const fgLow1 = toUint(word(tLowHex, 4));
-  const fgUp0  = toUint(word(tUpHex, 3));
-  const fgUp1  = toUint(word(tUpHex, 4));
-
-  const fgBelow0 = currTick >= tickLower ? fgLow0 : mod256(fg0 - fgLow0);
-  const fgBelow1 = currTick >= tickLower ? fgLow1 : mod256(fg1 - fgLow1);
-  const fgAbove0 = currTick < tickUpper  ? fgUp0  : mod256(fg0 - fgUp0);
-  const fgAbove1 = currTick < tickUpper  ? fgUp1  : mod256(fg1 - fgUp1);
-
-  const fgInside0 = mod256(fg0 - fgBelow0 - fgAbove0);
-  const fgInside1 = mod256(fg1 - fgBelow1 - fgAbove1);
-
-  const raw0 = calcFees(liquidity, fgInside0, fgInsideLast0, owed0);
-  const raw1 = calcFees(liquidity, fgInside1, fgInsideLast1, owed1);
 
   const { a0, a1 } = getAmounts(sqrtP, tickToSqrtX96(tickLower), tickToSqrtX96(tickUpper), liquidity);
 
   const bal0 = Number(a0) / 10 ** t0.decimals;
   const bal1 = Number(a1) / 10 ** t1.decimals;
-  const fee0 = Number(raw0) / 10 ** t0.decimals;
-  const fee1 = Number(raw1) / 10 ** t1.decimals;
+  const fee0 = Number(owed0) / 10 ** t0.decimals;
+  const fee1 = Number(owed1) / 10 ** t1.decimals;
   const inRange = currTick >= tickLower && currTick < tickUpper;
 
   const ethPrice = Number((sqrtP * sqrtP * 10n ** 12n) / (1n << 192n));
