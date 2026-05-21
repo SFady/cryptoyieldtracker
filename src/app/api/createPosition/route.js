@@ -300,6 +300,18 @@ export async function POST(req) {
       tickUpper = roundTickCeil(rawUpper, tickSpacing);
     }
 
+    // Pour les ranges étroits (2 ou 4 tick spacings) avec ratio ~50/50 :
+    // le système de score est inefficace (trop peu de configurations possibles) →
+    // centrer directement sur le tick courant arrondi au spacing le plus proche.
+    const numSpacings = Math.round(roundedTargetWidth / tickSpacing);
+    if (numSpacings >= 2 && numSpacings <= 4 && numSpacings % 2 === 0 && Math.abs(effectiveRatio - 0.5) < 0.1) {
+      const halfWidth   = (numSpacings / 2) * tickSpacing;
+      const poolTick    = priceToTick(poolPrice);
+      const nearestTick = Math.round(poolTick / tickSpacing) * tickSpacing;
+      tickLower = nearestTick - halfWidth;
+      tickUpper = nearestTick + halfWidth;
+    }
+
     if (tickLower >= tickUpper)
       return Response.json({ error: `Range invalide : tickLower(${tickLower}) >= tickUpper(${tickUpper}) — élargis la fourchette de prix` }, { status: 400 });
 
