@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../context/AuthContext";
 
-const WALLET1_SHORT = "0xaf96…2499";
 const WALLET2_SHORT = "0xac38…2f6";
 const WALLET3_SHORT = "Pool 3";
 
@@ -15,10 +14,6 @@ export default function ProfilePage() {
   useEffect(() => {
     if (activeUser !== "set3") router.replace("/home");
   }, [activeUser, router]);
-
-  const [pos1, setPos1]           = useState(null);
-  const [loading1, setLoading1]   = useState(true);
-  const [error1, setError1]       = useState(null);
 
   const [pos2, setPos2]           = useState(null);
   const [usdcWallet2, setUsdcWallet2] = useState(null);
@@ -39,12 +34,6 @@ export default function ProfilePage() {
   const [error3, setError3]       = useState(null);
 
   useEffect(() => {
-    fetch("/api/positions")
-      .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setPos1(d.positions ?? []); })
-      .catch((e) => setError1(e.message))
-      .finally(() => setLoading1(false));
-
     setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
@@ -64,13 +53,6 @@ export default function ProfilePage() {
 
   return (
     <>
-      {/* ── Wallet 1 : WETH/USDC ── */}
-      <SectionHeader label="WETH / USDC" wallet={WALLET1_SHORT} positions={pos1} />
-      {loading1 && <Spinner label="Lecture du contrat…" />}
-      {error1   && <ErrorBox msg={error1} />}
-      {pos1 && pos1.length === 0 && !loading1 && <Empty />}
-      {pos1 && pos1.map((p) => <PositionCard key={p.tokenId} pos={p} showFeePercent />)}
-
       {/* ── Wallet 2 : WETH/USDC ── */}
       {(() => {
         const total2 = pos2

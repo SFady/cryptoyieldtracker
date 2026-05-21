@@ -448,54 +448,56 @@ async function handleCase5(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
-  // 1. Vérifier position ouverte en DB depuis > 24h
-  let lastPos;
+  // 1. Vérifier heure française = 7h (entre 7h00 et 7h59)
+  const frHour = parseInt(
+    new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", hour: "numeric", hour12: false }).format(new Date()),
+    10
+  );
+  if (frHour !== 7)
+    return Response.json({ skipped: true, reason: `Pas 7h France — heure actuelle : ${frHour}h` });
+
+  // 2. Vérifier position ouverte en DB
   try {
     const rows = await sql`
-      SELECT created_at, action2 FROM lp_events
+      SELECT action2 FROM lp_events
       WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length === 0 || rows[0].action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
-    lastPos = rows[0];
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  const ageHours = (Date.now() - new Date(lastPos.created_at).getTime()) / 3_600_000;
-  if (ageHours < 24)
-    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 24h minimum` });
-
-  // 2. Vérifier pas de AERO_CLAIM dans les 24 dernières heures
+  // 3. Vérifier pas de FEE_COLLECT dans les 24 dernières heures
   try {
-    const claimRows = await sql`
+    const collectRows = await sql`
       SELECT id FROM lp_events
-      WHERE action1 = 'AERO_CLAIM'
+      WHERE action1 = 'FEE_COLLECT'
         AND created_at > NOW() - INTERVAL '24 hours'
         AND COALESCE(pool_num, 2) = ${poolNum}
       LIMIT 1
     `;
-    if (claimRows.length > 0)
-      return Response.json({ skipped: true, reason: "AERO déjà collecté dans les 24 dernières heures" });
+    if (collectRows.length > 0)
+      return Response.json({ skipped: true, reason: "Fees déjà collectées dans les 24 dernières heures" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 3. Appeler claimAero
+  // 4. Appeler collectFees
   try {
-    const res = await fetch(`${base}/api/claimAero`, {
+    const res = await fetch(`${base}/api/collectFees`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ poolNum }),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(180000),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "claimAero failed"));
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "collectFees failed"));
     return Response.json({ ok: true, case: 5, ...data });
   } catch (e) {
     const msg = e?.message ?? String(e);
-    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 5 (claim AERO)", `Erreur : ${msg}`);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 5 (collect fees)", `Erreur : ${msg}`);
     return Response.json({ case: 5, error: msg }, { status: 500 });
   }
 }
@@ -531,7 +533,7 @@ async function handleCase4(poolNum = 2) {
     `;
     const { p05, p95, cnt } = rows[0];
     if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100 * 1.1);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
