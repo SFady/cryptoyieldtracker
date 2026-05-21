@@ -30,9 +30,7 @@ const ERC20_IFACE = new ethers.Interface([
 
 const NFPM_IFACE = new ethers.Interface([
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
-  "function approve(address to, uint256 tokenId)",
-  "function setApprovalForAll(address operator, bool approved)",
-  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+  "function safeTransferFrom(address from, address to, uint256 tokenId)",
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
@@ -155,48 +153,15 @@ export async function POST(req) {
     const txCollect = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
     await waitForTx(provider, txCollect);
 
-    // 5. Re-staker
-    const txApproveId = await wallet.sendTransaction({
-      to: NFPM,
-      data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
+    // 5. Re-staker via safeTransferFrom
+    let stakeGas = 300000n;
+    try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]) }); stakeGas = est * 3n / 2n; } catch (_) {}
+    const txStake = await wallet.sendTransaction({
+      to:   NFPM,
+      data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]),
+      gasLimit: stakeGas,
     });
-    await waitForTx(provider, txApproveId);
-
-    let needsApprovalAll = true;
-    try {
-      const approvedHex = await provider.call({
-        to: NFPM,
-        data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]),
-      });
-      const [alreadyAll] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], approvedHex);
-      needsApprovalAll = !alreadyAll;
-    } catch (_) { /* RPC transient — on envoie setApprovalForAll par précaution */ }
-
-    if (needsApprovalAll) {
-      const txAll = await wallet.sendTransaction({
-        to: NFPM,
-        data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
-      });
-      await waitForTx(provider, txAll);
-    }
-
-    // Simulation avant dépôt
-    try {
-      await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
-    } catch (simErr) {
-      const msg = simErr.shortMessage ?? simErr.message ?? "";
-      if (msg && !msg.includes("missing revert data")) {
-        throw new Error(`[sim deposit] ${msg}`);
-      }
-    }
-    let depositGas = 300000n;
-    try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); depositGas = est * 3n / 2n; } catch (_) {}
-    const txDeposit = await wallet.sendTransaction({
-      to: gaugeAddr,
-      data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
-      gasLimit: depositGas,
-    });
-    await waitForTx(provider, txDeposit);
+    await waitForTx(provider, txStake);
 
     // 6. Swap WETH → USDC
     const usdcBeforeSwaps = await readBal(USDC).catch(() => 0n);
