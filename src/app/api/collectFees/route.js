@@ -34,6 +34,8 @@ const ERC20_IFACE = new ethers.Interface([
 
 const NFPM_IFACE = new ethers.Interface([
   "function approve(address to, uint256 tokenId)",
+  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+  "function setApprovalForAll(address operator, bool approved)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
 ]);
 
@@ -210,9 +212,27 @@ export async function POST(req) {
           data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
         });
         await waitForTx(txApprove);
+
+        let needsApprovalAll = true;
+        try {
+          const h = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]));
+          const [already] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], h);
+          needsApprovalAll = !already;
+        } catch (_) {}
+        if (needsApprovalAll) {
+          const txAll = await wallet.sendTransaction({
+            to:   NFPM,
+            data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
+          });
+          await waitForTx(txAll);
+        }
+
+        let depositGas = 300000n;
+        try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); depositGas = est * 3n / 2n; } catch (_) {}
         const txDeposit = await wallet.sendTransaction({
           to:   gaugeAddr,
           data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
+          gasLimit: depositGas,
         });
         await waitForTx(txDeposit);
       } catch (e) { throw new Error(`[restake] ${e.message ?? e}`); }
