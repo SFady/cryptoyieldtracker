@@ -3,7 +3,7 @@
 import React from "react";
 
 export default function PoolControls() {
-  const [poolNum, setPoolNum]       = React.useState(2);
+  const [poolNum, setPoolNum]       = React.useState(3);
   const [confirming, setConfirming] = React.useState(null);
   const [running, setRunning]       = React.useState(null);
   const [result, setResult]         = React.useState(null);
@@ -75,7 +75,7 @@ export default function PoolControls() {
         Contrôles position
       </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        {[2, 3].map(n => (
+        {[3].map(n => (
           <button key={n} onClick={() => { setPoolNum(n); setResult(null); setConfirming(null); }}
             style={{
               fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700,
