@@ -196,6 +196,12 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
 
 const sql = neon(process.env.DATABASE_URL);
 
+const POOL_IFACE = new ethers.Interface([
+  "function feeGrowthGlobal0X128() view returns (uint256)",
+  "function feeGrowthGlobal1X128() view returns (uint256)",
+  "function ticks(int24) view returns (uint128 liquidityGross, int128 liquidityNet, int128 stakedLiquidityNet, uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128, uint256 rewardGrowthOutsideX128, int56 tickCumulativeOutside, uint160 secondsPerLiquidityOutsideX128, uint32 secondsOutside, bool initialized)",
+]);
+
 // ── Calcul d'une position ─────────────────────────────────────────────────────
 
 async function buildPosition(tokenId, ethCall, openData) {
@@ -218,10 +224,10 @@ async function buildPosition(tokenId, ethCall, openData) {
 
   const [s0Hex, fg0Hex, fg1Hex, tickLoHex, tickHiHex] = await Promise.all([
     ethCall(POOL, "0x3850c7bd"),
-    ethCall(POOL, "0xf3058399").catch(() => null),
-    ethCall(POOL, "0x46141319").catch(() => null),
-    ethCall(POOL, "0xf30dba93" + pad64(tickLower)).catch(() => null),
-    ethCall(POOL, "0xf30dba93" + pad64(tickUpper)).catch(() => null),
+    ethCall(POOL, POOL_IFACE.encodeFunctionData("feeGrowthGlobal0X128")).catch(() => null),
+    ethCall(POOL, POOL_IFACE.encodeFunctionData("feeGrowthGlobal1X128")).catch(() => null),
+    ethCall(POOL, POOL_IFACE.encodeFunctionData("ticks", [tickLower])).catch(() => null),
+    ethCall(POOL, POOL_IFACE.encodeFunctionData("ticks", [tickUpper])).catch(() => null),
   ]);
 
   const sqrtP    = toUint(word(s0Hex, 0));
@@ -236,13 +242,18 @@ async function buildPosition(tokenId, ethCall, openData) {
   let fee0 = Number(owed0) / 10 ** t0.decimals;
   let fee1 = Number(owed1) / 10 ** t1.decimals;
   try {
-    const sub256    = (a, b) => mod256(a - b);
-    const fgGlobal0 = toUint(word(fg0Hex, 0));
-    const fgGlobal1 = toUint(word(fg1Hex, 0));
-    const fgOutLo0  = toUint(word(tickLoHex, 2));
-    const fgOutLo1  = toUint(word(tickLoHex, 3));
-    const fgOutHi0  = toUint(word(tickHiHex, 2));
-    const fgOutHi1  = toUint(word(tickHiHex, 3));
+    const sub256   = (a, b) => mod256(a - b);
+    const [fg0]    = POOL_IFACE.decodeFunctionResult("feeGrowthGlobal0X128", fg0Hex);
+    const [fg1]    = POOL_IFACE.decodeFunctionResult("feeGrowthGlobal1X128", fg1Hex);
+    const tickLo   = POOL_IFACE.decodeFunctionResult("ticks", tickLoHex);
+    const tickHi   = POOL_IFACE.decodeFunctionResult("ticks", tickHiHex);
+
+    const fgGlobal0 = BigInt(fg0);
+    const fgGlobal1 = BigInt(fg1);
+    const fgOutLo0  = BigInt(tickLo.feeGrowthOutside0X128);
+    const fgOutLo1  = BigInt(tickLo.feeGrowthOutside1X128);
+    const fgOutHi0  = BigInt(tickHi.feeGrowthOutside0X128);
+    const fgOutHi1  = BigInt(tickHi.feeGrowthOutside1X128);
 
     const fgBelow0  = currTick >= tickLower ? fgOutLo0 : sub256(fgGlobal0, fgOutLo0);
     const fgBelow1  = currTick >= tickLower ? fgOutLo1 : sub256(fgGlobal1, fgOutLo1);
