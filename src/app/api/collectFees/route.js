@@ -1,6 +1,24 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 
+async function sendErrorEmail(subject, body) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body:    JSON.stringify({
+        from:    "onboarding@resend.dev",
+        to:      "sylvain.fady@gmail.com",
+        subject,
+        html:    `<pre style="font-family:monospace">${body}</pre>`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (_) {}
+}
+
 export const runtime     = "nodejs";
 export const maxDuration = 180;
 
@@ -33,9 +51,7 @@ const ERC20_IFACE = new ethers.Interface([
 ]);
 
 const NFPM_IFACE = new ethers.Interface([
-  "function approve(address to, uint256 tokenId)",
-  "function isApprovedForAll(address owner, address operator) view returns (bool)",
-  "function setApprovalForAll(address operator, bool approved)",
+  "function safeTransferFrom(address from, address to, uint256 tokenId)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
 ]);
 
@@ -204,41 +220,7 @@ export async function POST(req) {
       await waitForTx(tx);
     } catch (e) { throw new Error(`[collect] ${e.message ?? e}`); }
 
-    // 6. Re-stake : approve NFPM → gauge, puis deposit (seulement si le NFT était staké)
-    if (isStaked) {
-      try {
-        const txApprove = await wallet.sendTransaction({
-          to:   NFPM,
-          data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
-        });
-        await waitForTx(txApprove);
-
-        let needsApprovalAll = true;
-        try {
-          const h = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]));
-          const [already] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], h);
-          needsApprovalAll = !already;
-        } catch (_) {}
-        if (needsApprovalAll) {
-          const txAll = await wallet.sendTransaction({
-            to:   NFPM,
-            data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
-          });
-          await waitForTx(txAll);
-        }
-
-        let depositGas = 300000n;
-        try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); depositGas = est * 3n / 2n; } catch (_) {}
-        const txDeposit = await wallet.sendTransaction({
-          to:   gaugeAddr,
-          data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
-          gasLimit: depositGas,
-        });
-        await waitForTx(txDeposit);
-      } catch (e) { throw new Error(`[restake] ${e.message ?? e}`); }
-    }
-
-    // 7. Swap fees WETH → USDC
+    // 6. Swap fees WETH → USDC
     let swapWethHash = null;
     try {
       const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
@@ -316,7 +298,26 @@ export async function POST(req) {
       await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('FEE_COLLECT', ${rawTokenId}, ${poolNum})`;
     } catch (_) {}
 
-    return Response.json({ ok: true, swapWethHash, aeroSwapHash, transferHash });
+    // 11. Re-stake via safeTransferFrom (non-bloquant — fees déjà envoyées)
+    let restakeError = null;
+    if (isStaked) {
+      try {
+        let stakeGas = 300000n;
+        try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]) }); stakeGas = est * 3n / 2n; } catch (_) {}
+        const txStake = await wallet.sendTransaction({
+          to:   NFPM,
+          data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]),
+          gasLimit: stakeGas,
+        });
+        await waitForTx(txStake);
+      } catch (e) {
+        restakeError = e.message ?? String(e);
+        console.log(`[collectFees restake] ${restakeError}`);
+        await sendErrorEmail("[CryptoYieldTracker] Erreur — Restake collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${restakeError}`);
+      }
+    }
+
+    return Response.json({ ok: true, swapWethHash, aeroSwapHash, transferHash, ...(restakeError ? { restakeError } : {}) });
 
   } catch (e) {
     const msg = e.message ?? String(e);
