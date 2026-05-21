@@ -60,6 +60,7 @@ const ERC20_IFACE = new ethers.Interface([
 
 const NFPM_IFACE = new ethers.Interface([
   "function balanceOf(address owner) view returns (uint256)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
   "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
   "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
   "function decreaseLiquidity((uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint256 amount0, uint256 amount1)",
@@ -263,7 +264,7 @@ export async function POST(req) {
         }
       }
 
-      // Fallback DB : si stakedValues retourne vide, tenter le tokenId actif en DB
+      // Fallback DB : si stakedValues retourne vide, utiliser ownerOf pour trouver le vrai gauge
       if (stakedIds.length === 0) {
         try {
           const rows = await sql`
@@ -274,15 +275,23 @@ export async function POST(req) {
           `;
           if (rows[0]?.token_id) {
             const dbTokenId = BigInt(rows[0].token_id);
+            // ownerOf → si pas le wallet, c'est le gauge réel (potentiellement différent du voter)
+            let actualGauge = gaugeAddr;
+            try {
+              const [owner] = await view(NFPM, NFPM_IFACE, 'ownerOf', [dbTokenId]);
+              if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
+                actualGauge = owner;
+              }
+            } catch (_) {}
             try {
               try {
-                const txReward = await sendTx(wallet, { to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
+                const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
                 await waitForTx(provider, txReward);
               } catch (_) {}
               const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);
               let withdrawGas = 300000n;
-              try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (_) {}
-              const txW = await sendTx(wallet, { to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
+              try { const est = await provider.estimateGas({ to: actualGauge, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (_) {}
+              const txW = await sendTx(wallet, { to: actualGauge, data: withdrawData, gasLimit: withdrawGas });
               await waitForTx(provider, txW);
               unstakedList.push(dbTokenId.toString());
             } catch (_) {
