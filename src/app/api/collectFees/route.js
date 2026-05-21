@@ -38,6 +38,7 @@ const NFPM_IFACE = new ethers.Interface([
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
+  "function stakedValues(address depositor) view returns (uint256[])",
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
   "function deposit(uint256 tokenId)",
@@ -157,23 +158,33 @@ export async function POST(req) {
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 
-    // 3. Claim AERO rewards
+    // 3. Vérifier si le NFT est staké dans le gauge
+    let isStaked = false;
     try {
-      const tx = await wallet.sendTransaction({
-        to: gaugeAddr,
-        data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
-      });
-      await waitForTx(tx);
-    } catch (e) { throw new Error(`[getReward] ${e.message ?? e}`); }
+      const stakedHex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [wallet.address]));
+      const [stakedIds] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+      isStaked = stakedIds.some(id => id === tokenId);
+    } catch (_) {}
 
-    // 4. Unstake (withdraw depuis le gauge)
-    try {
-      const tx = await wallet.sendTransaction({
-        to: gaugeAddr,
-        data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
-      });
-      await waitForTx(tx);
-    } catch (e) { throw new Error(`[withdraw] ${e.message ?? e}`); }
+    // 4. Claim AERO rewards (seulement si staké)
+    if (isStaked) {
+      try {
+        const tx = await wallet.sendTransaction({
+          to: gaugeAddr,
+          data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
+        });
+        await waitForTx(tx);
+      } catch (e) { throw new Error(`[getReward] ${e.message ?? e}`); }
+
+      // 5. Unstake (withdraw depuis le gauge)
+      try {
+        const tx = await wallet.sendTransaction({
+          to: gaugeAddr,
+          data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
+        });
+        await waitForTx(tx);
+      } catch (e) { throw new Error(`[withdraw] ${e.message ?? e}`); }
+    }
 
     // 5. Collect fees WETH + USDC (sans decreaseLiquidity — liquidité intacte)
     const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
@@ -191,19 +202,21 @@ export async function POST(req) {
       await waitForTx(tx);
     } catch (e) { throw new Error(`[collect] ${e.message ?? e}`); }
 
-    // 6. Re-stake : approve NFPM → gauge, puis deposit
-    try {
-      const txApprove = await wallet.sendTransaction({
-        to:   NFPM,
-        data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
-      });
-      await waitForTx(txApprove);
-      const txDeposit = await wallet.sendTransaction({
-        to:   gaugeAddr,
-        data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
-      });
-      await waitForTx(txDeposit);
-    } catch (e) { throw new Error(`[restake] ${e.message ?? e}`); }
+    // 6. Re-stake : approve NFPM → gauge, puis deposit (seulement si le NFT était staké)
+    if (isStaked) {
+      try {
+        const txApprove = await wallet.sendTransaction({
+          to:   NFPM,
+          data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
+        });
+        await waitForTx(txApprove);
+        const txDeposit = await wallet.sendTransaction({
+          to:   gaugeAddr,
+          data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
+        });
+        await waitForTx(txDeposit);
+      } catch (e) { throw new Error(`[restake] ${e.message ?? e}`); }
+    }
 
     // 7. Swap fees WETH → USDC
     let swapWethHash = null;
