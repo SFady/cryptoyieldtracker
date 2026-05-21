@@ -52,7 +52,7 @@ const ERC20_IFACE = new ethers.Interface([
 ]);
 
 const NFPM_IFACE = new ethers.Interface([
-  "function safeTransferFrom(address from, address to, uint256 tokenId)",
+  "function approve(address to, uint256 tokenId)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
 ]);
 
@@ -60,6 +60,7 @@ const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
+  "function deposit(uint256 tokenId)",
 ]);
 
 const VOTER_IFACE = new ethers.Interface([
@@ -300,16 +301,23 @@ export async function POST(req) {
       await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('FEE_COLLECT', ${rawTokenId}, ${poolNum})`;
     } catch (_) {}
 
-    // 11. Re-stake via safeTransferFrom (non-bloquant — fees déjà envoyées)
+    // 11. Re-stake via approve + gauge.deposit (safeTransferFrom ne met pas à jour le déposant dans ce gauge)
     let restakeError = null;
     if (isStaked) {
       try {
-        let stakeGas = 300000n;
-        try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]) }); stakeGas = est * 3n / 2n; } catch (_) {}
-        const txStake = await wallet.sendTransaction({
+        // Approuver le gauge pour ce tokenId
+        const txApprove = await wallet.sendTransaction({
           to:   NFPM,
-          data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]),
-          gasLimit: stakeGas,
+          data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
+        });
+        await waitForTx(txApprove);
+        // Déposer dans le gauge — enregistre wallet comme déposant légitime
+        let depositGas = 300000n;
+        try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); depositGas = est * 3n / 2n; } catch (_) {}
+        const txStake = await wallet.sendTransaction({
+          to:       gaugeAddr,
+          data:     GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
+          gasLimit: depositGas,
         });
         await waitForTx(txStake);
       } catch (e) {
