@@ -620,13 +620,18 @@ export async function POST(req) {
     const stableBal    = await readBal(stablecoin, wallet.address);
     const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
     const finalUsdcRaw = Number(ethers.formatUnits(stableBal, 6)).toFixed(2);
+    let wethFinalBal = 0n;
+    try { wethFinalBal = await readBal(WETH, wallet.address); } catch (_) {}
+    const finalWalletUsdc = parseFloat(
+      (Number(ethers.formatUnits(stableBal, 6)) + Number(ethers.formatUnits(wethFinalBal, 18)) * wethPriceUsdc).toFixed(2)
+    );
 
     // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes + logger CLOSE_OK
     if (collectedList.length > 0) {
       try {
         for (const tokenId of collectedList) {
           await sql`UPDATE lp_events
-                    SET usdc_on_close = ${principalUsdc},
+                    SET usdc_on_close = ${finalWalletUsdc},
                         action2       = 'CLOSE_OK',
                         closed_at     = NOW()
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;

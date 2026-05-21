@@ -6,6 +6,24 @@ export const maxDuration = 120;
 
 const sql = neon(process.env.DATABASE_URL);
 
+async function sendErrorEmail(subject, body) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body:    JSON.stringify({
+        from:    "onboarding@resend.dev",
+        to:      "sylvain.fady@gmail.com",
+        subject,
+        html:    `<pre style="font-family:monospace">${body}</pre>`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (_) {}
+}
+
 const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
@@ -28,6 +46,7 @@ const ERC20_IFACE = new ethers.Interface([
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
+  "function stakedValues(address depositor) view returns (uint256[])",
   "function getReward(uint256 tokenId)",
 ]);
 
@@ -140,7 +159,18 @@ export async function POST(req) {
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 
-    // 3. Claim AERO depuis le gauge (sans unstaker)
+    // 3. Vérifier si le NFT est staké, puis claim AERO
+    let isStaked = false;
+    try {
+      const stakedHex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [wallet.address]));
+      const [stakedIds] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+      isStaked = stakedIds.some(id => id === tokenId);
+    } catch (_) {}
+
+    if (!isStaked) {
+      return Response.json({ skipped: true, reason: "Position non stakée — rien à réclamer" });
+    }
+
     try {
       const tx = await wallet.sendTransaction({
         to: gaugeAddr,
@@ -167,7 +197,9 @@ export async function POST(req) {
         const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
           aeroBal, 0n, routes, wallet.address, freshDeadline(),
         ]);
-        const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
+        let aeroSwapGas = 300000n;
+        try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
+        const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
         aeroSwapHash = txSwap.hash;
         await waitForTx(txSwap);
       }
@@ -210,6 +242,7 @@ export async function POST(req) {
     try {
       await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('AERO_CLAIM', 'CLAIM_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
     } catch (_) {}
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — claimAero", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }
 }

@@ -687,10 +687,9 @@ export async function POST(req) {
 
     try {
       const usdcRestant = Number(ethers.formatUnits(await readBal(USDC), 6));
-      const usdcPlaced  = usdcAvailable - usdcRestant;
       await logEvent({
         action1:        "CREATE_OK",
-        usdc_placed:    usdcPlaced.toFixed(2),
+        usdc_placed:    totalAvailable.toFixed(2),
         range_min:      tickLowerPrice,
         range_max:      tickUpperPrice,
         range_pct:      rangePct,

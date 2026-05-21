@@ -59,7 +59,6 @@ const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
-  "function deposit(uint256 tokenId)",
 ]);
 
 const VOTER_IFACE = new ethers.Interface([
@@ -264,7 +263,9 @@ export async function POST(req) {
         const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
           aeroBal, 0n, routes, wallet.address, freshDeadline(),
         ]);
-        const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData });
+        let aeroSwapGas = 300000n;
+        try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
+        const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
         aeroSwapHash = txSwap.hash;
         await waitForTx(txSwap);
       }
