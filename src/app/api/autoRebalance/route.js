@@ -96,7 +96,7 @@ async function handleRequest(forceCase, poolNum = 2) {
     `;
     if (errRows.length > 0) {
       const { action1, action2, error_msg } = errRows[0];
-      if ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR")))
+      if (action1 !== "FEE_COLLECT" && ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR"))))
         return Response.json({
           error: `Bloqué — erreur détectée en base : ${error_msg ?? action1}`,
         }, { status: 409 });
