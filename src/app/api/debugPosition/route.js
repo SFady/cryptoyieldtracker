@@ -31,6 +31,8 @@ const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   "function depositor(uint256 tokenId) view returns (address)",
   "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
+  "function withdraw(uint256 tokenId)",
+  "function getReward(uint256 tokenId)",
 ]);
 
 const VOTER_IFACE = new ethers.Interface([
@@ -198,6 +200,62 @@ export async function GET(req) {
     probeSelector(gaugeAddr, "0x4bf5d1c5", "", walletAddr),
   ]);
 
+  // Simulation withdraw(tokenId) depuis walletAddr → donne le vrai revert reason
+  const withdrawSimResult = await (async () => {
+    const data = GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]);
+    const r    = await ethCall(gaugeAddr, data, walletAddr);
+    if (r.result && r.result !== "0x") return { ok: true };
+    if (r.error) {
+      const msg = r.error ?? "";
+      // Essayer de décoder le revert reason standard (Error(string) = 0x08c379a0)
+      try {
+        const hex = msg.match(/0x[0-9a-fA-F]+/)?.[0] ?? "";
+        if (hex.startsWith("0x08c379a0")) {
+          const reason = ethers.AbiCoder.defaultAbiCoder().decode(["string"], "0x" + hex.slice(10))[0];
+          return { reverts: true, reason };
+        }
+        // Custom error — retourner le selector brut (4 bytes)
+        if (hex.length >= 10) {
+          const selector = hex.slice(0, 10);
+          // Vérifier selectors connus
+          const known = {
+            [ethers.id("NotAuthorized()").slice(0, 10)]: "NotAuthorized()",
+            [ethers.id("NA()").slice(0, 10)]: "NA()",
+          };
+          return { reverts: true, customError: known[selector] ?? `unknown selector ${selector}`, rawHex: hex.slice(0, 18) };
+        }
+      } catch (_) {}
+      return { reverts: true, rawError: msg.slice(0, 300) };
+    }
+    return { reverts: true, rawError: "empty revert (no data)" };
+  })();
+
+  // Simulation getReward(tokenId) depuis walletAddr
+  const getRewardSimResult = await (async () => {
+    const data = GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]);
+    const r    = await ethCall(gaugeAddr, data, walletAddr);
+    if (r.result !== undefined && !r.error) return { ok: true };
+    if (r.error) {
+      const msg = r.error ?? "";
+      try {
+        const hex = msg.match(/0x[0-9a-fA-F]+/)?.[0] ?? "";
+        if (hex.startsWith("0x08c379a0")) {
+          const reason = ethers.AbiCoder.defaultAbiCoder().decode(["string"], "0x" + hex.slice(10))[0];
+          return { reverts: true, reason };
+        }
+        if (hex.length >= 10) {
+          const selector = hex.slice(0, 10);
+          const known = {
+            [ethers.id("NotAuthorized()").slice(0, 10)]: "NotAuthorized()",
+          };
+          return { reverts: true, customError: known[selector] ?? `unknown selector ${selector}` };
+        }
+      } catch (_) {}
+      return { reverts: true, rawError: msg.slice(0, 200) };
+    }
+    return { ok: true };
+  })();
+
   // Fonctions de rescue potentielles
   // emergencyWithdraw(uint256) → 0x853828b6 (Uniswap-style)
   // recoverERC721(address,uint256,address) → calculé
@@ -267,6 +325,12 @@ export async function GET(req) {
       factoryExists:   factoryProbe.exists,
       teamExists:      teamProbe.exists,
       emergencyCouncilExists: emergencyCouncilProbe.exists,
+    },
+
+    // Simulation des appels withdraw/getReward (eth_call — aucune tx envoyée)
+    simulation: {
+      withdraw:   withdrawSimResult,
+      getReward:  getRewardSimResult,
     },
 
     // Fonctions de rescue potentielles
