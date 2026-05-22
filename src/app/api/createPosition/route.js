@@ -543,6 +543,24 @@ export async function POST(req) {
       await ensureAllowance(wallet, provider, USDC, NFPM, usdcToKeep);
     } catch (e) { throw new Error(`[étape 8b – approve USDC→NFPM] ${e.shortMessage ?? e.message}`); }
 
+    // 8c. Lecture finale du prix juste avant le mint — corrige le cas où le prix remonte
+    //     au-dessus de tickLower après le swap, ce qui rend usdcToKeep=0 invalide (liquidity=0 → revert).
+    try {
+      const s0f = await provider.call({ to: POOL, data: "0x3850c7bd" });
+      const sqf = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], s0f)[0];
+      const pf  = Number(sqf) / Number(2n ** 96n);
+      const ppf = pf * pf * 1e12;
+      if (ppf > 100 && ppf < 100000) poolPrice = ppf;
+    } catch (_) {}
+
+    if (poolPrice > tickLowerPrice && usdcToKeep === 0n && usdcBalance > 0n) {
+      const ratioFinal      = optimalWethFraction(poolPrice, tickLowerPrice, tickUpperPrice);
+      const usdcFinalBudget = ethers.parseUnits(String((totalBudget * (1 - ratioFinal)).toFixed(6)), 6);
+      const wethFinalBudget = ethers.parseUnits(String((totalBudget * ratioFinal / poolPrice).toFixed(18)), 18);
+      usdcToKeep = usdcBalance < usdcFinalBudget ? usdcBalance : usdcFinalBudget;
+      wethToUse  = wethBalance < wethFinalBudget ? wethBalance : wethFinalBudget;
+    }
+
     // 9. Mint position
     const mintParams = {
       token0:         WETH,
@@ -730,7 +748,8 @@ export async function POST(req) {
       pool_num:  poolNum ?? null,
       type:      caseNum ?? null,
     });
-    await sendErrorEmail("[CryptoYieldTracker] Erreur — createPosition", `Cas : ${caseNum ?? "?"}\nErreur : ${msg}`);
+    // Ne pas envoyer d'email si appelé depuis autoRebalance (qui envoie le sien avec le prix ETH)
+    if (!caseNum) await sendErrorEmail("[CryptoYieldTracker] Erreur — createPosition", `Cas : ?\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }
 }
