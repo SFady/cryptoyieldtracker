@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import checkAuthent from "../lib/checkAuthent";
 import AtrPanel from "./AtrPanel";
 import PoolControls from "./PoolControls";
+import PoolStats from "./PoolStats";
 
 export default async function TestPage() {
   const session = await checkAuthent();
@@ -19,6 +20,7 @@ export default async function TestPage() {
       }}>
         ATR Bot — Développement
       </div>
+      <PoolStats />
       <PoolControls />
       <AtrPanel />
     </div>
