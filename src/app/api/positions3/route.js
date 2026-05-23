@@ -318,8 +318,27 @@ export async function GET() {
   const c = global._cytPos3Cache;
   if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
 
+  let blockedByErrorEarly = false;
+  let blockReasonEarly = null;
+  try {
+    const errRows = await sql`
+      SELECT action1, action2 FROM lp_events
+      WHERE action1 != 'RUNNING'
+        AND COALESCE(pool_num, 2) = 3
+      ORDER BY id DESC
+      LIMIT 1
+    `;
+    if (errRows.length > 0) {
+      const { action1, action2 } = errRows[0];
+      if (action1 !== "FEE_COLLECT" && ((action1?.includes("ERR")) || (action2?.includes("ERR")))) {
+        blockedByErrorEarly = true;
+        blockReasonEarly = action1?.includes("ERR") ? action1 : action2;
+      }
+    }
+  } catch (_) {}
+
   if (!WALLET) {
-    return Response.json({ positions: [], error: "WALLET_ADDRESS_3 non configuré" });
+    return Response.json({ positions: [], blockedByError: blockedByErrorEarly, blockReason: blockReasonEarly, error: "WALLET_ADDRESS_3 non configuré" });
   }
 
   try {
@@ -504,7 +523,26 @@ export async function GET() {
       }));
     } catch (_) {}
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt };
+    let blockedByError = false;
+    let blockReason = null;
+    try {
+      const errRows = await sql`
+        SELECT action1, action2 FROM lp_events
+        WHERE action1 != 'RUNNING'
+          AND COALESCE(pool_num, 2) = 3
+        ORDER BY id DESC
+        LIMIT 1
+      `;
+      if (errRows.length > 0) {
+        const { action1, action2 } = errRows[0];
+        if (action1 !== "FEE_COLLECT" && ((action1?.includes("ERR")) || (action2?.includes("ERR")))) {
+          blockedByError = true;
+          blockReason = action1?.includes("ERR") ? action1 : action2;
+        }
+      }
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason };
     global._cytPos3Cache = { data, time: Date.now() };
     return Response.json(data);
 

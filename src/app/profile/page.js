@@ -30,6 +30,8 @@ export default function ProfilePage() {
   const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
   const [percentileRange3, setPercentileRange3] = useState(null);
   const [nextCronAt3, setNextCronAt3] = useState(null);
+  const [blockedByError3, setBlockedByError3] = useState(false);
+  const [blockReason3, setBlockReason3] = useState(null);
   const [loading3, setLoading3]   = useState(true);
   const [error3, setError3]       = useState(null);
 
@@ -47,7 +49,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions3")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
+        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
         .catch((e) => setError3(e.message))
         .finally(() => setLoading3(false));
     }, 1400);
@@ -142,6 +144,15 @@ export default function ProfilePage() {
                   background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#86efac",
                 }}>
                   Prochain cron : {new Date(nextCronAt3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+              {blockedByError3 && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(180,100,100,0.12)", border: "1px solid rgba(180,100,100,0.4)", color: "#f87171",
+                }}>
+                  ⚠ Cas bloqués — dernière erreur : {blockReason3}
                 </span>
               )}
             </div>
