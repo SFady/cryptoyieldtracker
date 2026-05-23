@@ -211,10 +211,10 @@ async function handleCase1(poolNum = 2) {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
-    // 5. Créer nouvelle position 75% WETH / 25% USDC
+    // 5. Créer nouvelle position 50% WETH / 50% USDC
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.75, poolNum, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
