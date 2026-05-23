@@ -453,8 +453,8 @@ async function handleCase5(poolNum = 2) {
     new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", hour: "numeric", hour12: false }).format(new Date()),
     10
   );
-  if (frHour !== 7)
-    return Response.json({ skipped: true, reason: `Pas 7h France — heure actuelle : ${frHour}h` });
+  if (frHour < 7)
+    return Response.json({ skipped: true, reason: `Avant 7h France — heure actuelle : ${frHour}h` });
 
   // 2. Vérifier position ouverte en DB
   try {
