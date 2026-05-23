@@ -185,7 +185,8 @@ export async function POST(req) {
       isStaked = stakedIds.some(id => id === tokenId);
     } catch (_) {}
 
-    // 4. Claim AERO rewards (seulement si staké)
+    // 4. Claim AERO rewards (seulement si staké) — non-bloquant : l'AERO reste dans le gauge
+    //    jusqu'à la prochaine collect si getReward revert (ex: depositor mapping incohérent).
     if (isStaked) {
       try {
         const tx = await wallet.sendTransaction({
@@ -193,7 +194,7 @@ export async function POST(req) {
           data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
         });
         await waitForTx(tx);
-      } catch (e) { throw new Error(`[getReward] ${e.message ?? e}`); }
+      } catch (_) {}
 
       // 5. Unstake (withdraw depuis le gauge)
       try {
