@@ -29,8 +29,8 @@ const ERC20_IFACE = new ethers.Interface([
 ]);
 
 const NFPM_IFACE = new ethers.Interface([
+  "function approve(address to, uint256 tokenId)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
-  "function safeTransferFrom(address from, address to, uint256 tokenId)",
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
@@ -153,12 +153,17 @@ export async function POST(req) {
     const txCollect = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
     await waitForTx(provider, txCollect);
 
-    // 5. Re-staker via safeTransferFrom
-    let stakeGas = 300000n;
-    try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]) }); stakeGas = est * 3n / 2n; } catch (_) {}
-    const txStake = await wallet.sendTransaction({
+    // 5. Re-staker via approve + gauge.deposit (safeTransferFrom enregistre NFPM comme depositor)
+    const txApprove = await wallet.sendTransaction({
       to:   NFPM,
-      data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]),
+      data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
+    });
+    await waitForTx(provider, txApprove);
+    let stakeGas = 300000n;
+    try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); stakeGas = est * 3n / 2n; } catch (_) {}
+    const txStake = await wallet.sendTransaction({
+      to:       gaugeAddr,
+      data:     GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]),
       gasLimit: stakeGas,
     });
     await waitForTx(provider, txStake);

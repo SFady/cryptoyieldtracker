@@ -453,8 +453,8 @@ async function handleCase5(poolNum = 2) {
     new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", hour: "numeric", hour12: false }).format(new Date()),
     10
   );
-  if (frHour < 7)
-    return Response.json({ skipped: true, reason: `Avant 7h France — heure actuelle : ${frHour}h` });
+  if (frHour < 7 || frHour > 8)
+    return Response.json({ skipped: true, reason: `Hors fenêtre 7h-8h France — heure actuelle : ${frHour}h` });
 
   // 2. Vérifier position ouverte en DB
   try {
@@ -469,17 +469,23 @@ async function handleCase5(poolNum = 2) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 3. Vérifier pas de FEE_COLLECT dans les 24 dernières heures
+  // 3. Vérifier le dernier FEE_COLLECT : bloqué si COLLECT_ERR non résolu, ou si réussi dans les 24h
   try {
     const collectRows = await sql`
-      SELECT id FROM lp_events
+      SELECT action2, created_at FROM lp_events
       WHERE action1 = 'FEE_COLLECT'
-        AND created_at > NOW() - INTERVAL '24 hours'
         AND COALESCE(pool_num, 2) = ${poolNum}
+      ORDER BY id DESC
       LIMIT 1
     `;
-    if (collectRows.length > 0)
-      return Response.json({ skipped: true, reason: "Fees déjà collectées dans les 24 dernières heures" });
+    if (collectRows.length > 0) {
+      const { action2, created_at } = collectRows[0];
+      if (action2 === 'COLLECT_ERR')
+        return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+      const elapsed = Date.now() - new Date(created_at).getTime();
+      if (elapsed < 24 * 60 * 60 * 1000)
+        return Response.json({ skipped: true, reason: "Fees déjà collectées dans les 24 dernières heures" });
+    }
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -510,7 +516,7 @@ async function handleCase4(poolNum = 2) {
   try {
     const rows = await sql`
       SELECT action2 FROM lp_events
-      WHERE action1 != 'RUNNING' AND COALESCE(pool_num, 2) = ${poolNum}
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
       ORDER BY id DESC LIMIT 1
     `;
     if (rows.length > 0 && rows[0].action2 !== "CLOSE_OK")
