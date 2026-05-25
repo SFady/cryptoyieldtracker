@@ -170,6 +170,20 @@ async function handleCase1(poolNum = 2) {
   if (!isNaN(rangeMin) && livePrice >= rangeMin)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} >= borne basse $${rangeMin} — pas hors range bas` });
 
+  // Confirmation : les 2 derniers prix cron doivent être sous la borne basse
+  try {
+    const cronRows = await sql`
+      SELECT weth FROM cron_runs
+      WHERE weth IS NOT NULL
+      ORDER BY ran_at DESC
+      LIMIT 2
+    `;
+    if (cronRows.length < 2 || cronRows.some(r => parseFloat(r.weth) >= rangeMin))
+      return Response.json({ skipped: true, reason: `Confirmation insuffisante — les 2 derniers prix cron (${cronRows.map(r => '$' + parseFloat(r.weth).toFixed(0)).join(', ')}) doivent être sous $${rangeMin}` });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
   let newRangePct = 2;
   try {
     const rows = await sql`
@@ -274,6 +288,20 @@ async function handleCase2(poolNum = 2) {
 
   if (!isNaN(rangeMax) && livePrice <= rangeMax)
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} <= borne haute $${rangeMax} — pas hors range haut` });
+
+  // Confirmation : les 2 derniers prix cron doivent être au-dessus de la borne haute
+  try {
+    const cronRows = await sql`
+      SELECT weth FROM cron_runs
+      WHERE weth IS NOT NULL
+      ORDER BY ran_at DESC
+      LIMIT 2
+    `;
+    if (cronRows.length < 2 || cronRows.some(r => parseFloat(r.weth) <= rangeMax))
+      return Response.json({ skipped: true, reason: `Confirmation insuffisante — les 2 derniers prix cron (${cronRows.map(r => '$' + parseFloat(r.weth).toFixed(0)).join(', ')}) doivent être au-dessus de $${rangeMax}` });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
 
   let newRangePct = 2;
   try {
