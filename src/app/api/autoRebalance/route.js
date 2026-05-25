@@ -183,7 +183,7 @@ async function handleCase1(poolNum = 2) {
     `;
     const { p05, p95, cnt } = rows[0];
     if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100 * 1.25);
+      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
@@ -214,7 +214,7 @@ async function handleCase1(poolNum = 2) {
     // 5. Créer nouvelle position 50% WETH / 50% USDC
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.8, poolNum, caseNum: 1 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
@@ -319,7 +319,7 @@ async function handleCase2(poolNum = 2) {
     // 5. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 2 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.2, poolNum, caseNum: 2 }),
       signal: AbortSignal.timeout(240000),
     });
     const data = await res.json();
