@@ -61,6 +61,7 @@ const GAUGE_IFACE = new ethers.Interface([
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
   "function deposit(uint256 tokenId)",
+  "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
 ]);
 
 const VOTER_IFACE = new ethers.Interface([
@@ -177,12 +178,13 @@ export async function POST(req) {
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 
-    // 3. Vérifier si le NFT est dans le gauge via ownerOf (source de vérité)
+    // 3. Vérifier si le NFT est staké via stakedContains — ownerOf peut retourner le gauge
+    //    sans déposant valide (NFT bloqué), ce qui ferait échouer withdraw avec "NA"
     let isStaked = false;
     try {
-      const ownerHex = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]));
-      const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", ownerHex);
-      isStaked = owner.toLowerCase() === gaugeAddr.toLowerCase();
+      const result = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedContains", [wallet.address, tokenId]));
+      const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedContains", result);
+      isStaked = staked;
     } catch (_) {}
 
     // 4. Claim AERO rewards (seulement si staké) — non-bloquant : l'AERO reste dans le gauge
