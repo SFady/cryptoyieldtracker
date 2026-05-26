@@ -419,6 +419,16 @@ export async function GET() {
       }
     } catch (_) {}
 
+    let lastCollectTimestamp = null;
+    try {
+      const collectRows = await sql`
+        SELECT created_at FROM lp_events
+        WHERE action1 = 'FEE_COLLECT' AND action2 IS NULL AND COALESCE(pool_num, 2) = 2
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      if (collectRows.length > 0) lastCollectTimestamp = new Date(collectRows[0].created_at).getTime();
+    } catch (_) {}
+
     const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall, openDataByTokenId[id.toString()])));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
@@ -430,9 +440,10 @@ export async function GET() {
         const totalRevUSD = feesNum + aeroUSD;
         return {
           ...pos,
-          aeroRevenueUSD:  aeroUSD.toFixed(2),
-          aeroBalance:     aeroBal > 0 ? aeroBal.toFixed(2) : "",
-          totalRevenueUSD: totalRevUSD.toFixed(2),
+          aeroRevenueUSD:       aeroUSD.toFixed(2),
+          aeroBalance:          aeroBal > 0 ? aeroBal.toFixed(2) : "",
+          totalRevenueUSD:      totalRevUSD.toFixed(2),
+          lastCollectTimestamp,
         };
       });
 

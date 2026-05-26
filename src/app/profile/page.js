@@ -252,12 +252,13 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const totalRevUSD = aeroUSD;
 
-  const feePct      = showFeePercent && pos.openTimestamp
+  const feePct      = showFeePercent && (pos.lastCollectTimestamp || pos.openTimestamp)
     ? (() => {
         if (totalRevUSD <= 0) return "0.00";
-        const base = greenTotal || parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
-        const minutes = Math.max(1, (Date.now() - pos.openTimestamp) / 60_000);
-        const hours = minutes / 60;
+        const base  = greenTotal || parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
+        const refTs = pos.lastCollectTimestamp || pos.openTimestamp;
+        const minutes = Math.max(1, (Date.now() - refTs) / 60_000);
+        const hours   = minutes / 60;
         return ((totalRevUSD / hours * 24 * 30) / base * 100).toFixed(2);
       })()
     : null;
