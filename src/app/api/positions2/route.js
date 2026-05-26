@@ -516,7 +516,13 @@ export async function GET() {
       }
     } catch (_) {}
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt };
+    let cronWeth = [];
+    try {
+      const wRows = await sql`SELECT weth FROM cron_runs WHERE weth IS NOT NULL ORDER BY ran_at DESC LIMIT 2`;
+      cronWeth = wRows.map(r => parseFloat(r.weth));
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth };
     global._cytPos2Cache = { data, time: Date.now() };
     return Response.json(data);
 

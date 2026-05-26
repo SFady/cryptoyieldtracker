@@ -21,6 +21,7 @@ export default function ProfilePage() {
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [nextCronAt2, setNextCronAt2] = useState(null);
+  const [cronWeth2, setCronWeth2] = useState([]);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
 
@@ -30,6 +31,7 @@ export default function ProfilePage() {
   const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
   const [percentileRange3, setPercentileRange3] = useState(null);
   const [nextCronAt3, setNextCronAt3] = useState(null);
+  const [cronWeth3, setCronWeth3] = useState([]);
   const [blockedByError3, setBlockedByError3] = useState(false);
   const [blockReason3, setBlockReason3] = useState(null);
   const [loading3, setLoading3]   = useState(true);
@@ -41,7 +43,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) setTimeout(() => {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }, 700);
@@ -49,7 +51,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions3")
         .then((r) => r.json())
-        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
+        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); })
         .catch((e) => setError3(e.message))
         .finally(() => setLoading3(false));
     }, 1400);
@@ -109,7 +111,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} />)}
           </>
         );
       })()}
@@ -175,7 +177,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={3} usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} />)}
+            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={3} usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} cronWeth={cronWeth3} />)}
           </>
         );
       })()}
@@ -248,7 +250,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [] }) {
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const totalRevUSD = aeroUSD;
 
@@ -312,31 +314,41 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         background: "rgba(10,10,30,0.7)",
         borderBottom: "1px solid rgba(124,77,255,0.12)",
       }}>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <span style={{
-            fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-            padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
-            background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
-          }}>
-            Base
-          </span>
-          {pos.protocol && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 6 }}>
             <span style={{
               fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
               padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
-              background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
+              background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
             }}>
-              {pos.protocol}
+              Base
             </span>
-          )}
-          {pos.rangePct && (
-            <span style={{
-              fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-              padding: "2px 7px", borderRadius: 4,
-              background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
-            }}>
-              {pos.rangePct}%
-            </span>
+            {pos.protocol && (
+              <span style={{
+                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+                padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
+                background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
+              }}>
+                {pos.protocol}
+              </span>
+            )}
+            {pos.rangePct && (
+              <span style={{
+                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+                padding: "2px 7px", borderRadius: 4,
+                background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
+              }}>
+                {pos.rangePct}%
+              </span>
+            )}
+          </div>
+          {cronWeth.length > 0 && pos.rangeLow && (
+            <div style={{ display: "flex", gap: 4, paddingLeft: 2 }}>
+              {[...cronWeth].reverse().map((w, i) => {
+                const isIn = w >= parseFloat(pos.rangeLow) && w <= parseFloat(pos.rangeHigh);
+                return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: isIn ? "#00e5a0" : "#c97070", opacity: 0.75 }} />;
+              })}
+            </div>
           )}
         </div>
         {pos.rangeLow && (
