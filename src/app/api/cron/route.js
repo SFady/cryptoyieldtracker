@@ -57,11 +57,21 @@ async function handle(req) {
     return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
   }
 
-  // 2. Rebalance — ordre : 4 → 1 → 2 → 3 → 5, s'arrête au premier cas qui s'exécute
+  // 2. Rebalance — cas 5 (fees) indépendant, puis 4→1→2→3 s'arrête au premier exécuté
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const rebalanceResults = {};
   if (base) {
-    for (const caseNum of [4, 1, 2, 3, 5]) {
+    // Cas 5 : collecte de fees — indépendant du rebalancing, toujours tenté en premier
+    try {
+      const res  = await fetch(`${base}/api/autoRebalance?case=5&poolNum=2`, { signal: AbortSignal.timeout(280000) });
+      const data = await res.json();
+      rebalanceResults[5] = data;
+    } catch (e) {
+      rebalanceResults[5] = { error: e.message };
+    }
+
+    // Cas de rebalance : s'arrête au premier cas exécuté
+    for (const caseNum of [4, 1, 2, 3]) {
       try {
         const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=2`, {
           signal: AbortSignal.timeout(280000),
@@ -80,7 +90,17 @@ async function handle(req) {
     console.log("[cron] pool2 results:", JSON.stringify(rebalanceResults));
     console.log("[cron] PRIVATE_KEY_3 présent:", !!process.env.PRIVATE_KEY_3);
     if (process.env.PRIVATE_KEY_3) {
-      for (const caseNum of [4, 1, 2, 3, 5]) {
+      // Cas 5 pool 3
+      try {
+        const res  = await fetch(`${base}/api/autoRebalance?case=5&poolNum=3`, { signal: AbortSignal.timeout(280000) });
+        const data = await res.json();
+        rebalanceResults[`p3_5`] = data;
+      } catch (e) {
+        rebalanceResults[`p3_5`] = { error: e.message };
+      }
+
+      // Cas de rebalance pool 3
+      for (const caseNum of [4, 1, 2, 3]) {
         try {
           const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=3`, {
             signal: AbortSignal.timeout(280000),
