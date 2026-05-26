@@ -314,45 +314,35 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         background: "rgba(10,10,30,0.7)",
         borderBottom: "1px solid rgba(124,77,255,0.12)",
       }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
-          <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <span style={{
+            fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+            padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
+            background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
+          }}>
+            Base
+          </span>
+          {pos.protocol && (
             <span style={{
               fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
               padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
-              background: "rgba(0,82,255,0.12)", border: "1px solid rgba(0,82,255,0.3)", color: "#4488ff",
+              background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
             }}>
-              Base
+              {pos.protocol}
             </span>
-            {pos.protocol && (
-              <span style={{
-                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-                padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap",
-                background: "rgba(164,119,255,0.1)", border: "1px solid rgba(164,119,255,0.3)", color: "#a477ff",
-              }}>
-                {pos.protocol}
-              </span>
-            )}
-            {pos.rangePct && (
-              <span style={{
-                fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
-                padding: "2px 7px", borderRadius: 4,
-                background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
-              }}>
-                {pos.rangePct}%
-              </span>
-            )}
-          </div>
-          {cronWeth.length > 0 && pos.rangeLow && (
-            <div style={{ display: "flex", gap: 4, paddingLeft: 2 }}>
-              {[...cronWeth].reverse().map((w, i) => {
-                const isIn = w >= parseFloat(pos.rangeLow) && w <= parseFloat(pos.rangeHigh);
-                return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: isIn ? "#00e5a0" : "#c97070", opacity: 0.75 }} />;
-              })}
-            </div>
+          )}
+          {pos.rangePct && (
+            <span style={{
+              fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+              padding: "2px 7px", borderRadius: 4,
+              background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.25)", color: "#00e5a0",
+            }}>
+              {pos.rangePct}%
+            </span>
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} cronWeth={cronWeth} />
         )}
       </div>
 
@@ -515,19 +505,19 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange }) {
+function RangeBar({ low, high, current, inRange, cronWeth = [] }) {
   const lo  = parseFloat(low);
   const hi  = parseFloat(high);
   const cur = parseFloat(current);
   const pct = (cur - lo) / (hi - lo); // <0 = below, >1 = above
-  // Track goes from 15% to 72% (right: 28%); dot uses same bounds
-  const dotLeft = Math.max(15, Math.min(72, 15 + pct * 57));
+  // Track goes from 15% to 65% (right: 35%); dot uses same bounds
+  const dotLeft = Math.max(15, Math.min(65, 15 + pct * 50));
   const color   = inRange ? "#00e5a0" : "#c97070";
   return (
     <div style={{ position: "relative", width: "100%", height: 34 }}>
-      {/* Track — se termine à 72% pour laisser place au label IN/OUT */}
+      {/* Track — se termine à 65% pour laisser place au label IN/OUT */}
       <div style={{
-        position: "absolute", left: "15%", right: "28%",
+        position: "absolute", left: "15%", right: "35%",
         top: "55%", transform: "translateY(-50%)",
         height: 2, borderRadius: 1,
         background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
@@ -540,7 +530,7 @@ function RangeBar({ low, high, current, inRange }) {
       }}>${lo.toFixed(0)}</span>
       {/* High label */}
       <span style={{
-        position: "absolute", left: "72%", bottom: 1,
+        position: "absolute", left: "65%", bottom: 1,
         transform: "translateX(-50%)",
         fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
       }}>${hi.toFixed(0)}</span>
@@ -558,14 +548,19 @@ function RangeBar({ low, high, current, inRange }) {
         width: 7, height: 7, borderRadius: "50%",
         background: color, boxShadow: `0 0 5px ${color}`,
       }} />
-      {/* IN / OUT label à droite de la barre */}
-      <span style={{
-        position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)",
-        fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700,
-        color, whiteSpace: "nowrap", letterSpacing: "0.5px",
-      }}>
-        {inRange ? "● IN" : "● OUT"}
-      </span>
+      {/* IN / OUT + cron dots à droite de la barre */}
+      <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", gap: 5 }}>
+        <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
+          {inRange ? "● IN" : "● OUT"}
+        </span>
+        {cronWeth.length > 0 && (
+          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+            {[...cronWeth].reverse().map((w, i) => (
+              <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: w >= lo && w <= hi ? "#00e5a0" : "#c97070", opacity: 0.75 }} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
