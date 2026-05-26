@@ -35,7 +35,7 @@ export default function ProfilePage() {
   const [loading3, setLoading3]   = useState(true);
   const [error3, setError3]       = useState(null);
 
-  const SHOW_POOL2 = false;
+  const SHOW_POOL2 = true;
 
   useEffect(() => {
     if (SHOW_POOL2) setTimeout(() => {
