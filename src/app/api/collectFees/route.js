@@ -53,11 +53,11 @@ const ERC20_IFACE = new ethers.Interface([
 
 const NFPM_IFACE = new ethers.Interface([
   "function approve(address to, uint256 tokenId)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
-  "function stakedValues(address depositor) view returns (uint256[])",
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
   "function deposit(uint256 tokenId)",
@@ -177,12 +177,12 @@ export async function POST(req) {
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 
-    // 3. Vérifier si le NFT est staké dans le gauge
+    // 3. Vérifier si le NFT est dans le gauge via ownerOf (source de vérité)
     let isStaked = false;
     try {
-      const stakedHex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [wallet.address]));
-      const [stakedIds] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
-      isStaked = stakedIds.some(id => id === tokenId);
+      const ownerHex = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]));
+      const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", ownerHex);
+      isStaked = owner.toLowerCase() === gaugeAddr.toLowerCase();
     } catch (_) {}
 
     // 4. Claim AERO rewards (seulement si staké) — non-bloquant : l'AERO reste dans le gauge
