@@ -274,7 +274,7 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 9. Envoyer le delta USDC vers DESTINATION_WALLET
+    // 9. Envoyer 75% du delta USDC vers DESTINATION_WALLET, garder 25% en wallet pour la prochaine position
     let transferHash = null;
     try {
       const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
@@ -282,15 +282,16 @@ export async function POST(req) {
         const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
         const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
         console.log(`[collectFees] before=${usdcBefore} after=${usdcAfter} delta=${delta} dest=${dest}`);
-        if (delta > 0n) {
+        const toSend = delta * 75n / 100n;
+        if (toSend > 0n) {
           const txTransfer = await wallet.sendTransaction({
             to:   USDC,
-            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
+            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
           });
           transferHash = txTransfer.hash;
           await waitForTx(txTransfer);
           try {
-            const amt = parseFloat(ethers.formatUnits(delta, 6));
+            const amt = parseFloat(ethers.formatUnits(toSend, 6));
             await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${"cas5"}, ${transferHash}, ${poolNum})`;
           } catch (_) {}
         }

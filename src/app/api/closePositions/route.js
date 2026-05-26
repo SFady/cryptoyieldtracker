@@ -209,12 +209,13 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const poolNum          = body.poolNum ?? 2;
   const caseNum          = body.caseNum ?? null;
-  const keepWeth         = body.keepWeth === true;
-  const sellWethFees     = body.sellWethFees === true;
-  const halfFees         = body.halfFees === true;
-  const allFees          = body.allFees === true;
-  const transferUsdcFees = body.transferUsdcFees === true;
-  const noTransfer       = body.noTransfer === true;
+  const keepWeth           = body.keepWeth === true;
+  const sellWethFees       = body.sellWethFees === true;
+  const halfFees           = body.halfFees === true;
+  const threeQuarterFees   = body.threeQuarterFees === true;
+  const allFees            = body.allFees === true;
+  const transferUsdcFees   = body.transferUsdcFees === true;
+  const noTransfer         = body.noTransfer === true;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
@@ -483,8 +484,8 @@ export async function POST(req) {
     const actualUsdcFeesFromLP = usdcFromCollect > principalUsdc1Acc ? usdcFromCollect - principalUsdc1Acc : 0n;
     console.log(`[fees] totalFeesUsdc1=${totalFeesUsdc1} actualUsdcFeesFromLP=${actualUsdcFeesFromLP} principalUsdc1Acc=${principalUsdc1Acc}`);
     let swapHash = null;
-    // 4-fees. Si sellWethFees/halfFees/allFees : vendre uniquement les fees WETH (pas le principal)
-    if (keepWeth && (sellWethFees || halfFees || allFees) && totalFeesWei0 > 0n) try {
+    // 4-fees. Si sellWethFees/halfFees/threeQuarterFees/allFees : vendre uniquement les fees WETH (pas le principal)
+    if (keepWeth && (sellWethFees || halfFees || threeQuarterFees || allFees) && totalFeesWei0 > 0n) try {
       const wethBal = await readBal(WETH, wallet.address);
       const feeWethToSell = totalFeesWei0 < wethBal ? totalFeesWei0 : wethBal;
       if (feeWethToSell > 0n) {
@@ -621,8 +622,13 @@ export async function POST(req) {
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
           toSend = (wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc) / 2n;
+        } else if (threeQuarterFees) {
+          // CAS 3 : 75% de toutes les fees → external, 25% gardé en wallet
+          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
+          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          toSend = (wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc) * 75n / 100n;
         } else if (allFees) {
-          // CAS 2/3 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
+          // CAS 2 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
           toSend = wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc;

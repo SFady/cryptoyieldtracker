@@ -445,7 +445,7 @@ async function handleCase3(poolNum = 2) {
       const res = await fetch(`${base}/api/closePositions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepWeth: true, allFees: true, poolNum, caseNum: 3 }),
+        body: JSON.stringify({ keepWeth: true, threeQuarterFees: true, poolNum, caseNum: 3 }),
         signal: AbortSignal.timeout(240000),
       });
       closeData = await res.json();
