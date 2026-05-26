@@ -75,7 +75,7 @@ export default function PoolControls() {
         Contrôles position
       </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        {[3].map(n => (
+        {[2, 3].map(n => (
           <button key={n} onClick={() => { setPoolNum(n); setResult(null); setConfirming(null); }}
             style={{
               fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700,
