@@ -481,7 +481,9 @@ export async function POST(req) {
     const usdcBeforeSwaps = await readBal(stablecoin, wallet.address).catch(() => 0n);
     // Fees USDC réelles = delta balance collect - principal simulé (plus fiable que calcFees on-chain)
     const usdcFromCollect    = usdcBeforeSwaps > usdcPreCollect ? usdcBeforeSwaps - usdcPreCollect : 0n;
-    const actualUsdcFeesFromLP = usdcFromCollect > principalUsdc1Acc ? usdcFromCollect - principalUsdc1Acc : 0n;
+    const actualUsdcFeesFromLP = usdcFromCollect > principalUsdc1Acc
+      ? usdcFromCollect - principalUsdc1Acc
+      : totalFeesUsdc1;
     console.log(`[fees] totalFeesUsdc1=${totalFeesUsdc1} actualUsdcFeesFromLP=${actualUsdcFeesFromLP} principalUsdc1Acc=${principalUsdc1Acc}`);
     let swapHash = null;
     // 4-fees. Si sellWethFees/halfFees/threeQuarterFees/allFees : vendre uniquement les fees WETH (pas le principal)
@@ -569,7 +571,7 @@ export async function POST(req) {
     // end if (!keepWeth)
 
     // Lecture du solde après WETH fee swap (avant AERO) pour isoler la part AERO
-    const usdcAfterWethFeeSwap = (keepWeth && (sellWethFees || halfFees || allFees))
+    const usdcAfterWethFeeSwap = (keepWeth && (sellWethFees || halfFees || threeQuarterFees || allFees))
       ? await readBal(stablecoin, wallet.address).catch(() => usdcBeforeSwaps)
       : usdcBeforeSwaps;
 
