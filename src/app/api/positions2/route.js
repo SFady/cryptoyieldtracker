@@ -380,6 +380,12 @@ export async function GET() {
         const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
         const wethAmt = Number(ethers.formatUnits(raw, 18));
         wethWallet = wethAmt.toFixed(6);
+        try {
+          const slot0Hex = await ethCall(POOL, "0x3850c7bd");
+          const [sqrtPX96] = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], slot0Hex);
+          const wethPriceNum = Number((sqrtPX96 * sqrtPX96 * 10n ** 12n) / (1n << 192n));
+          if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
+        } catch (_) {}
       } catch (_) {}
       const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
       global._cytPos2Cache = { data, time: Date.now() };
@@ -466,7 +472,14 @@ export async function GET() {
       const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
       const wethAmt = Number(ethers.formatUnits(raw, 18));
       wethWallet = wethAmt.toFixed(6);
-      const wethPriceNum = parseFloat(positions[0]?.wethPrice ?? "0");
+      let wethPriceNum = parseFloat(positions[0]?.wethPrice ?? "0");
+      if (wethPriceNum === 0) {
+        try {
+          const slot0Hex = await ethCall(POOL, "0x3850c7bd");
+          const [sqrtPX96] = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], slot0Hex);
+          wethPriceNum = Number((sqrtPX96 * sqrtPX96 * 10n ** 12n) / (1n << 192n));
+        } catch (_) {}
+      }
       if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
     } catch (_) {}
 
