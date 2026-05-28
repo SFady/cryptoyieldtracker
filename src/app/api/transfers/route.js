@@ -13,7 +13,7 @@ export async function GET() {
       LIMIT 100
     `;
     const fmt = rows.map(r => ({
-      date:    new Date(r.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }),
+      date:    new Date(r.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }),
       amount:  parseFloat(r.amount_usdc).toFixed(2),
       source:  r.source ?? "",
       txHash:  r.tx_hash ?? "",
