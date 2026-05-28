@@ -405,14 +405,27 @@ export async function POST(req) {
       ? ethers.parseUnits(String(Math.min(wethDeficitUsdc, usdcAvailable).toFixed(6)), 6)
       : 0n;
 
-    // 5. Approve USDC → SwapRouter (seulement si on a quelque chose à swapper)
+    // Swap WETH → USDC si on en a trop (ex : cas 1, position clôturée sous range = 100% WETH)
+    const wethExcessUsdc = Math.max(0, wethValueUsdc - targetWethValue);
+    const wethToSell = usdcToSwap === 0n && wethExcessUsdc > 1
+      ? ethers.parseUnits(
+          String(Math.min(wethExcessUsdc / poolPrice, Number(ethers.formatUnits(wethBalBefore, 18))).toFixed(18)), 18
+        )
+      : 0n;
+
+    // 5. Approve USDC → SwapRouter ou WETH → SwapRouter selon le sens du swap
     if (usdcToSwap > 0n) {
       try {
         await ensureAllowance(wallet, provider, USDC, SWAP_ROUTER, usdcToSwap);
       } catch (e) { throw new Error(`[étape 5 – approve USDC→Router] ${e.shortMessage ?? e.message}`); }
     }
+    if (wethToSell > 0n) {
+      try {
+        await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethToSell);
+      } catch (e) { throw new Error(`[étape 5b – approve WETH→Router] ${e.shortMessage ?? e.message}`); }
+    }
 
-    // 6. Swap USDC → WETH
+    // 6. Swap USDC → WETH (déficit WETH) ou WETH → USDC (excès WETH)
     let txSwapHash = null;
     if (usdcToSwap > 0n) {
       const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
@@ -433,6 +446,25 @@ export async function POST(req) {
         await waitForTx(provider, txSwap);
         await new Promise(r => setTimeout(r, 4000));
       } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
+    } else if (wethToSell > 0n) {
+      const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+        tokenIn:            WETH,
+        tokenOut:           USDC,
+        tickSpacing,
+        recipient:          wallet.address,
+        deadline:           freshDeadline(),
+        amountIn:           wethToSell,
+        amountOutMinimum:   0n,
+        sqrtPriceLimitX96:  0n,
+      }]);
+      let swapGas = 300000n;
+      try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
+      try {
+        const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapCalldata, gasLimit: swapGas });
+        txSwapHash = txSwap.hash;
+        await waitForTx(provider, txSwap);
+        await new Promise(r => setTimeout(r, 4000));
+      } catch (e) { throw new Error(`[étape 6b – swap WETH→USDC] ${e.shortMessage ?? e.message}`); }
     }
 
     // 7. Soldes réels après swap
@@ -444,7 +476,7 @@ export async function POST(req) {
 
     // Re-lire le prix du pool post-swap : l'impact de prix du swap déplace poolPrice,
     // ce qui change le ratio LP réel. Sans ça, le LP est contraint par le token sous-swappé.
-    if (usdcToSwap > 0n) {
+    if (usdcToSwap > 0n || wethToSell > 0n) {
       try {
         const s0Post = await provider.call({ to: POOL, data: "0x3850c7bd" });
         const sqX    = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], s0Post)[0];
