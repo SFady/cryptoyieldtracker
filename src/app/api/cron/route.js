@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { kv }   from "@vercel/kv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -55,6 +56,15 @@ async function handle(req) {
     await sql`INSERT INTO cron_runs (ran_at, weth) VALUES (NOW(), ${price ?? null})`;
   } catch (e) {
     return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
+  }
+
+  // Miroir Redis — fire & forget, n'affecte pas le comportement existant
+  if (price) {
+    const now = Date.now();
+    kv.zadd("weth-history", { score: now, member: String(price) })
+      .then(() => kv.zremrangebyscore("weth-history", 0, now - 86_400_000))
+      .then(() => kv.set("cron-last-run", now))
+      .catch(() => {});
   }
 
   // 2. Rebalance — cas 5 (fees) indépendant, puis 4→1→2→3 s'arrête au premier exécuté
