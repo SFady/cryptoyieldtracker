@@ -80,32 +80,49 @@ async function handle(req) {
       .catch(() => {});
   }
 
-  // 2. Rebalance — cas 5 (fees) indépendant, puis 4→1→2→3 s'arrête au premier exécuté
+  // 2. Rebalance — détermine le cas pertinent via 1 lecture DB, puis appel ciblé
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const rebalanceResults = {};
+
+  // Détermine le cas à appeler : 1 seule lecture lp_events par pool
+  async function pickCase(poolNum) {
+    if (!price) return null;
+    try {
+      const rows = await sql`
+        SELECT range_min, range_max, created_at, action2
+        FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (rows.length === 0 || rows[0].action2 !== null) return 4; // pas de position ouverte
+      const { range_min, range_max } = rows[0];
+      const rMin = parseFloat(range_min);
+      const rMax = parseFloat(range_max);
+      if (!isNaN(rMin) && price < rMin) return 1; // sous le range
+      if (!isNaN(rMax) && price > rMax) return 2; // au-dessus du range
+      return 3; // in range (autoRebalance vérifiera l'âge 6h)
+    } catch (_) {
+      return null; // si DB inaccessible, on ne rebalance pas
+    }
+  }
+
   if (base) {
-    // Cas 5 : collecte de fees — indépendant du rebalancing, toujours tenté en premier
+    // Cas 5 : collecte de fees — toujours tenté en premier
     try {
       const res  = await fetch(`${base}/api/autoRebalance?case=5&poolNum=2`, { signal: AbortSignal.timeout(280000) });
-      const data = await res.json();
-      rebalanceResults[5] = data;
+      rebalanceResults[5] = await res.json();
     } catch (e) {
       rebalanceResults[5] = { error: e.message };
     }
 
-    // Cas de rebalance : s'arrête au premier cas exécuté
-    for (const caseNum of [4, 1, 2, 3]) {
+    // Appel ciblé du seul cas pertinent
+    const caseNum = await pickCase(2);
+    if (caseNum) {
       try {
-        const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=2`, {
-          signal: AbortSignal.timeout(280000),
-        });
-        const data = await res.json();
-        rebalanceResults[caseNum] = data;
-        if (data?.ok === true) break;
-        if (res.status === 409) break;
+        const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=2`, { signal: AbortSignal.timeout(280000) });
+        rebalanceResults[caseNum] = await res.json();
       } catch (e) {
         rebalanceResults[caseNum] = { error: e.message };
-        break;
       }
     }
 
@@ -113,28 +130,20 @@ async function handle(req) {
     console.log("[cron] pool2 results:", JSON.stringify(rebalanceResults));
     console.log("[cron] PRIVATE_KEY_3 présent:", !!process.env.PRIVATE_KEY_3);
     if (process.env.PRIVATE_KEY_3) {
-      // Cas 5 pool 3
       try {
         const res  = await fetch(`${base}/api/autoRebalance?case=5&poolNum=3`, { signal: AbortSignal.timeout(280000) });
-        const data = await res.json();
-        rebalanceResults[`p3_5`] = data;
+        rebalanceResults[`p3_5`] = await res.json();
       } catch (e) {
         rebalanceResults[`p3_5`] = { error: e.message };
       }
 
-      // Cas de rebalance pool 3
-      for (const caseNum of [4, 1, 2, 3]) {
+      const caseNum3 = await pickCase(3);
+      if (caseNum3) {
         try {
-          const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=3`, {
-            signal: AbortSignal.timeout(280000),
-          });
-          const data = await res.json();
-          rebalanceResults[`p3_${caseNum}`] = data;
-          if (data?.ok === true) break;
-          if (res.status === 409) break;
+          const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum3}&poolNum=3`, { signal: AbortSignal.timeout(280000) });
+          rebalanceResults[`p3_${caseNum3}`] = await res.json();
         } catch (e) {
-          rebalanceResults[`p3_${caseNum}`] = { error: e.message };
-          break;
+          rebalanceResults[`p3_${caseNum3}`] = { error: e.message };
         }
       }
     }
