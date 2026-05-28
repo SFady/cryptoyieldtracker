@@ -52,8 +52,21 @@ async function handle(req) {
   let price = null;
   try {
     price = await getPoolWethPrice();
+
+    // Vérification variation brutale : rejet si écart > 30% par rapport au dernier prix connu
+    if (price) {
+      try {
+        const lastRow = await sql`SELECT weth FROM cron_runs WHERE weth IS NOT NULL ORDER BY ran_at DESC LIMIT 1`;
+        const lastPrice = lastRow[0] ? parseFloat(lastRow[0].weth) : null;
+        if (lastPrice && Math.abs(price - lastPrice) / lastPrice > 0.3) {
+          console.warn(`[cron] Prix suspect ignoré : ${price} (dernier : ${lastPrice})`);
+          price = null;
+        }
+      } catch (_) {}
+    }
+
     await sql`DELETE FROM cron_runs WHERE ran_at < NOW() - INTERVAL '24 hours'`;
-    await sql`INSERT INTO cron_runs (ran_at, weth) VALUES (NOW(), ${price ?? null})`;
+    if (price) await sql`INSERT INTO cron_runs (ran_at, weth) VALUES (NOW(), ${price})`;
   } catch (e) {
     return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
   }
