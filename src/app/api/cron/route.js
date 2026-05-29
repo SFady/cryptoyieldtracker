@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { kv }   from "@vercel/kv";
+import { writeCronPrice, getLastTwoPrices } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -53,11 +53,11 @@ async function handle(req) {
   try {
     price = await getPoolWethPrice();
 
-    // Vérification variation brutale : rejet si écart > 30% par rapport au dernier prix connu
+    // Vérification variation brutale : rejet si écart > 30% par rapport au dernier prix connu (Redis)
     if (price) {
       try {
-        const lastRow = await sql`SELECT weth FROM cron_runs WHERE weth IS NOT NULL ORDER BY ran_at DESC LIMIT 1`;
-        const lastPrice = lastRow[0] ? parseFloat(lastRow[0].weth) : null;
+        const last = await getLastTwoPrices();
+        const lastPrice = last[0] ?? null;
         if (lastPrice && Math.abs(price - lastPrice) / lastPrice > 0.3) {
           console.warn(`[cron] Prix suspect ignoré : ${price} (dernier : ${lastPrice})`);
           price = null;
@@ -65,19 +65,9 @@ async function handle(req) {
       } catch (_) {}
     }
 
-    await sql`DELETE FROM cron_runs WHERE ran_at < NOW() - INTERVAL '24 hours'`;
-    if (price) await sql`INSERT INTO cron_runs (ran_at, weth) VALUES (NOW(), ${price})`;
+    if (price) await writeCronPrice(price);
   } catch (e) {
-    return Response.json({ ok: false, ranAt, dbError: e.message }, { status: 500 });
-  }
-
-  // Miroir Redis — fire & forget, n'affecte pas le comportement existant
-  if (price) {
-    const now = Date.now();
-    kv.zadd("weth-history", { score: now, member: String(price) })
-      .then(() => kv.zremrangebyscore("weth-history", 0, now - 86_400_000))
-      .then(() => kv.set("cron-last-run", now))
-      .catch(() => {});
+    return Response.json({ ok: false, ranAt, kvError: e.message }, { status: 500 });
   }
 
   // 2. Rebalance — détermine le cas pertinent via 1 lecture DB, puis appel ciblé
