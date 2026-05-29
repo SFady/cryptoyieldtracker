@@ -628,6 +628,7 @@ export async function POST(req) {
           // CAS 3 : 75% de toutes les fees → external, 25% gardé en wallet
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          console.log(`[threeQuarterFees] wethFeesUsdc=${wethFeesUsdc} usdcFees=${actualUsdcFeesFromLP} aeroUsdc=${aeroUsdc}`);
           toSend = (wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc) * 75n / 100n;
         } else if (allFees) {
           // CAS 2 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
