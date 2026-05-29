@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { getLastTwoPrices, getPercentileRange, getNextCronAt } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -493,29 +494,12 @@ export async function GET() {
 
     let percentileRangePct = null;
     try {
-      const pRows = await sql`
-        SELECT
-          PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
-          COUNT(*)::int AS cnt
-        FROM cron_runs
-        WHERE weth IS NOT NULL
-          AND ran_at > NOW() - INTERVAL '24 hours'
-      `;
-      const { p05, p95, cnt } = pRows[0];
-      if (cnt >= 10 && p05 > 0)
-        percentileRangePct = parseFloat(((p95 - p05) / p05 * 100).toFixed(2));
+      const pct = await getPercentileRange();
+      if (pct && pct.cnt >= 10 && pct.p05 > 0)
+        percentileRangePct = parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2));
     } catch (_) {}
 
-    let nextCronAt = null;
-    try {
-      const cronRows = await sql`SELECT MAX(ran_at) AS last FROM cron_runs`;
-      if (cronRows[0]?.last) {
-        const next = new Date(cronRows[0].last);
-        next.setMinutes(next.getMinutes() + 30);
-        nextCronAt = next.toISOString();
-      }
-    } catch (_) {}
+    const nextCronAt = await getNextCronAt();
 
     let transferHistory = [];
     try {
@@ -553,11 +537,7 @@ export async function GET() {
       }
     } catch (_) {}
 
-    let cronWeth = [];
-    try {
-      const wRows = await sql`SELECT weth FROM cron_runs WHERE weth IS NOT NULL ORDER BY ran_at DESC LIMIT 2`;
-      cronWeth = wRows.map(r => parseFloat(r.weth));
-    } catch (_) {}
+    const cronWeth = await getLastTwoPrices();
 
     const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth };
     global._cytPos3Cache = { data, time: Date.now() };

@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
+import { getLastTwoPrices, getPercentileRange } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -171,33 +172,17 @@ async function handleCase1(poolNum = 2) {
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} >= borne basse $${rangeMin} — pas hors range bas` });
 
   // Confirmation : les 2 derniers prix cron doivent être sous la borne basse
-  try {
-    const cronRows = await sql`
-      SELECT weth FROM cron_runs
-      WHERE weth IS NOT NULL
-      ORDER BY ran_at DESC
-      LIMIT 2
-    `;
-    if (cronRows.length < 2 || cronRows.some(r => parseFloat(r.weth) >= rangeMin))
-      return Response.json({ skipped: true, reason: `Confirmation insuffisante — les 2 derniers prix cron (${cronRows.map(r => '$' + parseFloat(r.weth).toFixed(0)).join(', ')}) doivent être sous $${rangeMin}` });
-  } catch (e) {
-    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  {
+    const cronPrices = await getLastTwoPrices();
+    if (cronPrices.length < 2 || cronPrices.some(p => p >= rangeMin))
+      return Response.json({ skipped: true, reason: `Confirmation insuffisante — les 2 derniers prix cron (${cronPrices.map(p => '$' + p.toFixed(0)).join(', ')}) doivent être sous $${rangeMin}` });
   }
 
   let newRangePct = 2;
   try {
-    const rows = await sql`
-      SELECT
-        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
-        COUNT(*)::int AS cnt
-      FROM cron_runs
-      WHERE weth IS NOT NULL
-        AND ran_at > NOW() - INTERVAL '24 hours'
-    `;
-    const { p05, p95, cnt } = rows[0];
-    if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+    const pct = await getPercentileRange();
+    if (pct && pct.cnt >= 10 && pct.p05 > 0)
+      newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
@@ -290,33 +275,17 @@ async function handleCase2(poolNum = 2) {
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} <= borne haute $${rangeMax} — pas hors range haut` });
 
   // Confirmation : les 2 derniers prix cron doivent être au-dessus de la borne haute
-  try {
-    const cronRows = await sql`
-      SELECT weth FROM cron_runs
-      WHERE weth IS NOT NULL
-      ORDER BY ran_at DESC
-      LIMIT 2
-    `;
-    if (cronRows.length < 2 || cronRows.some(r => parseFloat(r.weth) <= rangeMax))
-      return Response.json({ skipped: true, reason: `Confirmation insuffisante — les 2 derniers prix cron (${cronRows.map(r => '$' + parseFloat(r.weth).toFixed(0)).join(', ')}) doivent être au-dessus de $${rangeMax}` });
-  } catch (e) {
-    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  {
+    const cronPrices = await getLastTwoPrices();
+    if (cronPrices.length < 2 || cronPrices.some(p => p <= rangeMax))
+      return Response.json({ skipped: true, reason: `Confirmation insuffisante — les 2 derniers prix cron (${cronPrices.map(p => '$' + p.toFixed(0)).join(', ')}) doivent être au-dessus de $${rangeMax}` });
   }
 
   let newRangePct = 2;
   try {
-    const rows = await sql`
-      SELECT
-        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
-        COUNT(*)::int AS cnt
-      FROM cron_runs
-      WHERE weth IS NOT NULL
-        AND ran_at > NOW() - INTERVAL '24 hours'
-    `;
-    const { p05, p95, cnt } = rows[0];
-    if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+    const pct = await getPercentileRange();
+    if (pct && pct.cnt >= 10 && pct.p05 > 0)
+      newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
@@ -404,21 +373,12 @@ async function handleCase3(poolNum = 2) {
   if (ageHours < 6)
     return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 6h minimum` });
 
-  // 5. Calculer le range via percentiles 24h (même logique que cas 4)
+  // 5. Calculer le range via percentiles 24h
   let newRangePct = 2;
   try {
-    const rows = await sql`
-      SELECT
-        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
-        COUNT(*)::int AS cnt
-      FROM cron_runs
-      WHERE weth IS NOT NULL
-        AND ran_at > NOW() - INTERVAL '24 hours'
-    `;
-    const { p05, p95, cnt } = rows[0];
-    if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+    const pct = await getPercentileRange();
+    if (pct && pct.cnt >= 10 && pct.p05 > 0)
+      newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 
@@ -553,21 +513,12 @@ async function handleCase4(poolNum = 2) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 2. Range via percentiles 24h (cron_runs), minimum 2%
+  // 2. Range via percentiles 24h, minimum 2%
   let newRangePct = 2;
   try {
-    const rows = await sql`
-      SELECT
-        PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
-        COUNT(*)::int AS cnt
-      FROM cron_runs
-      WHERE weth IS NOT NULL
-        AND ran_at > NOW() - INTERVAL '24 hours'
-    `;
-    const { p05, p95, cnt } = rows[0];
-    if (cnt >= 10 && p05 > 0)
-      newRangePct = Math.max(2, ((p95 - p05) / p05) * 100);
+    const pct = await getPercentileRange();
+    if (pct && pct.cnt >= 10 && pct.p05 > 0)
+      newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
   newRangePct = parseFloat(newRangePct.toFixed(2));
 

@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { getLastTwoPrices, getPercentileRange, getNextCronAt } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -380,6 +381,12 @@ export async function GET() {
         const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
         const wethAmt = Number(ethers.formatUnits(raw, 18));
         wethWallet = wethAmt.toFixed(6);
+        try {
+          const slot0Hex = await ethCall(POOL, "0x3850c7bd");
+          const [sqrtPX96] = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], slot0Hex);
+          const wethPriceNum = Number((sqrtPX96 * sqrtPX96 * 10n ** 12n) / (1n << 192n));
+          if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
+        } catch (_) {}
       } catch (_) {}
       const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
       global._cytPos2Cache = { data, time: Date.now() };
@@ -466,25 +473,23 @@ export async function GET() {
       const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
       const wethAmt = Number(ethers.formatUnits(raw, 18));
       wethWallet = wethAmt.toFixed(6);
-      const wethPriceNum = parseFloat(positions[0]?.wethPrice ?? "0");
+      let wethPriceNum = parseFloat(positions[0]?.wethPrice ?? "0");
+      if (wethPriceNum === 0) {
+        try {
+          const slot0Hex = await ethCall(POOL, "0x3850c7bd");
+          const [sqrtPX96] = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], slot0Hex);
+          wethPriceNum = Number((sqrtPX96 * sqrtPX96 * 10n ** 12n) / (1n << 192n));
+        } catch (_) {}
+      }
       if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
     } catch (_) {}
 
     // Range percentile 5%–95% sur les 24h dernières
     let percentileRangePct = null;
     try {
-      const pRows = await sql`
-        SELECT
-          PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY weth) AS p05,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY weth) AS p95,
-          COUNT(*)::int AS cnt
-        FROM cron_runs
-        WHERE weth IS NOT NULL
-          AND ran_at > NOW() - INTERVAL '24 hours'
-      `;
-      const { p05, p95, cnt } = pRows[0];
-      if (cnt >= 10 && p05 > 0)
-        percentileRangePct = parseFloat(((p95 - p05) / p05 * 100).toFixed(2));
+      const pct = await getPercentileRange();
+      if (pct && pct.cnt >= 10 && pct.p05 > 0)
+        percentileRangePct = parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2));
     } catch (_) {}
 
     // Historique des envois vers DESTINATION_WALLET
@@ -505,22 +510,8 @@ export async function GET() {
       }));
     } catch (_) {}
 
-    // Prochain cron = dernière exécution + 30 min
-    let nextCronAt = null;
-    try {
-      const cronRows = await sql`SELECT MAX(ran_at) AS last FROM cron_runs`;
-      if (cronRows[0]?.last) {
-        const next = new Date(cronRows[0].last);
-        next.setMinutes(next.getMinutes() + 30);
-        nextCronAt = next.toISOString();
-      }
-    } catch (_) {}
-
-    let cronWeth = [];
-    try {
-      const wRows = await sql`SELECT weth FROM cron_runs WHERE weth IS NOT NULL ORDER BY ran_at DESC LIMIT 2`;
-      cronWeth = wRows.map(r => parseFloat(r.weth));
-    } catch (_) {}
+    const nextCronAt = await getNextCronAt();
+    const cronWeth   = await getLastTwoPrices();
 
     const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth };
     global._cytPos2Cache = { data, time: Date.now() };
