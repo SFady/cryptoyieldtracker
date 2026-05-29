@@ -27,8 +27,10 @@ async function getAeroPrice() {
       { signal: AbortSignal.timeout(4000) }
     );
     const data = await res.json();
-    return data?.["aerodrome-finance"]?.usd ?? 0;
-  } catch (_) { return 0; }
+    const p = data?.["aerodrome-finance"]?.usd ?? 0;
+    if (p > 0) global._lastAeroPrice = p;
+    return p > 0 ? p : global._lastAeroPrice;
+  } catch (_) { return global._lastAeroPrice; }
 }
 
 const TOKENS = {
@@ -45,7 +47,9 @@ const RPC_URLS = [
 ].filter(Boolean);
 
 const CACHE_TTL_MS = 120_000;
-global._cytPos3Cache = global._cytPos3Cache ?? { data: null, time: 0 };
+global._cytPos3Cache   = global._cytPos3Cache   ?? { data: null, time: 0 };
+global._lastAeroPrice  = global._lastAeroPrice  ?? 0;
+global._lastAeroEarned = global._lastAeroEarned ?? {};
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
@@ -416,14 +420,31 @@ export async function GET() {
     if (gaugeAddr && stakedIds.length > 0) {
       const aeroPrice = await getAeroPrice();
       await Promise.allSettled(stakedIds.map(async (tokenId) => {
+        const key = tokenId.toString();
         try {
           const hex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("earned", [WALLET, tokenId]));
           const [earned] = GAUGE_IFACE.decodeFunctionResult("earned", hex);
           const aeroAmt = Number(earned) / 1e18;
-          aeroUsdById[tokenId.toString()] = aeroAmt * aeroPrice;
-          aeroBalById[tokenId.toString()] = aeroAmt;
-        } catch (_) {}
+          aeroUsdById[key] = aeroAmt * aeroPrice;
+          aeroBalById[key] = aeroAmt;
+          global._lastAeroEarned[key] = { aeroUsd: aeroUsdById[key], aeroBal: aeroAmt, time: Date.now() };
+        } catch (_) {
+          const fb = global._lastAeroEarned[key];
+          if (fb && Date.now() - fb.time < 10 * 60 * 1000) {
+            aeroUsdById[key] = fb.aeroUsd;
+            aeroBalById[key] = fb.aeroBal;
+          }
+        }
       }));
+    } else {
+      for (const tokenId of tokenIds) {
+        const key = tokenId.toString();
+        const fb = global._lastAeroEarned[key];
+        if (fb && Date.now() - fb.time < 10 * 60 * 1000) {
+          aeroUsdById[key] = fb.aeroUsd;
+          aeroBalById[key] = fb.aeroBal;
+        }
+      }
     }
 
     const openDataByTokenId = {};
