@@ -1,5 +1,6 @@
 ﻿import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { writeLpState, writeErrorState } from "../../lib/cronKv";
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -699,6 +700,8 @@ export async function POST(req) {
                         closed_at     = NOW()
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
+        await writeLpState(poolNum, { action1: "CREATE_OK", action2: "CLOSE_OK" });
+        await writeErrorState(poolNum, false);
       } catch (_) {}
     }
 
@@ -719,6 +722,7 @@ export async function POST(req) {
   } catch (e) {
     const msg = e.message ?? e.shortMessage ?? String(e);
     await logEvent({ action1: "CLOSE_ERR", error_msg: msg });
+    await writeErrorState(poolNum, true, msg);
     await sendErrorEmail("[CryptoYieldTracker] Erreur — closePositions", `Erreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }

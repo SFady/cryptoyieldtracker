@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { writeCronPrice, getLastTwoPrices } from "../../lib/cronKv";
+import { writeCronPrice, getLastTwoPrices, readLpState } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -74,25 +74,28 @@ async function handle(req) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const rebalanceResults = {};
 
-  // Détermine le cas à appeler : 1 seule lecture lp_events par pool
+  // Détermine le cas à appeler : Redis en priorité, fallback DB
   async function pickCase(poolNum) {
     if (!price) return null;
     try {
-      const rows = await sql`
-        SELECT range_min, range_max, created_at, action2
-        FROM lp_events
-        WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-        ORDER BY id DESC LIMIT 1
-      `;
-      if (rows.length === 0 || rows[0].action2 !== null) return 4; // pas de position ouverte
-      const { range_min, range_max } = rows[0];
-      const rMin = parseFloat(range_min);
-      const rMax = parseFloat(range_max);
-      if (!isNaN(rMin) && price < rMin) return 1; // sous le range
-      if (!isNaN(rMax) && price > rMax) return 2; // au-dessus du range
-      return 3; // in range (autoRebalance vérifiera l'âge 6h)
+      let state = await readLpState(poolNum);
+      if (!state) {
+        const rows = await sql`
+          SELECT range_min, range_max, action2
+          FROM lp_events
+          WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+          ORDER BY id DESC LIMIT 1
+        `;
+        state = rows[0] ?? null;
+      }
+      if (!state || state.action2 !== null) return 4;
+      const rMin = parseFloat(state.range_min);
+      const rMax = parseFloat(state.range_max);
+      if (!isNaN(rMin) && price < rMin) return 1;
+      if (!isNaN(rMax) && price > rMax) return 2;
+      return 3;
     } catch (_) {
-      return null; // si DB inaccessible, on ne rebalance pas
+      return null;
     }
   }
 

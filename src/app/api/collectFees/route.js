@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { writeCollectedToday, writeCollectErr } from "../../lib/cronKv";
 
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
@@ -300,9 +301,11 @@ export async function POST(req) {
       }
     } catch (e) { console.log(`[collectFees transfer] ${e.message ?? e}`); }
 
-    // 10. Logger FEE_COLLECT en DB (pas de modification action2 — position reste ouverte)
+    // 10. Logger FEE_COLLECT en DB + marquer dans Redis (pas de modification action2 — position reste ouverte)
     try {
       await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('FEE_COLLECT', ${rawTokenId}, ${poolNum})`;
+      await writeCollectedToday(poolNum);
+      await writeCollectErr(poolNum, false);
     } catch (_) {}
 
     // 11. Re-stake via approve + gauge.deposit (safeTransferFrom ne met pas à jour le déposant dans ce gauge)
@@ -337,6 +340,7 @@ export async function POST(req) {
     const msg = e.message ?? String(e);
     try {
       await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('FEE_COLLECT', 'COLLECT_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
+      await writeCollectErr(poolNum, true);
     } catch (_) {}
     await sendErrorEmail("[CryptoYieldTracker] Erreur — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });

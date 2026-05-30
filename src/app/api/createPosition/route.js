@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { writeLpState, writeErrorState } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -763,6 +764,18 @@ export async function POST(req) {
         type:           caseNum ?? null,
         weth_price:     parseFloat(poolPrice.toFixed(2)),
       });
+      await writeLpState(poolNum ?? 2, {
+        action1:        "CREATE_OK",
+        action2:        null,
+        range_min:      tickLowerPrice,
+        range_max:      tickUpperPrice,
+        range_pct:      rangePct,
+        usdc_placed:    parseFloat(totalAvailable.toFixed(2)),
+        usdc_remaining: usdcRestant.toFixed(2),
+        created_at:     new Date().toISOString(),
+        token_id:       tokenId.toString(),
+      });
+      await writeErrorState(poolNum ?? 2, false);
     } catch (_) {}
 
     return Response.json(payload);
@@ -780,6 +793,7 @@ export async function POST(req) {
       pool_num:  poolNum ?? null,
       type:      caseNum ?? null,
     });
+    await writeErrorState(poolNum ?? 2, true, msg);
     // Ne pas envoyer d'email si appelé depuis autoRebalance (qui envoie le sien avec le prix ETH)
     if (!caseNum) await sendErrorEmail("[CryptoYieldTracker] Erreur — createPosition", `Cas : ?\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });

@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, readLpState, wasCollectedToday, readErrorState, readCollectErr } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -64,6 +64,19 @@ async function acquireLock() {
   return release;
 }
 
+// Redis en priorité, fallback DB si cache vide
+async function getPositionState(poolNum) {
+  const cached = await readLpState(poolNum);
+  if (cached) return cached;
+  const rows = await sql`
+    SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at, usdc_remaining, token_id
+    FROM lp_events
+    WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+    ORDER BY id DESC LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
 async function handleRequest(forceCase, poolNum = 2) {
   if (![1, 2, 3, 4, 5, 6].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
@@ -87,20 +100,24 @@ async function handleRequest(forceCase, poolNum = 2) {
     return Response.json({ error: `Lock check échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 2. Vérifier l'absence d'erreur en base — filtré par pool
+  // 2. Vérifier l'absence d'erreur (Redis → DB)
   try {
-    const errRows = await sql`
-      SELECT action1, action2, error_msg FROM lp_events
-      WHERE action1 != 'RUNNING'
-        AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (errRows.length > 0) {
-      const { action1, action2, error_msg } = errRows[0];
-      if (action1 !== "FEE_COLLECT" && ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR"))))
-        return Response.json({
-          error: `Bloqué — erreur détectée en base : ${error_msg ?? action1}`,
-        }, { status: 409 });
+    const cached = await readErrorState(poolNum);
+    if (cached !== null) {
+      if (cached.hasError)
+        return Response.json({ error: `Bloqué — erreur détectée : ${cached.msg ?? "ERR"}` }, { status: 409 });
+    } else {
+      const errRows = await sql`
+        SELECT action1, action2, error_msg FROM lp_events
+        WHERE action1 != 'RUNNING'
+          AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (errRows.length > 0) {
+        const { action1, action2, error_msg } = errRows[0];
+        if (action1 !== "FEE_COLLECT" && ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR"))))
+          return Response.json({ error: `Bloqué — erreur détectée en base : ${error_msg ?? action1}` }, { status: 409 });
+      }
     }
   } catch (e) {
     return Response.json({ error: `Error check échoué : ${e.message}` }, { status: 500 });
@@ -136,17 +153,13 @@ async function handleCase1(poolNum = 2) {
   if (!livePrice || livePrice < 100 || livePrice > 100000)
     return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice}` });
 
-  // 2. Vérifier position ouverte en DB
+  // 2. Vérifier position ouverte (Redis → DB)
   let lastPos;
   try {
-    const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min, action2, usdc_remaining FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (rows.length === 0 || rows[0].action2 !== null)
+    const state = await getPositionState(poolNum);
+    if (!state || state.action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
-    lastPos = rows[0];
+    lastPos = state;
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -239,17 +252,13 @@ async function handleCase2(poolNum = 2) {
   if (!livePrice || livePrice < 100 || livePrice > 100000)
     return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice}` });
 
-  // 2. Vérifier position ouverte en DB
+  // 2. Vérifier position ouverte (Redis → DB)
   let lastPos;
   try {
-    const rows = await sql`
-      SELECT usdc_placed, range_pct, range_max, action2, usdc_remaining FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (rows.length === 0 || rows[0].action2 !== null)
+    const state = await getPositionState(poolNum);
+    if (!state || state.action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
-    lastPos = rows[0];
+    lastPos = state;
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -342,17 +351,13 @@ async function handleCase3(poolNum = 2) {
   if (!livePrice || livePrice < 100 || livePrice > 100000)
     return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice}` });
 
-  // 2. Vérifier position ouverte en DB
+  // 2. Vérifier position ouverte (Redis → DB)
   let lastPos;
   try {
-    const rows = await sql`
-      SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at, usdc_remaining FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (rows.length === 0 || rows[0].action2 !== null)
+    const state = await getPositionState(poolNum);
+    if (!state || state.action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
-    lastPos = rows[0];
+    lastPos = state;
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -445,29 +450,34 @@ async function handleCase5(poolNum = 2) {
   if (frHour < 7 || frHour > 8)
     return Response.json({ skipped: true, reason: `Hors fenêtre 7h-8h France — heure actuelle : ${frHour}h` });
 
-  // 2. Vérifier position ouverte en DB
+  // 2. Vérifier position ouverte (Redis → DB)
   try {
-    const rows = await sql`
-      SELECT action2 FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (rows.length === 0 || rows[0].action2 !== null)
+    const state = await getPositionState(poolNum);
+    if (!state || state.action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 3. Vérifier le dernier FEE_COLLECT : bloqué si COLLECT_ERR non résolu, ou si déjà exécuté aujourd'hui (heure Paris)
+  // 3. Vérifier FEE_COLLECT : COLLECT_ERR ou déjà collecté aujourd'hui
   try {
-    const lastCollect = await sql`
-      SELECT action2 FROM lp_events
-      WHERE action1 = 'FEE_COLLECT'
-        AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+    const cachedErr = await readCollectErr(poolNum);
+    if (cachedErr === true)
       return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+    if (cachedErr === null) {
+      const lastCollect = await sql`
+        SELECT action2 FROM lp_events
+        WHERE action1 = 'FEE_COLLECT'
+          AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+        return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+    }
+
+    // Redis d'abord, fallback DB
+    if (await wasCollectedToday(poolNum))
+      return Response.json({ skipped: true, reason: "Fees déjà collectées aujourd'hui" });
 
     const todayParis = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
     const todayRows = await sql`
@@ -504,29 +514,30 @@ async function handleCase6(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
-  // Vérifier position ouverte en DB
+  // Vérifier position ouverte (Redis → DB)
   try {
-    const rows = await sql`
-      SELECT action2 FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (rows.length === 0 || rows[0].action2 !== null)
+    const state = await getPositionState(poolNum);
+    if (!state || state.action2 !== null)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // Vérifier COLLECT_ERR non résolu
+  // Vérifier COLLECT_ERR non résolu (Redis → DB)
   try {
-    const lastCollect = await sql`
-      SELECT action2 FROM lp_events
-      WHERE action1 = 'FEE_COLLECT'
-        AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+    const cachedErr = await readCollectErr(poolNum);
+    if (cachedErr === true)
       return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+    if (cachedErr === null) {
+      const lastCollect = await sql`
+        SELECT action2 FROM lp_events
+        WHERE action1 = 'FEE_COLLECT'
+          AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+        return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+    }
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -552,14 +563,10 @@ async function handleCase4(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
-  // 1. Vérifier que la dernière ligne CREATE_OK est fermée (action2 = 'CLOSE_OK')
+  // 1. Vérifier que la dernière position est fermée (Redis → DB)
   try {
-    const rows = await sql`
-      SELECT action2 FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
-    if (rows.length > 0 && rows[0].action2 !== "CLOSE_OK")
+    const state = await getPositionState(poolNum);
+    if (state && state.action2 !== "CLOSE_OK")
       return Response.json({ skipped: true, reason: "Dernière position non fermée ou inexistante" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
