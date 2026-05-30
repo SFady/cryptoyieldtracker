@@ -252,8 +252,7 @@ function Empty() {
 
 function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [] }) {
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
-  const lpFeesUSD   = parseFloat(pos.totalFeesUSD || "0");
-  const totalRevUSD = lpFeesUSD + aeroUSD;
+  const totalRevUSD = aeroUSD;
 
   const feePct      = showFeePercent && (pos.lastCollectTimestamp || pos.openTimestamp)
     ? (() => {
