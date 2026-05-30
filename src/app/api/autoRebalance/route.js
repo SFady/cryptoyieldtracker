@@ -65,7 +65,7 @@ async function acquireLock() {
 }
 
 async function handleRequest(forceCase, poolNum = 2) {
-  if (![1, 2, 3, 4, 5].includes(forceCase))
+  if (![1, 2, 3, 4, 5, 6].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
   // 1. Expirer les locks bloqués depuis > 5 min, puis vérifier si une exécution est déjà active (lock partagé)
@@ -112,6 +112,7 @@ async function handleRequest(forceCase, poolNum = 2) {
   if (forceCase === 3) return handleCase3(poolNum);
   if (forceCase === 4) return handleCase4(poolNum);
   if (forceCase === 5) return handleCase5(poolNum);
+  if (forceCase === 6) return handleCase6(poolNum);
 }
 
 export async function GET(req) {
@@ -457,23 +458,26 @@ async function handleCase5(poolNum = 2) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 3. Vérifier le dernier FEE_COLLECT : bloqué si COLLECT_ERR non résolu, ou si réussi dans les 24h
+  // 3. Vérifier le dernier FEE_COLLECT : bloqué si COLLECT_ERR non résolu, ou si déjà exécuté aujourd'hui (heure Paris)
   try {
-    const collectRows = await sql`
-      SELECT action2, created_at FROM lp_events
+    const lastCollect = await sql`
+      SELECT action2 FROM lp_events
       WHERE action1 = 'FEE_COLLECT'
         AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC
-      LIMIT 1
+      ORDER BY id DESC LIMIT 1
     `;
-    if (collectRows.length > 0) {
-      const { action2, created_at } = collectRows[0];
-      if (action2 === 'COLLECT_ERR')
-        return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
-      const elapsed = Date.now() - new Date(created_at).getTime();
-      if (elapsed < 24 * 60 * 60 * 1000)
-        return Response.json({ skipped: true, reason: "Fees déjà collectées dans les 24 dernières heures" });
-    }
+    if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+      return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+
+    const todayParis = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+    const todayRows = await sql`
+      SELECT id FROM lp_events
+      WHERE action1 = 'FEE_COLLECT'
+        AND COALESCE(pool_num, 2) = ${poolNum}
+        AND (created_at AT TIME ZONE 'Europe/Paris')::date = ${todayParis}::date
+    `;
+    if (todayRows.length > 0)
+      return Response.json({ skipped: true, reason: "Fees déjà collectées aujourd'hui" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
@@ -493,6 +497,54 @@ async function handleCase5(poolNum = 2) {
     const msg = e?.message ?? String(e);
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 5 (collect fees)", `Erreur : ${msg}`);
     return Response.json({ case: 5, error: msg }, { status: 500 });
+  }
+}
+
+async function handleCase6(poolNum = 2) {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  // Vérifier position ouverte en DB
+  try {
+    const rows = await sql`
+      SELECT action2 FROM lp_events
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (rows.length === 0 || rows[0].action2 !== null)
+      return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  // Vérifier COLLECT_ERR non résolu
+  try {
+    const lastCollect = await sql`
+      SELECT action2 FROM lp_events
+      WHERE action1 = 'FEE_COLLECT'
+        AND COALESCE(pool_num, 2) = ${poolNum}
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+      return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  try {
+    const res = await fetch(`${base}/api/collectFees`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ poolNum }),
+      signal: AbortSignal.timeout(180000),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "collectFees failed"));
+    return Response.json({ ok: true, case: 6, ...data });
+  } catch (e) {
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 6 (collect fees manuel)", `Erreur : ${msg}`);
+    return Response.json({ case: 6, error: msg }, { status: 500 });
   }
 }
 

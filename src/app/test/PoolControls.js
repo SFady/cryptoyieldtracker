@@ -37,6 +37,16 @@ export default function PoolControls() {
         if (data.ok)           setResult({ ok: true,  msg: `Position ouverte — range ${data.newRangePct}% · ETH $${data.livePrice?.toFixed(0)}` });
         else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
         else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+      } else if (action === "collect") {
+        const res  = await fetch("/api/autoRebalance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ forceCase: 6, poolNum }),
+        });
+        const data = await res.json();
+        if (data.ok)           setResult({ ok: true,  msg: `Fees collectées ✓` });
+        else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
+        else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
       } else {
         const res  = await fetch("/api/closePositions", {
           method: "POST",
@@ -91,6 +101,9 @@ export default function PoolControls() {
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => handleClick("open")} disabled={!!running} style={btnStyle("open", "0,229,160")}>
           {running === "open" ? "En cours…" : confirming === "open" ? "⚠ CONFIRMER ?" : "Ouvrir position"}
+        </button>
+        <button onClick={() => handleClick("collect")} disabled={!!running} style={btnStyle("collect", "100,180,255")}>
+          {running === "collect" ? "En cours…" : confirming === "collect" ? "⚠ CONFIRMER ?" : "Collecter fees"}
         </button>
         <button onClick={() => handleClick("close")} disabled={!!running} style={btnStyle("close", "201,112,112")}>
           {running === "close" ? "En cours…" : confirming === "close" ? "⚠ CONFIRMER ?" : "Tout fermer"}
