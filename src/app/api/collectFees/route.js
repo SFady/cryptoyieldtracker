@@ -188,8 +188,7 @@ export async function POST(req) {
       isStaked = staked;
     } catch (_) {}
 
-    // 4. Claim AERO rewards (seulement si staké) — non-bloquant : l'AERO reste dans le gauge
-    //    jusqu'à la prochaine collect si getReward revert (ex: depositor mapping incohérent).
+    // 4. Claim AERO rewards (non-bloquant)
     if (isStaked) {
       try {
         const tx = await wallet.sendTransaction({
@@ -198,32 +197,40 @@ export async function POST(req) {
         });
         await waitForTx(tx);
       } catch (_) {}
+    }
 
-      // 5. Unstake (withdraw depuis le gauge)
+    // 5. Unstake (withdraw) — non-bloquant : si revert, on skip collect LP mais on traite l'AERO du wallet
+    let withdrawOk = false;
+    if (isStaked) {
       try {
         const tx = await wallet.sendTransaction({
           to: gaugeAddr,
           data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
         });
         await waitForTx(tx);
-      } catch (e) { throw new Error(`[withdraw] ${e.message ?? e}`); }
+        withdrawOk = true;
+      } catch (e) {
+        console.log(`[collectFees withdraw failed — continuing with AERO only] ${e.message ?? e}`);
+      }
     }
 
-    // 5. Collect fees WETH + USDC (sans decreaseLiquidity — liquidité intacte)
+    // 6. Collect fees WETH + USDC — uniquement si withdraw OK (NFT dans le wallet)
     const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
     const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
-    try {
-      const collectData = NFPM_IFACE.encodeFunctionData("collect", [{
-        tokenId,
-        recipient:   wallet.address,
-        amount0Max:  MAX_UINT128,
-        amount1Max:  MAX_UINT128,
-      }]);
-      let collectGas = 300000n;
-      try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
-      const tx = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
-      await waitForTx(tx);
-    } catch (e) { throw new Error(`[collect] ${e.message ?? e}`); }
+    if (withdrawOk) {
+      try {
+        const collectData = NFPM_IFACE.encodeFunctionData("collect", [{
+          tokenId,
+          recipient:   wallet.address,
+          amount0Max:  MAX_UINT128,
+          amount1Max:  MAX_UINT128,
+        }]);
+        let collectGas = 300000n;
+        try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
+        const tx = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
+        await waitForTx(tx);
+      } catch (e) { throw new Error(`[collect] ${e.message ?? e}`); }
+    }
 
     // 6. Swap fees WETH → USDC
     let swapWethHash = null;
@@ -308,9 +315,9 @@ export async function POST(req) {
       await writeCollectErr(poolNum, false);
     } catch (_) {}
 
-    // 11. Re-stake via approve + gauge.deposit (safeTransferFrom ne met pas à jour le déposant dans ce gauge)
+    // 11. Re-stake via approve + gauge.deposit — uniquement si withdraw a réussi
     let restakeError = null;
-    if (isStaked) {
+    if (isStaked && withdrawOk) {
       try {
         // Approuver le gauge pour ce tokenId
         const txApprove = await wallet.sendTransaction({
