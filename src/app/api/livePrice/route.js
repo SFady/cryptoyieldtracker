@@ -1,7 +1,7 @@
+import { POOL_ADDRESS as POOL } from "../../lib/config";
+
 export const runtime     = "nodejs";
 export const maxDuration = 10;
-
-const POOL = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 
 const RPC_URLS = [
   "https://base.drpc.org",

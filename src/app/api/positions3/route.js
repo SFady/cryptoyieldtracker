@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { getLastTwoPrices, getPercentileRange, getNextCronAt } from "../../lib/cronKv";
+import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -8,7 +9,6 @@ export const maxDuration = 30;
 // Aerodrome CL — WETH/USDC — pool 3 (wallet depuis env WALLET_ADDRESS_3)
 const WALLET = (process.env.WALLET_ADDRESS_3 ?? "").toLowerCase();
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
-const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 

@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -9,7 +10,6 @@ export const maxDuration = 30;
 // Aerodrome CL — WETH/USDC — wallet 0xaf96ca0b19b3966105bf2f28a05c10d586692499
 const WALLET = "0xaf96ca0b19b3966105bf2f28a05c10d586692499";
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
-const POOL   = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
 const VOTER_IFACE = new ethers.Interface([

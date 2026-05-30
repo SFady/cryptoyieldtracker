@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 120;
@@ -28,7 +29,6 @@ const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const POOL       = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER      = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
 const RPC_URLS = [

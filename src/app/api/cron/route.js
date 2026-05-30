@@ -1,12 +1,12 @@
 import { neon } from "@neondatabase/serverless";
 import { writeCronPrice, getLastTwoPrices, readLpState } from "../../lib/cronKv";
+import { POOL_ADDRESS } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
-const POOL_ADDRESS = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
   "https://base.drpc.org",

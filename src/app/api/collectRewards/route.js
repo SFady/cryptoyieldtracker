@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -10,7 +11,6 @@ const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const WETH       = "0x4200000000000000000000000000000000000006";
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
-const POOL       = "0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59";
 const VOTER      = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 
 const MAX_UINT128 = (1n << 128n) - 1n;
