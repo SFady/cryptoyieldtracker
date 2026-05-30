@@ -63,6 +63,20 @@ export async function wasCollectedToday(poolNum) {
   try { return !!(await kv.get(`fee-today-${poolNum}-${today}`)); } catch (_) { return false; }
 }
 
+// Lock distribué (remplace lp_events RUNNING) — TTL 5 min géré par Redis
+export async function checkRedisLock() {
+  try { return !!(await kv.get("lp-running")); } catch (_) { return false; }
+}
+
+export async function acquireRedisLock() {
+  const lockId = `LOCK_${Date.now()}`;
+  try {
+    const ok = await kv.set("lp-running", lockId, { nx: true, ex: 300 });
+    if (!ok) return null;
+    return async () => { try { await kv.del("lp-running"); } catch (_) {} };
+  } catch (_) { return null; }
+}
+
 // État d'erreur lp_events (CREATE_ERR / CLOSE_ERR)
 export async function writeErrorState(poolNum, hasError, msg = null) {
   try { await kv.set(`lp-err-${poolNum}`, { hasError, msg }, { ex: LP_STATE_TTL }); } catch (_) {}

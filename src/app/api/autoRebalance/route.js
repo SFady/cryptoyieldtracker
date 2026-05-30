@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange, readLpState, wasCollectedToday, readErrorState, readCollectErr } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, readLpState, wasCollectedToday, readErrorState, readCollectErr, checkRedisLock, acquireRedisLock } from "../../lib/cronKv";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -55,15 +55,6 @@ async function sendErrorEmail(subject, body) {
   } catch (_) {}
 }
 
-async function acquireLock() {
-  const lockId = `LOCK_${Date.now()}`;
-  await sql`INSERT INTO lp_events (action1, token_id) VALUES ('RUNNING', ${lockId})`;
-  const release = async () => {
-    try { await sql`DELETE FROM lp_events WHERE action1 = 'RUNNING' AND token_id = ${lockId}`; } catch (_) {}
-  };
-  return release;
-}
-
 // Redis en priorité, fallback DB si cache vide
 async function getPositionState(poolNum) {
   const cached = await readLpState(poolNum);
@@ -81,24 +72,9 @@ async function handleRequest(forceCase, poolNum = 2) {
   if (![1, 2, 3, 4, 5, 6].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
-  // 1. Expirer les locks bloqués depuis > 5 min, puis vérifier si une exécution est déjà active (lock partagé)
-  try {
-    await sql`
-      UPDATE lp_events
-      SET action2 = 'TIMEOUT', error_msg = 'Timeout automatique 5 min'
-      WHERE action1 = 'RUNNING' AND action2 IS NULL
-        AND created_at < NOW() - INTERVAL '5 minutes'
-    `;
-    const active = await sql`
-      SELECT token_id FROM lp_events
-      WHERE action1 = 'RUNNING' AND action2 IS NULL
-      LIMIT 1
-    `;
-    if (active.length > 0)
-      return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
-  } catch (e) {
-    return Response.json({ error: `Lock check échoué : ${e.message}` }, { status: 500 });
-  }
+  // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
+  if (await checkRedisLock())
+    return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
   // 2. Vérifier l'absence d'erreur (Redis → DB)
   try {
@@ -206,8 +182,8 @@ async function handleCase1(poolNum = 2) {
 
   // 3. Toutes les conditions sont remplies → acquérir le lock
   let release;
-  try { release = await acquireLock(); }
-  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+  release = await acquireRedisLock();
+  if (!release) return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
   try {
     // 4. Fermer la position — garder le WETH en wallet, envoyer fees USDC+AERO vers destination
@@ -305,8 +281,8 @@ async function handleCase2(poolNum = 2) {
 
   // 3. Toutes les conditions sont remplies → acquérir le lock
   let release;
-  try { release = await acquireLock(); }
-  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+  release = await acquireRedisLock();
+  if (!release) return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
   try {
     // 4. Fermer la position — garder le WETH en wallet, envoyer fees USDC+AERO vers destination
@@ -401,8 +377,8 @@ async function handleCase3(poolNum = 2) {
 
   // 7. Toutes les conditions sont remplies → acquérir le lock
   let release;
-  try { release = await acquireLock(); }
-  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+  release = await acquireRedisLock();
+  if (!release) return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
   try {
     // 7. Fermer la position — garder le WETH en wallet, envoyer fees USDC+AERO vers destination
@@ -623,8 +599,8 @@ async function handleCase4(poolNum = 2) {
 
   // 3. Toutes les conditions sont remplies → acquérir le lock
   let release;
-  try { release = await acquireLock(); }
-  catch (e) { return Response.json({ error: `Lock insert échoué : ${e.message}` }, { status: 500 }); }
+  release = await acquireRedisLock();
+  if (!release) return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
   try {
     // 4. Créer nouvelle position 50/50
