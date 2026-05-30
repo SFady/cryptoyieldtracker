@@ -230,10 +230,11 @@ const REBALANCE_CASES = [
 ];
 
 function TestRebalanceSection() {
+  const [poolNum,    setPoolNum]    = useState(2);
   const [status,     setStatus]     = useState({});
   const [results,    setResults]    = useState({});
   const [confirming, setConfirming] = useState({});
-  const [lastRow,    setLastRow]    = useState(undefined); // undefined = chargement
+  const [lastRow,    setLastRow]    = useState(undefined);
   const timers = useRef({});
 
   useEffect(() => {
@@ -276,7 +277,7 @@ function TestRebalanceSection() {
       const res  = await fetch("/api/autoRebalance", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ forceCase: caseNum }),
+        body:    JSON.stringify({ forceCase: caseNum, poolNum }),
       });
       const json = await res.json();
       setStatus(s => ({ ...s, [caseNum]: res.ok && json.ok !== false ? "ok" : "error" }));
@@ -289,11 +290,24 @@ function TestRebalanceSection() {
 
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{
-        fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa",
-        letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 10,
-      }}>
-        Tests Rebalance
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+          Tests Rebalance
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[2, 3].map(n => (
+            <button key={n} onClick={() => { setPoolNum(n); setStatus({}); setResults({}); }}
+              style={{
+                fontFamily: "monospace", fontSize: "0.65rem", fontWeight: 700,
+                padding: "3px 12px", borderRadius: 4, cursor: "pointer",
+                background: poolNum === n ? "rgba(124,77,255,0.25)" : "transparent",
+                border: `1px solid ${poolNum === n ? "rgba(124,77,255,0.6)" : "rgba(124,77,255,0.2)"}`,
+                color: poolNum === n ? "#c4a6ff" : "#666699",
+              }}>
+              Pool {n}
+            </button>
+          ))}
+        </div>
       </div>
 
       {REBALANCE_CASES.map(({ num, label, color }) => {
