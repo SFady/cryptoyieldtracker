@@ -418,13 +418,13 @@ async function handleCase5(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
-  // 1. Vérifier heure française = 7h (entre 7h00 et 7h59)
-  const frHour = parseInt(
-    new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", hour: "numeric", hour12: false }).format(new Date()),
-    10
-  );
-  if (frHour < 7 || frHour > 8)
-    return Response.json({ skipped: true, reason: `Hors fenêtre 7h-8h France — heure actuelle : ${frHour}h` });
+  // 1. Vérifier heure française strictement entre 7h00 et 7h59
+  const _now    = new Date();
+  const frHour  = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", hour: "numeric", hour12: false }).format(_now), 10);
+  const frMin   = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Paris", minute: "numeric" }).format(_now), 10);
+  const frTotal = frHour * 60 + frMin;
+  if (frTotal < 7 * 60 || frTotal >= 8 * 60)
+    return Response.json({ skipped: true, reason: `Hors fenêtre 7h-8h France — heure actuelle : ${frHour}h${String(frMin).padStart(2, "0")}` });
 
   // 2. Vérifier position ouverte (Redis → DB)
   try {
