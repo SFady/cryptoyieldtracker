@@ -43,7 +43,7 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ];
 
-const CACHE_TTL_MS = 120_000; // 2 minutes
+const CACHE_TTL_MS = 300_000; // 5 minutes
 global._cytPos2Cache = { data: null, time: 0 };
 
 // ── RPC — un seul nœud sélectionné par requête ────────────────────────────────

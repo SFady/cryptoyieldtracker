@@ -46,7 +46,7 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ].filter(Boolean);
 
-const CACHE_TTL_MS = 120_000;
+const CACHE_TTL_MS = 300_000;
 global._cytPos3Cache   = global._cytPos3Cache   ?? { data: null, time: 0 };
 global._lastAeroPrice  = global._lastAeroPrice  ?? 0;
 global._lastAeroEarned = global._lastAeroEarned ?? {};

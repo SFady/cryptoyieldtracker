@@ -35,7 +35,7 @@ const TOKENS = {
   "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { symbol: "USDC", decimals: 6 },
 };
 
-const CACHE_TTL_MS = 120_000;
+const CACHE_TTL_MS = 300_000;
 
 global._cytPositionsCache = global._cytPositionsCache ?? { data: null, time: 0 };
 global._pos1ActiveId      = global._pos1ActiveId      ?? { id: null, time: 0 };

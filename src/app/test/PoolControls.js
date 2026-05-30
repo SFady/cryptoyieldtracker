@@ -103,11 +103,14 @@ export default function PoolControls() {
           {running === "open" ? "En cours…" : confirming === "open" ? "⚠ CONFIRMER ?" : "Ouvrir position"}
         </button>
         <button onClick={() => handleClick("collect")} disabled={!!running} style={btnStyle("collect", "100,180,255")}>
-          {running === "collect" ? "En cours…" : confirming === "collect" ? "⚠ CONFIRMER ?" : "Collecter fees"}
+          {running === "collect" ? "En cours…" : confirming === "collect" ? "⚠ CONFIRMER ?" : "Collect manuel"}
         </button>
         <button onClick={() => handleClick("close")} disabled={!!running} style={btnStyle("close", "201,112,112")}>
           {running === "close" ? "En cours…" : confirming === "close" ? "⚠ CONFIRMER ?" : "Tout fermer"}
         </button>
+      </div>
+      <div style={{ marginTop: 6, fontSize: "0.58rem", fontFamily: "monospace", color: "#555577", letterSpacing: "0.5px" }}>
+        cas 5 = collect auto 7h–8h · cas 6 = collect manuel
       </div>
       {result && (
         <div style={{ marginTop: 8, fontSize: "0.72rem", fontFamily: "monospace",
