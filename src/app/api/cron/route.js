@@ -81,7 +81,7 @@ async function handle(req) {
       let state = await readLpState(poolNum);
       if (!state) {
         const rows = await sql`
-          SELECT range_min, range_max, action2
+          SELECT usdc_placed, range_pct, range_min, range_max, action2, created_at, usdc_remaining, token_id
           FROM lp_events
           WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
           ORDER BY id DESC LIMIT 1
