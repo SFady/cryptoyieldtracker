@@ -150,6 +150,7 @@ async function waitForTx(tx) {
 export async function POST(req) {
   const body    = await req.json().catch(() => ({}));
   const poolNum = body.poolNum ?? 2;
+  const caseNum = body.caseNum ?? 5;
   let rawTokenId = null;
 
   try {
@@ -302,7 +303,7 @@ export async function POST(req) {
           await waitForTx(txTransfer);
           try {
             const amt = parseFloat(ethers.formatUnits(toSend, 6));
-            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${"cas5"}, ${transferHash}, ${poolNum})`;
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${`cas${caseNum}`}, ${transferHash}, ${poolNum})`;
           } catch (_) {}
         }
       }

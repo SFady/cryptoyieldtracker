@@ -473,7 +473,7 @@ async function handleCase5(poolNum = 2) {
     const res = await fetch(`${base}/api/collectFees`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ poolNum }),
+      body: JSON.stringify({ poolNum, caseNum: 5 }),
       signal: AbortSignal.timeout(180000),
     });
     const data = await res.json();
@@ -522,7 +522,7 @@ async function handleCase6(poolNum = 2) {
     const res = await fetch(`${base}/api/collectFees`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ poolNum }),
+      body: JSON.stringify({ poolNum, caseNum: 6 }),
       signal: AbortSignal.timeout(180000),
     });
     const data = await res.json();
