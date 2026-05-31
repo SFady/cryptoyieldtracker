@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { writeCronPrice, getLastTwoPrices, readLpState } from "../../lib/cronKv";
+import { writeCronPrice, getLastTwoPrices, readLpState, writeLpState } from "../../lib/cronKv";
 import { POOL_ADDRESS } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -87,6 +87,7 @@ async function handle(req) {
           ORDER BY id DESC LIMIT 1
         `;
         state = rows[0] ?? null;
+        if (state) await writeLpState(poolNum, state);
       }
       if (!state || state.action2 !== null) return 4;
       const rMin = parseFloat(state.range_min);

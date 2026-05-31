@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange, readLpState, wasCollectedToday, readErrorState, readCollectErr, checkRedisLock, acquireRedisLock } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, readLpState, writeLpState, wasCollectedToday, readErrorState, writeErrorState, readCollectErr, writeCollectErr, checkRedisLock, acquireRedisLock } from "../../lib/cronKv";
 import { POOL_ADDRESS } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -55,7 +55,7 @@ async function sendErrorEmail(subject, body) {
   } catch (_) {}
 }
 
-// Redis en priorité, fallback DB si cache vide
+// Redis en priorité, fallback DB si cache vide — réécrit dans Redis pour rafraîchir le TTL
 async function getPositionState(poolNum) {
   const cached = await readLpState(poolNum);
   if (cached) return cached;
@@ -65,7 +65,9 @@ async function getPositionState(poolNum) {
     WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
     ORDER BY id DESC LIMIT 1
   `;
-  return rows[0] ?? null;
+  const state = rows[0] ?? null;
+  if (state) await writeLpState(poolNum, state);
+  return state;
 }
 
 async function handleRequest(forceCase, poolNum = 2) {
@@ -91,8 +93,12 @@ async function handleRequest(forceCase, poolNum = 2) {
       `;
       if (errRows.length > 0) {
         const { action1, action2, error_msg } = errRows[0];
-        if (action1 !== "FEE_COLLECT" && ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR"))))
+        const hasError = action1 !== "FEE_COLLECT" && ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR")));
+        await writeErrorState(poolNum, hasError, error_msg ?? null);
+        if (hasError)
           return Response.json({ error: `Bloqué — erreur détectée en base : ${error_msg ?? action1}` }, { status: 409 });
+      } else {
+        await writeErrorState(poolNum, false);
       }
     }
   } catch (e) {
@@ -447,7 +453,9 @@ async function handleCase5(poolNum = 2) {
           AND COALESCE(pool_num, 2) = ${poolNum}
         ORDER BY id DESC LIMIT 1
       `;
-      if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+      const isCollectErr = lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR';
+      await writeCollectErr(poolNum, isCollectErr);
+      if (isCollectErr)
         return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
     }
 
@@ -511,7 +519,9 @@ async function handleCase6(poolNum = 2) {
           AND COALESCE(pool_num, 2) = ${poolNum}
         ORDER BY id DESC LIMIT 1
       `;
-      if (lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR')
+      const isCollectErr = lastCollect.length > 0 && lastCollect[0].action2 === 'COLLECT_ERR';
+      await writeCollectErr(poolNum, isCollectErr);
+      if (isCollectErr)
         return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
     }
   } catch (e) {

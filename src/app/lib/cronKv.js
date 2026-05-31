@@ -3,7 +3,7 @@ import { kv } from "@vercel/kv";
 const KEY          = "weth-history";
 const KEY_LAST_RUN = "cron-last-run";
 const TTL_MS       = 24 * 60 * 60 * 1000;
-const LP_STATE_TTL = 86400; // 24h en secondes
+const LP_STATE_TTL = 604800; // 7 jours en secondes
 
 export async function writeCronPrice(price) {
   const now = Date.now();
