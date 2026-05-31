@@ -321,7 +321,10 @@ async function buildPosition(tokenId, ethCall, openData) {
 
 export async function GET() {
   const c = global._cytPos3Cache;
-  if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
+  if (c.data && Date.now() - c.time < CACHE_TTL_MS) {
+    const cronWeth = await getLastTwoPrices();
+    return Response.json({ ...c.data, cronWeth });
+  }
 
   let blockedByErrorEarly = false;
   let blockReasonEarly = null;

@@ -312,7 +312,10 @@ async function buildPosition(tokenId, ethCall, openData) {
 
 export async function GET() {
   const c = global._cytPos2Cache;
-  if (c.data && Date.now() - c.time < CACHE_TTL_MS) return Response.json(c.data);
+  if (c.data && Date.now() - c.time < CACHE_TTL_MS) {
+    const cronWeth = await getLastTwoPrices();
+    return Response.json({ ...c.data, cronWeth });
+  }
 
   try {
     // Un seul RPC pour toute la requête → données cohérentes (même bloc)
