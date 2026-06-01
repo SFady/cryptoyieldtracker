@@ -459,18 +459,7 @@ async function handleCase5(poolNum = 2) {
         return Response.json({ skipped: true, reason: "Dernier FEE_COLLECT en erreur — résoudre avant de relancer" });
     }
 
-    // Redis d'abord, fallback DB
     if (await wasCollectedToday(poolNum))
-      return Response.json({ skipped: true, reason: "Fees déjà collectées aujourd'hui" });
-
-    const todayParis = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
-    const todayRows = await sql`
-      SELECT id FROM lp_events
-      WHERE action1 = 'FEE_COLLECT'
-        AND COALESCE(pool_num, 2) = ${poolNum}
-        AND (created_at AT TIME ZONE 'Europe/Paris')::date = ${todayParis}::date
-    `;
-    if (todayRows.length > 0)
       return Response.json({ skipped: true, reason: "Fees déjà collectées aujourd'hui" });
   } catch (e) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });

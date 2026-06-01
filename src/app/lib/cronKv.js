@@ -52,6 +52,10 @@ export async function readLpState(poolNum) {
   try { return await kv.get(`lp-state-${poolNum}`); } catch (_) { return null; }
 }
 
+export async function clearLpState(poolNum) {
+  try { await kv.del(`lp-state-${poolNum}`); } catch (_) {}
+}
+
 // Flag "fees collectées aujourd'hui" par pool (date Paris)
 export async function writeCollectedToday(poolNum) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
