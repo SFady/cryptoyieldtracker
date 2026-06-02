@@ -500,8 +500,9 @@ export async function POST(req) {
       const usdcDeficit = usdcBudgeted > usdcBalance ? usdcBudgeted - usdcBalance : 0n;
       let didCorrect = false;
 
-      if (wethDeficit > 0n) {
+      if (wethDeficit > 0n && wethToSell === 0n) {
         // Pas assez de WETH → swap USDC→WETH pour le montant manquant
+        // (skippé si le step 6 venait déjà de vendre du WETH → évite l'aller-retour)
         const usdcNeeded = ethers.parseUnits(
           String(Math.min(
             Number(ethers.formatUnits(wethDeficit, 18)) * poolPrice,
