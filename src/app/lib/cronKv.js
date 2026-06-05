@@ -81,6 +81,17 @@ export async function acquireRedisLock() {
   } catch (_) { return null; }
 }
 
+// Swap WETH→USDC en attente (fees non swappées après échec slippage)
+export async function writeWethFeesPending(poolNum, pct) {
+  try { await kv.set(`weth-fees-pending-${poolNum}`, pct, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+export async function readWethFeesPending(poolNum) {
+  try { return await kv.get(`weth-fees-pending-${poolNum}`); } catch (_) { return null; }
+}
+export async function clearWethFeesPending(poolNum) {
+  try { await kv.del(`weth-fees-pending-${poolNum}`); } catch (_) {}
+}
+
 // État d'erreur lp_events (CREATE_ERR / CLOSE_ERR)
 export async function writeErrorState(poolNum, hasError, msg = null) {
   try { await kv.set(`lp-err-${poolNum}`, { hasError, msg }, { ex: LP_STATE_TTL }); } catch (_) {}

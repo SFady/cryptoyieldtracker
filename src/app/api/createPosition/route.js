@@ -429,6 +429,7 @@ export async function POST(req) {
     // 6. Swap USDC → WETH (déficit WETH) ou WETH → USDC (excès WETH)
     let txSwapHash = null;
     if (usdcToSwap > 0n) {
+      const minWethOut   = usdcToSwap * (10n ** 12n) / BigInt(Math.round(poolPrice)) * 990n / 1000n;
       const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
         tokenIn:            USDC,
         tokenOut:           WETH,
@@ -436,17 +437,22 @@ export async function POST(req) {
         recipient:          wallet.address,
         deadline:           freshDeadline(),
         amountIn:           usdcToSwap,
-        amountOutMinimum:   0n,
+        amountOutMinimum:   minWethOut,
         sqrtPriceLimitX96:  0n,
       }]);
       let swapGas = 300000n;
       try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
-      try {
-        const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapCalldata, gasLimit: swapGas });
-        txSwapHash = txSwap.hash;
-        await waitForTx(provider, txSwap);
-        await new Promise(r => setTimeout(r, 4000));
-      } catch (e) { throw new Error(`[étape 6 – swap USDC→WETH] ${e.shortMessage ?? e.message}`); }
+      for (const slipPct of [990n, 980n, 970n]) {
+        const minOut = usdcToSwap * (10n ** 12n) / BigInt(Math.round(poolPrice)) * slipPct / 1000n;
+        const dataWithMin = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{ tokenIn: USDC, tokenOut: WETH, tickSpacing, recipient: wallet.address, deadline: freshDeadline(), amountIn: usdcToSwap, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n }]);
+        try {
+          const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: dataWithMin, gasLimit: swapGas });
+          txSwapHash = txSwap.hash;
+          await waitForTx(provider, txSwap);
+          await new Promise(r => setTimeout(r, 4000));
+          break;
+        } catch (_) {}
+      }
     } else if (wethToSell > 0n) {
       const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
         tokenIn:            WETH,
@@ -460,12 +466,17 @@ export async function POST(req) {
       }]);
       let swapGas = 300000n;
       try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
-      try {
-        const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapCalldata, gasLimit: swapGas });
-        txSwapHash = txSwap.hash;
-        await waitForTx(provider, txSwap);
-        await new Promise(r => setTimeout(r, 4000));
-      } catch (e) { throw new Error(`[étape 6b – swap WETH→USDC] ${e.shortMessage ?? e.message}`); }
+      for (const slipPct of [990n, 980n, 970n]) {
+        const minOut = wethToSell * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * slipPct / 1000n;
+        const dataWithMin = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{ tokenIn: WETH, tokenOut: USDC, tickSpacing, recipient: wallet.address, deadline: freshDeadline(), amountIn: wethToSell, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n }]);
+        try {
+          const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: dataWithMin, gasLimit: swapGas });
+          txSwapHash = txSwap.hash;
+          await waitForTx(provider, txSwap);
+          await new Promise(r => setTimeout(r, 4000));
+          break;
+        } catch (_) {}
+      }
     }
 
     // 7. Soldes réels après swap
@@ -515,7 +526,7 @@ export async function POST(req) {
             const cd2 = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
               tokenIn: USDC, tokenOut: WETH, tickSpacing,
               recipient: wallet.address, deadline: freshDeadline(),
-              amountIn: usdcNeeded, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+              amountIn: usdcNeeded, amountOutMinimum: usdcNeeded * (10n ** 12n) / BigInt(Math.round(poolPrice)) * 970n / 1000n, sqrtPriceLimitX96: 0n,
             }]);
             let g2 = 300000n;
             try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
@@ -539,7 +550,7 @@ export async function POST(req) {
             const cd2 = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
               tokenIn: WETH, tokenOut: USDC, tickSpacing,
               recipient: wallet.address, deadline: freshDeadline(),
-              amountIn: wethNeeded, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+              amountIn: wethNeeded, amountOutMinimum: wethNeeded * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n, sqrtPriceLimitX96: 0n,
             }]);
             let g2 = 300000n;
             try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
@@ -664,7 +675,7 @@ export async function POST(req) {
             recipient:         wallet.address,
             deadline:          freshDeadline(),
             amountIn:          wethRem,
-            amountOutMinimum:  0n,
+            amountOutMinimum:  wethRem * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n,
             sqrtPriceLimitX96: 0n,
           }]),
         });
