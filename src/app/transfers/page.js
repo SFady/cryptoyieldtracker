@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../context/AuthContext";
 
+const PAGE_SIZE = 10;
+
 export default function TransfersPage() {
   const { activeUser } = useAuth();
   const router = useRouter();
@@ -15,6 +17,8 @@ export default function TransfersPage() {
   const [transfers, setTransfers] = useState(null);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
+  const [poolNum, setPoolNum]     = useState(2);
+  const [page, setPage]           = useState(1);
 
   useEffect(() => {
     fetch("/api/transfers")
@@ -24,14 +28,31 @@ export default function TransfersPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const pool2 = transfers?.filter(t => t.poolNum === 2) ?? [];
-  const pool3 = transfers?.filter(t => t.poolNum === 3) ?? [];
+  useEffect(() => { setPage(1); }, [poolNum]);
 
-  const total2 = pool2.reduce((s, t) => s + parseFloat(t.amount), 0);
-  const total3 = pool3.reduce((s, t) => s + parseFloat(t.amount), 0);
+  const poolRows = transfers?.filter(t => t.poolNum === poolNum) ?? [];
+  const total    = poolRows.reduce((s, t) => s + parseFloat(t.amount), 0);
+  const pages    = Math.max(1, Math.ceil(poolRows.length / PAGE_SIZE));
+  const pageRows = poolRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[2, 3].map(n => (
+          <button key={n} onClick={() => setPoolNum(n)}
+            style={{
+              fontFamily: "monospace", fontSize: "0.82rem", fontWeight: 700,
+              padding: "7px 24px", borderRadius: 6, cursor: "pointer",
+              background: poolNum === n ? "rgba(124,77,255,0.25)" : "transparent",
+              border: `1px solid ${poolNum === n ? "rgba(124,77,255,0.6)" : "rgba(124,77,255,0.2)"}`,
+              color: poolNum === n ? "#c4a6ff" : "#666699",
+              transition: "all 0.15s",
+            }}>
+            Pool {n}
+          </button>
+        ))}
+      </div>
+
       {loading && (
         <div style={{ color: "#6666aa", fontFamily: "monospace", padding: "16px 0", display: "flex", alignItems: "center", gap: 10 }}>
           <span className="pulse-dot" />Chargement…
@@ -44,19 +65,23 @@ export default function TransfersPage() {
       )}
 
       {transfers && (
-        <>
-          <TransferTable label="Pool 2" rows={pool2} total={total2} />
-          <TransferTable label="Pool 3" rows={pool3} total={total3} mt />
-        </>
+        <TransferTable
+          label={`Pool ${poolNum}`}
+          rows={pageRows}
+          total={total}
+          page={page}
+          pages={pages}
+          onPage={setPage}
+        />
       )}
     </>
   );
 }
 
-function TransferTable({ label, rows, total, mt }) {
+function TransferTable({ label, rows, total, page, pages, onPage }) {
   return (
-    <div style={{ marginTop: mt ? 28 : 0, marginBottom: 16 }}>
-      <div className="section-header" style={mt ? { marginTop: 0 } : {}}>
+    <div style={{ marginBottom: 16 }}>
+      <div className="section-header">
         <span style={{
           fontSize: "0.95rem", fontWeight: 700, color: "#ffffff", fontFamily: "monospace",
           padding: "4px 12px", background: "rgba(124,77,255,0.12)",
@@ -64,10 +89,19 @@ function TransferTable({ label, rows, total, mt }) {
         }}>
           {label}
         </span>
-        {rows.length > 0 && (
+        {total > 0 && (
           <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
             ${total.toFixed(2)}
           </span>
+        )}
+        {pages > 1 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 12 }}>
+            <PaginBtn disabled={page <= 1} onClick={() => onPage(p => Math.max(1, p - 1))}>←</PaginBtn>
+            <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#666699" }}>
+              {page} / {pages}
+            </span>
+            <PaginBtn disabled={page >= pages} onClick={() => onPage(p => Math.min(pages, p + 1))}>→</PaginBtn>
+          </div>
         )}
       </div>
 
@@ -100,5 +134,20 @@ function TransferTable({ label, rows, total, mt }) {
         </div>
       )}
     </div>
+  );
+}
+
+function PaginBtn({ disabled, onClick, children }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700,
+      padding: "3px 10px", borderRadius: 4,
+      cursor: disabled ? "default" : "pointer",
+      background: "transparent",
+      border: `1px solid ${disabled ? "rgba(124,77,255,0.1)" : "rgba(124,77,255,0.3)"}`,
+      color: disabled ? "#333355" : "#9988cc",
+    }}>
+      {children}
+    </button>
   );
 }
