@@ -346,7 +346,7 @@ export async function GET() {
   } catch (_) {}
 
   if (!WALLET) {
-    return Response.json({ positions: [], blockedByError: blockedByErrorEarly, blockReason: blockReasonEarly, error: "WALLET_ADDRESS_3 non configuré" });
+    return Response.json({ positions: [], blockedByError: blockedByErrorEarly, blockReason: blockReasonEarly, walletShort, error: "WALLET_ADDRESS_3 non configuré" });
   }
 
   try {

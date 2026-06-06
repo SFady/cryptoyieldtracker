@@ -51,7 +51,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions3")
         .then((r) => r.json())
-        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); setWalletShort3(d.walletShort ?? "Pool 3"); })
+        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setWalletShort3(d.walletShort ?? "Pool 3"); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); })
         .catch((e) => setError3(e.message))
         .finally(() => setLoading3(false));
     }, 1400);
