@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../context/AuthContext";
 
-const WALLET2_SHORT = "0xac38…2f6";
 
 export default function ProfilePage() {
   const { activeUser } = useAuth();
@@ -14,6 +13,8 @@ export default function ProfilePage() {
     if (activeUser !== "set3") router.replace("/home");
   }, [activeUser, router]);
 
+
+  const [walletShort2, setWalletShort2] = useState("");
   const [pos2, setPos2]           = useState(null);
   const [usdcWallet2, setUsdcWallet2] = useState(null);
   const [wethWallet2, setWethWallet2] = useState(null);
@@ -33,28 +34,24 @@ export default function ProfilePage() {
   const [cronWeth3, setCronWeth3] = useState([]);
   const [blockedByError3, setBlockedByError3] = useState(false);
   const [blockReason3, setBlockReason3] = useState(null);
-  const [walletShort3, setWalletShort3] = useState("Pool 3");
+  const [walletShort3, setWalletShort3] = useState("");
   const [loading3, setLoading3]   = useState(true);
   const [error3, setError3]       = useState(null);
 
   const SHOW_POOL2 = true;
 
   useEffect(() => {
-    if (SHOW_POOL2) setTimeout(() => {
-      fetch("/api/positions2")
-        .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
-        .catch((e) => setError2(e.message))
-        .finally(() => setLoading2(false));
-    }, 700);
+    if (SHOW_POOL2) fetch("/api/positions2")
+      .then((r) => r.json())
+      .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
+      .catch((e) => setError2(e.message))
+      .finally(() => setLoading2(false));
 
-    setTimeout(() => {
-      fetch("/api/positions3")
-        .then((r) => r.json())
-        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setWalletShort3(d.walletShort ?? "Pool 3"); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); })
-        .catch((e) => setError3(e.message))
-        .finally(() => setLoading3(false));
-    }, 1400);
+    fetch("/api/positions3")
+      .then((r) => r.json())
+      .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setWalletShort3(d.walletShort ?? ""); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); })
+      .catch((e) => setError3(e.message))
+      .finally(() => setLoading3(false));
   }, []);
 
   return (
@@ -71,7 +68,7 @@ export default function ProfilePage() {
           : null;
         return (
           <>
-            <SectionHeader label="WETH / USDC" wallet={WALLET2_SHORT} positions={pos2} totalOverride={total2} mt />
+            <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} mt />
             <div style={{ padding: "4px 0 2px 0", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               {percentileRange2 !== null && (
                 <span style={{
@@ -206,13 +203,15 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
       }}>
         {label}
       </span>
-      <span style={{
-        fontSize: "0.72rem", color: "#6666aa", fontFamily: "monospace",
-        padding: "3px 8px", background: "rgba(124,77,255,0.06)",
-        border: "1px solid rgba(124,77,255,0.15)", borderRadius: 5,
-      }}>
-        {wallet}
-      </span>
+      {wallet && (
+        <span style={{
+          fontSize: "0.72rem", color: "#6666aa", fontFamily: "monospace",
+          padding: "3px 8px", background: "rgba(124,77,255,0.06)",
+          border: "1px solid rgba(124,77,255,0.15)", borderRadius: 5,
+        }}>
+          {wallet}
+        </span>
+      )}
       {total && (
         <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
           ${total}

@@ -14,16 +14,18 @@ export default function TransfersPage() {
     if (activeUser !== "set3") router.replace("/home");
   }, [activeUser, router]);
 
-  const [transfers, setTransfers] = useState(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
-  const [poolNum, setPoolNum]     = useState(2);
-  const [page, setPage]           = useState(1);
+  const [transfers, setTransfers]       = useState(null);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState(null);
+  const [poolNum, setPoolNum]           = useState(2);
+  const [page, setPage]                 = useState(1);
+  const [wallet2Short, setWallet2Short] = useState("");
+  const [wallet3Short, setWallet3Short] = useState("");
 
   useEffect(() => {
     fetch("/api/transfers")
       .then(r => r.json())
-      .then(d => { if (d.error) throw new Error(d.error); setTransfers(d.transfers ?? []); })
+      .then(d => { if (d.error) throw new Error(d.error); setTransfers(d.transfers ?? []); setWallet2Short(d.wallet2Short ?? ""); setWallet3Short(d.wallet3Short ?? ""); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -66,7 +68,7 @@ export default function TransfersPage() {
 
       {transfers && (
         <TransferTable
-          label={`Pool ${poolNum}`}
+          label={poolNum === 2 ? (wallet2Short || `Pool 2`) : (wallet3Short || `Pool 3`)}
           rows={pageRows}
           total={total}
           page={page}

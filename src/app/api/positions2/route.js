@@ -7,7 +7,8 @@ export const runtime     = "nodejs";
 export const maxDuration = 30;
 
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
-const WALLET = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
+const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
+const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -390,7 +391,7 @@ export async function GET() {
           if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
         } catch (_) {}
       } catch (_) {}
-      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
+      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, walletShort };
       global._cytPos2Cache = { data };
       await writePositionsCache(2, data);
       return Response.json(data);
@@ -516,7 +517,7 @@ export async function GET() {
     const nextCronAt = await getNextCronAt();
     const cronWeth   = await getLastTwoPrices();
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, walletShort };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
