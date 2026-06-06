@@ -7,7 +7,8 @@ export const runtime     = "nodejs";
 export const maxDuration = 30;
 
 // Aerodrome CL — WETH/USDC — pool 3 (wallet depuis env WALLET_ADDRESS_3)
-const WALLET = (process.env.WALLET_ADDRESS_3 ?? "").toLowerCase();
+const WALLET      = (process.env.WALLET_ADDRESS_3 ?? "").toLowerCase();
+const walletShort = WALLET.length >= 9 ? WALLET.slice(0, 6) + "…" + WALLET.slice(-3) : "Pool 3";
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -413,7 +414,7 @@ export async function GET() {
         const wethAmt = Number(ethers.formatUnits(raw, 18));
         wethWallet = wethAmt.toFixed(6);
       } catch (_) {}
-      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
+      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, walletShort };
       global._cytPos3Cache = { data, time: Date.now() };
       return Response.json(data);
     }
@@ -563,7 +564,7 @@ export async function GET() {
 
     const cronWeth = await getLastTwoPrices();
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth, walletShort };
     global._cytPos3Cache = { data, time: Date.now() };
     return Response.json(data);
 

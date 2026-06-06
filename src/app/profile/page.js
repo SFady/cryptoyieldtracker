@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../context/AuthContext";
 
 const WALLET2_SHORT = "0xac38…2f6";
-const WALLET3_SHORT = "Pool 3";
 
 export default function ProfilePage() {
   const { activeUser } = useAuth();
@@ -34,6 +33,7 @@ export default function ProfilePage() {
   const [cronWeth3, setCronWeth3] = useState([]);
   const [blockedByError3, setBlockedByError3] = useState(false);
   const [blockReason3, setBlockReason3] = useState(null);
+  const [walletShort3, setWalletShort3] = useState("Pool 3");
   const [loading3, setLoading3]   = useState(true);
   const [error3, setError3]       = useState(null);
 
@@ -51,7 +51,7 @@ export default function ProfilePage() {
     setTimeout(() => {
       fetch("/api/positions3")
         .then((r) => r.json())
-        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); })
+        .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); setWalletShort3(d.walletShort ?? "Pool 3"); })
         .catch((e) => setError3(e.message))
         .finally(() => setLoading3(false));
     }, 1400);
@@ -128,7 +128,7 @@ export default function ProfilePage() {
           : null;
         return (
           <>
-            <SectionHeader label="WETH / USDC" wallet={WALLET3_SHORT} positions={pos3} totalOverride={total3} mt />
+            <SectionHeader label="WETH / USDC" wallet={walletShort3} positions={pos3} totalOverride={total3} mt />
             <div style={{ padding: "4px 0 2px 0", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               {percentileRange3 !== null && (
                 <span style={{
