@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange, getNextCronAt } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
 import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -47,8 +47,7 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ].filter(Boolean);
 
-const CACHE_TTL_MS = 300_000;
-global._cytPos3Cache   = global._cytPos3Cache   ?? { data: null, time: 0 };
+global._cytPos3Cache   = global._cytPos3Cache   ?? { data: null };
 global._lastAeroPrice  = global._lastAeroPrice  ?? 0;
 global._lastAeroEarned = global._lastAeroEarned ?? {};
 
@@ -321,10 +320,10 @@ async function buildPosition(tokenId, ethCall, openData) {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const c = global._cytPos3Cache;
-  if (c.data && Date.now() - c.time < CACHE_TTL_MS) {
+  const cached = await readPositionsCache(3);
+  if (cached) {
     const cronWeth = await getLastTwoPrices();
-    return Response.json({ ...c.data, cronWeth });
+    return Response.json({ ...cached, cronWeth });
   }
 
   let blockedByErrorEarly = false;
@@ -415,7 +414,8 @@ export async function GET() {
         wethWallet = wethAmt.toFixed(6);
       } catch (_) {}
       const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, walletShort };
-      global._cytPos3Cache = { data, time: Date.now() };
+      global._cytPos3Cache = { data };
+      await writePositionsCache(3, data);
       return Response.json(data);
     }
 
@@ -565,7 +565,8 @@ export async function GET() {
     const cronWeth = await getLastTwoPrices();
 
     const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth, walletShort };
-    global._cytPos3Cache = { data, time: Date.now() };
+    global._cytPos3Cache = { data };
+    await writePositionsCache(3, data);
     return Response.json(data);
 
   } catch (err) {

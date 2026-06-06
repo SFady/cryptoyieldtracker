@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange, getNextCronAt } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
 import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -43,8 +43,7 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ];
 
-const CACHE_TTL_MS = 300_000; // 5 minutes
-global._cytPos2Cache = { data: null, time: 0 };
+global._cytPos2Cache = { data: null };
 
 // ── RPC — un seul nœud sélectionné par requête ────────────────────────────────
 
@@ -311,10 +310,10 @@ async function buildPosition(tokenId, ethCall, openData) {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const c = global._cytPos2Cache;
-  if (c.data && Date.now() - c.time < CACHE_TTL_MS) {
+  const cached = await readPositionsCache(2);
+  if (cached) {
     const cronWeth = await getLastTwoPrices();
-    return Response.json({ ...c.data, cronWeth });
+    return Response.json({ ...cached, cronWeth });
   }
 
   try {
@@ -392,7 +391,8 @@ export async function GET() {
         } catch (_) {}
       } catch (_) {}
       const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
-      global._cytPos2Cache = { data, time: Date.now() };
+      global._cytPos2Cache = { data };
+      await writePositionsCache(2, data);
       return Response.json(data);
     }
 
@@ -517,7 +517,8 @@ export async function GET() {
     const cronWeth   = await getLastTwoPrices();
 
     const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth };
-    global._cytPos2Cache = { data, time: Date.now() };
+    global._cytPos2Cache = { data };
+    await writePositionsCache(2, data);
     return Response.json(data);
 
   } catch (err) {

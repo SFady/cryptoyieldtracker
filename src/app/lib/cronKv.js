@@ -109,3 +109,11 @@ export async function writeCollectErr(poolNum, isError) {
 export async function readCollectErr(poolNum) {
   try { const v = await kv.get(`fee-err-${poolNum}`); return v === null ? null : !!v; } catch (_) { return null; }
 }
+
+// Cache des données positions (60 s — évite les requêtes SQL Neon à chaque chargement de page)
+export async function readPositionsCache(poolNum) {
+  try { return await kv.get(`positions-cache-${poolNum}`); } catch (_) { return null; }
+}
+export async function writePositionsCache(poolNum, data) {
+  try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 60 }); } catch (_) {}
+}
