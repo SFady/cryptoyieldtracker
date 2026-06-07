@@ -517,7 +517,21 @@ export async function GET() {
     const nextCronAt = await getNextCronAt();
     const cronWeth   = await getLastTwoPrices();
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, walletShort };
+    let rebalanceBlock = null;
+    try {
+      const blockRows = await sql`
+        SELECT created_at FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = 2
+          AND created_at > NOW() - INTERVAL '24 hours'
+        ORDER BY created_at ASC
+      `;
+      if (blockRows.length >= 4) {
+        const oldest = new Date(blockRows[0].created_at);
+        rebalanceBlock = { blocked: true, unlockAt: new Date(oldest.getTime() + 24 * 60 * 60 * 1000).toISOString() };
+      }
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, walletShort, rebalanceBlock };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

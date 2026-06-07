@@ -562,9 +562,23 @@ export async function GET() {
       }
     } catch (_) {}
 
+    let rebalanceBlock = null;
+    try {
+      const blockRows = await sql`
+        SELECT created_at FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND pool_num = 3
+          AND created_at > NOW() - INTERVAL '24 hours'
+        ORDER BY created_at ASC
+      `;
+      if (blockRows.length >= 4) {
+        const oldest = new Date(blockRows[0].created_at);
+        rebalanceBlock = { blocked: true, unlockAt: new Date(oldest.getTime() + 24 * 60 * 60 * 1000).toISOString() };
+      }
+    } catch (_) {}
+
     const cronWeth = await getLastTwoPrices();
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth, walletShort };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth, walletShort, rebalanceBlock };
     global._cytPos3Cache = { data };
     await writePositionsCache(3, data);
     return Response.json(data);
