@@ -6,13 +6,14 @@ export const runtime = "nodejs";
 const sql = neon(process.env.DATABASE_URL);
 
 export async function GET() {
-  const [lastRun, count, last10raw, lpState2, lpErr2, lpRunning] = await Promise.all([
+  const [lastRun, count, last10raw, lpState2, lpErr2, lpRunning, lastCronResults] = await Promise.all([
     kv.get("cron-last-run"),
     kv.zcard("weth-history"),
     kv.zrange("weth-history", 0, 9, { rev: true, withScores: true }),
     kv.get("lp-state-2"),
     kv.get("lp-err-2"),
     kv.get("lp-running"),
+    kv.get("cron-last-results"),
   ]);
 
   const entries = [];
@@ -41,7 +42,8 @@ export async function GET() {
     last10:       entries,
     lpState2,
     lpErr2,
-    lpRunning:    lpRunning ?? null,
+    lpRunning:        lpRunning ?? null,
+    lastCronResults,
     lastDbRows,
   });
 }
