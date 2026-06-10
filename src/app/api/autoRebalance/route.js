@@ -6,7 +6,8 @@ import { POOL_ADDRESS } from "../../lib/config";
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
-const RANGE_COEFF = 1; // multiplicateur appliqué au range après le plancher de 2%
+const RANGE_COEFF_2 = 2;   // multiplicateur range pool 2
+const RANGE_COEFF_3 = 1.5; // multiplicateur range pool 3
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -370,7 +371,7 @@ async function handleCase3(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat((newRangePct * RANGE_COEFF).toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   // 6. Rebalancer si le range actuel de la position est > 1.5x le nouveau range (percentile)
   const actualRangePct = (!isNaN(rangeMin) && !isNaN(rangeMax) && rangeMin > 0)
@@ -556,7 +557,7 @@ async function handleCase4(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat((newRangePct * RANGE_COEFF).toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   // Vérifier le solde USDC du wallet (min 50$) — skippe par défaut si lecture impossible
   {
