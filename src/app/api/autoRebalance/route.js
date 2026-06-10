@@ -361,8 +361,8 @@ async function handleCase3(poolNum = 2) {
   // 4. Vérifier que la position est ouverte depuis > 12h
   const openedAt  = new Date(lastPos.created_at);
   const ageHours  = (Date.now() - openedAt.getTime()) / 3_600_000;
-  if (ageHours < 12)
-    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 12h minimum` });
+  if (ageHours < 6)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 6h minimum` });
 
   // 5. Calculer le range via percentiles 24h
   let newRangePct = 2;
