@@ -223,7 +223,7 @@ export default function AtrPanel() {
 const REBALANCE_CASES = [
   { num: 1, label: "CAS 1 — Hors range bas",       color: "#c97070" },
   { num: 2, label: "CAS 2 — Hors range haut",      color: "#f0b429" },
-  { num: 3, label: "CAS 3 — In range > 6h",        color: "#a477ff" },
+  { num: 3, label: "CAS 3 — In range > 12h",       color: "#a477ff" },
   { num: 4, label: "CAS 4 — Aucune position",      color: "#556688" },
   { num: 5, label: "CAS 5 — Collect auto 7h–8h",  color: "#f97316" },
   { num: 6, label: "CAS 6 — Collect manuel",       color: "#64b4ff" },

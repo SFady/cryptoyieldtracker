@@ -358,11 +358,11 @@ async function handleCase3(poolNum = 2) {
   if (!isNaN(rangeMin) && !isNaN(rangeMax) && (livePrice < rangeMin || livePrice > rangeMax))
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} hors range [$${rangeMin}–$${rangeMax}] — cas 1 ou 2 approprié` });
 
-  // 4. Vérifier que la position est ouverte depuis > 6h
+  // 4. Vérifier que la position est ouverte depuis > 12h
   const openedAt  = new Date(lastPos.created_at);
   const ageHours  = (Date.now() - openedAt.getTime()) / 3_600_000;
-  if (ageHours < 6)
-    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 6h minimum` });
+  if (ageHours < 12)
+    return Response.json({ skipped: true, reason: `Position ouverte depuis ${ageHours.toFixed(1)}h — attendre 12h minimum` });
 
   // 5. Calculer le range via percentiles 24h
   let newRangePct = 2;
