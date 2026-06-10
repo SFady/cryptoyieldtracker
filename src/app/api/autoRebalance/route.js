@@ -183,7 +183,7 @@ async function handleCase1(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat(newRangePct.toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
@@ -282,7 +282,7 @@ async function handleCase2(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat(newRangePct.toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
