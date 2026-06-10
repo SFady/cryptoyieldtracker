@@ -6,8 +6,8 @@ import { POOL_ADDRESS } from "../../lib/config";
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
-const RANGE_COEFF_2 = 2;   // multiplicateur range pool 2
-const RANGE_COEFF_3 = 1.5; // multiplicateur range pool 3
+const RANGE_COEFF_2 = 1;   // multiplicateur range pool 2
+const RANGE_COEFF_3 = 1;   // multiplicateur range pool 3
 
 const sql = neon(process.env.DATABASE_URL);
 

@@ -312,90 +312,26 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 9. Envoyer 75% du delta USDC — pool 2 : ETH natif → wallet pool 3 / pool 3 : USDC → DESTINATION_WALLET_3
+    // 9. Envoyer 75% du delta USDC vers DESTINATION_WALLET, garder 25% en wallet pour la prochaine position
     let transferHash = null;
     try {
-      const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
-      const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
-      const toSend    = delta * 75n / 100n;
-      console.log(`[collectFees] before=${usdcBefore} after=${usdcAfter} delta=${delta} toSend=${toSend}`);
-      if (toSend > 0n) {
-        if (poolNum === 2) {
-          // Pool 2 : USDC → WETH → ETH natif → wallet pool 3
-          const pool3Addr = process.env.WALLET_ADDRESS_3;
-          if (pool3Addr) {
-            const tsRaw = await ethCall(POOL, "0xd0c93a7c");
-            const tickSpacing = Number(ethers.toBigInt(tsRaw));
-            let wethPriceBig = 1700n;
-            try {
-              const s0Hex = await ethCall(POOL, "0x3850c7bd");
-              const hex = s0Hex.startsWith("0x") ? s0Hex.slice(2) : s0Hex;
-              const sqrtPriceX96 = BigInt("0x" + hex.slice(0, 64));
-              const sqrtPf = Number(sqrtPriceX96) / 2**96;
-              wethPriceBig = BigInt(Math.round(sqrtPf * sqrtPf * 1e12));
-            } catch (_) {}
-            try {
-              const h = await ethCall(USDC, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
-              const [cur] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
-              if (cur < toSend) {
-                const txApp = await wallet.sendTransaction({ to: USDC, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
-                await waitForTx(txApp);
-              }
-            } catch (_) {}
-            const wethBal0 = await readBal(WETH, wallet.address).catch(() => 0n);
-            let swapDone = false;
-            for (const pct of [990n, 980n, 970n]) {
-              try {
-                const minWeth = wethPriceBig > 0n ? toSend * pct * 10n**12n / (1000n * wethPriceBig) : 0n;
-                const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-                  tokenIn: USDC, tokenOut: WETH, tickSpacing,
-                  recipient: wallet.address, deadline: freshDeadline(),
-                  amountIn: toSend, amountOutMinimum: minWeth, sqrtPriceLimitX96: 0n,
-                }]);
-                let swapGas = 300000n;
-                try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
-                const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
-                await waitForTx(txSwap);
-                swapDone = true;
-                break;
-              } catch (_) {}
-            }
-            if (swapDone) {
-              const wethBal1 = await readBal(WETH, wallet.address).catch(() => 0n);
-              const wethReceived = wethBal1 > wethBal0 ? wethBal1 - wethBal0 : 0n;
-              if (wethReceived > 0n) {
-                const withdrawData = "0x2e1a7d4d" + wethReceived.toString(16).padStart(64, "0");
-                let wGas = 60000n;
-                try { const est = await provider.estimateGas({ to: WETH, from: wallet.address, data: withdrawData }); wGas = est * 3n / 2n; } catch (_) {}
-                const txW = await wallet.sendTransaction({ to: WETH, data: withdrawData, gasLimit: wGas });
-                await waitForTx(txW);
-                let ethGas = 25000n;
-                try { ethGas = await provider.estimateGas({ to: pool3Addr, value: wethReceived }); ethGas = ethGas * 3n / 2n; } catch (_) {}
-                const txEth = await wallet.sendTransaction({ to: pool3Addr, value: wethReceived, gasLimit: ethGas });
-                transferHash = txEth.hash;
-                await waitForTx(txEth);
-                try {
-                  const amt = parseFloat(ethers.formatUnits(toSend, 6));
-                  await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${`cas${caseNum}-eth`}, ${transferHash}, ${poolNum})`;
-                } catch (_) {}
-              }
-            }
-          }
-        } else {
-          // Pool 3 : transfert USDC direct (inchangé)
-          const dest = process.env.DESTINATION_WALLET_3;
-          if (dest) {
-            const txTransfer = await wallet.sendTransaction({
-              to:   USDC,
-              data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
-            });
-            transferHash = txTransfer.hash;
-            await waitForTx(txTransfer);
-            try {
-              const amt = parseFloat(ethers.formatUnits(toSend, 6));
-              await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${`cas${caseNum}`}, ${transferHash}, ${poolNum})`;
-            } catch (_) {}
-          }
+      const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
+      if (dest) {
+        const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
+        const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
+        console.log(`[collectFees] before=${usdcBefore} after=${usdcAfter} delta=${delta} dest=${dest}`);
+        const toSend = delta * 75n / 100n;
+        if (toSend > 0n) {
+          const txTransfer = await wallet.sendTransaction({
+            to:   USDC,
+            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
+          });
+          transferHash = txTransfer.hash;
+          await waitForTx(txTransfer);
+          try {
+            const amt = parseFloat(ethers.formatUnits(toSend, 6));
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${`cas${caseNum}`}, ${transferHash}, ${poolNum})`;
+          } catch (_) {}
         }
       }
     } catch (e) { console.log(`[collectFees transfer] ${e.message ?? e}`); }
