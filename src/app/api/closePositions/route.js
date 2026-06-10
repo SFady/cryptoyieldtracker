@@ -635,7 +635,7 @@ export async function POST(req) {
 
     // 4b. Transfert des fees converties vers DESTINATION_WALLET (skippé si noTransfer=true)
     try {
-      const dest = noTransfer ? null : (poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET);
+      const dest = noTransfer ? null : (poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.WALLET_ADDRESS_3);
       if (dest) {
         let usdcAfterSwaps = 0n;
         for (let i = 0; i < 4; i++) {
@@ -670,16 +670,68 @@ export async function POST(req) {
         }
         console.log(`[transfer] before=${usdcBeforeSwaps} afterWethFee=${usdcAfterWethFeeSwap} after=${usdcAfterSwaps} toSend=${toSend} dest=${dest}`);
         if (toSend > 0n) {
-          const txTransfer = await sendTx(wallet, {
-            to: stablecoin,
-            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
-          });
-          await waitForTx(provider, txTransfer);
-          console.log(`[transfer] OK hash=${txTransfer.hash}`);
-          try {
-            const amt = parseFloat(ethers.formatUnits(toSend, 6));
-            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${source + "-aero"}, ${txTransfer.hash}, ${poolNum})`;
-          } catch (_) {}
+          if (poolNum === 2) {
+            // Pool 2 : USDC → WETH → ETH natif → wallet pool 3
+            try {
+              const h = await ethCall(stablecoin, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
+              const [cur] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
+              if (cur < toSend) {
+                const txApp = await sendTx(wallet, { to: stablecoin, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
+                await waitForTx(provider, txApp);
+              }
+            } catch (_) {}
+            const wethBal0 = await readBal(WETH, wallet.address).catch(() => 0n);
+            const wethPriceBig = BigInt(Math.round(wethPriceUsdc));
+            let swapDone = false;
+            for (const pct of [990n, 980n, 970n]) {
+              try {
+                const minWeth = wethPriceBig > 0n ? toSend * pct * 10n**12n / (1000n * wethPriceBig) : 0n;
+                const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+                  tokenIn: stablecoin, tokenOut: WETH, tickSpacing,
+                  recipient: wallet.address, deadline: freshDeadline(),
+                  amountIn: toSend, amountOutMinimum: minWeth, sqrtPriceLimitX96: 0n,
+                }]);
+                let swapGas = 300000n;
+                try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
+                const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
+                await waitForTx(provider, txSwap);
+                swapDone = true;
+                break;
+              } catch (_) {}
+            }
+            if (swapDone) {
+              const wethBal1 = await readBal(WETH, wallet.address).catch(() => 0n);
+              const wethReceived = wethBal1 > wethBal0 ? wethBal1 - wethBal0 : 0n;
+              if (wethReceived > 0n) {
+                const withdrawData = "0x2e1a7d4d" + wethReceived.toString(16).padStart(64, "0");
+                let wGas = 60000n;
+                try { const est = await provider.estimateGas({ to: WETH, from: wallet.address, data: withdrawData }); wGas = est * 3n / 2n; } catch (_) {}
+                const txW = await sendTx(wallet, { to: WETH, data: withdrawData, gasLimit: wGas });
+                await waitForTx(provider, txW);
+                let ethGas = 25000n;
+                try { ethGas = await provider.estimateGas({ to: dest, value: wethReceived }); ethGas = ethGas * 3n / 2n; } catch (_) {}
+                const txEth = await sendTx(wallet, { to: dest, value: wethReceived, gasLimit: ethGas });
+                await waitForTx(provider, txEth);
+                console.log(`[transfer pool2→ETH] OK hash=${txEth.hash}`);
+                try {
+                  const amt = parseFloat(ethers.formatUnits(toSend, 6));
+                  await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${source + "-eth"}, ${txEth.hash}, ${poolNum})`;
+                } catch (_) {}
+              }
+            }
+          } else {
+            // Pool 3 : transfert USDC direct (inchangé)
+            const txTransfer = await sendTx(wallet, {
+              to: stablecoin,
+              data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
+            });
+            await waitForTx(provider, txTransfer);
+            console.log(`[transfer] OK hash=${txTransfer.hash}`);
+            try {
+              const amt = parseFloat(ethers.formatUnits(toSend, 6));
+              await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${source + "-aero"}, ${txTransfer.hash}, ${poolNum})`;
+            } catch (_) {}
+          }
         }
         // transferUsdcFees: envoyer les fees USDC directement vers DESTINATION_WALLET (sans swap)
         if (keepWeth && transferUsdcFees && totalFeesUsdc1 > 0n) {
