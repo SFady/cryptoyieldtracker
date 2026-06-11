@@ -131,7 +131,7 @@ async function sendTx(wallet, params) {
     try {
       return await wallet.sendTransaction(params);
     } catch (e) {
-      const msg = e.message ?? e.shortMessage ?? "";
+      const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
       if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
         const feeData = await wallet.provider.getFeeData();
         params = {
@@ -140,6 +140,10 @@ async function sendTx(wallet, params) {
           maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
         };
         await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
+        await new Promise(r => setTimeout(r, 3000));
         continue;
       }
       throw e;
