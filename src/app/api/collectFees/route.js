@@ -75,6 +75,7 @@ const SWAP_ROUTER_IFACE = new ethers.Interface([
 
 const V2_ROUTER_IFACE = new ethers.Interface([
   "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
+  "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
 ]);
 
 async function pickRpc() {
@@ -249,16 +250,30 @@ export async function POST(req) {
             await waitForTx(txApp);
           }
         } catch (_) {}
-        const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-          tokenIn: WETH, tokenOut: USDC, tickSpacing,
-          recipient: wallet.address, deadline: freshDeadline(),
-          amountIn: wethFees, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
-        }]);
+        let wethPriceInUsdc6 = 0n;
+        try {
+          const s0Hex = await ethCall(POOL, "0x3850c7bd");
+          const hex = s0Hex.startsWith("0x") ? s0Hex.slice(2) : s0Hex;
+          const sqrtPriceX96 = BigInt("0x" + hex.slice(0, 64));
+          const sqrtPf = Number(sqrtPriceX96) / 2**96;
+          wethPriceInUsdc6 = BigInt(Math.round(sqrtPf * sqrtPf * 1e18));
+        } catch (_) {}
         let swapGas = 300000n;
-        try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
-        const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
-        swapWethHash = txSwap.hash;
-        await waitForTx(txSwap);
+        for (const pct of [990n, 980n, 970n]) {
+          try {
+            const minOut = wethPriceInUsdc6 > 0n ? wethFees * wethPriceInUsdc6 / (10n ** 18n) * pct / 1000n : 0n;
+            const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+              tokenIn: WETH, tokenOut: USDC, tickSpacing,
+              recipient: wallet.address, deadline: freshDeadline(),
+              amountIn: wethFees, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
+            }]);
+            try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
+            const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
+            swapWethHash = txSwap.hash;
+            await waitForTx(txSwap);
+            break;
+          } catch (_) {}
+        }
       }
     } catch (e) { console.log(`[collectFees swapWeth] ${e.message ?? e}`); }
 
@@ -273,15 +288,27 @@ export async function POST(req) {
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         });
         await waitForTx(txApp);
-        const routes   = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
-        const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-          aeroBal, 0n, routes, wallet.address, freshDeadline(),
-        ]);
+        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
+        let expectedUsdcOut = 0n;
+        try {
+          const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [aeroBal, routes]));
+          const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
+          expectedUsdcOut = amounts[amounts.length - 1];
+        } catch (_) {}
         let aeroSwapGas = 300000n;
-        try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
-        const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
-        aeroSwapHash = txSwap.hash;
-        await waitForTx(txSwap);
+        for (const pct of [990n, 980n, 970n]) {
+          try {
+            const minOut = expectedUsdcOut * pct / 1000n;
+            const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+              aeroBal, minOut, routes, wallet.address, freshDeadline(),
+            ]);
+            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
+            const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
+            aeroSwapHash = txSwap.hash;
+            await waitForTx(txSwap);
+            break;
+          } catch (_) {}
+        }
       }
     } catch (_) {}
 

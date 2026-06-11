@@ -81,6 +81,17 @@ export async function acquireRedisLock() {
   } catch (_) { return null; }
 }
 
+// Swap WETH→USDC en attente (fees non swappées après échec slippage)
+export async function writeWethFeesPending(poolNum, pct) {
+  try { await kv.set(`weth-fees-pending-${poolNum}`, pct, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+export async function readWethFeesPending(poolNum) {
+  try { return await kv.get(`weth-fees-pending-${poolNum}`); } catch (_) { return null; }
+}
+export async function clearWethFeesPending(poolNum) {
+  try { await kv.del(`weth-fees-pending-${poolNum}`); } catch (_) {}
+}
+
 // État d'erreur lp_events (CREATE_ERR / CLOSE_ERR)
 export async function writeErrorState(poolNum, hasError, msg = null) {
   try { await kv.set(`lp-err-${poolNum}`, { hasError, msg }, { ex: LP_STATE_TTL }); } catch (_) {}
@@ -97,4 +108,12 @@ export async function writeCollectErr(poolNum, isError) {
 
 export async function readCollectErr(poolNum) {
   try { const v = await kv.get(`fee-err-${poolNum}`); return v === null ? null : !!v; } catch (_) { return null; }
+}
+
+// Cache des données positions (60 s — évite les requêtes SQL Neon à chaque chargement de page)
+export async function readPositionsCache(poolNum) {
+  try { return await kv.get(`positions-cache-${poolNum}`); } catch (_) { return null; }
+}
+export async function writePositionsCache(poolNum, data) {
+  try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 60 }); } catch (_) {}
 }

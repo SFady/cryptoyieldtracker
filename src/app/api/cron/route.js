@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { kv } from "@vercel/kv";
 import { writeCronPrice, getLastTwoPrices, readLpState, writeLpState } from "../../lib/cronKv";
 import { POOL_ADDRESS } from "../../lib/config";
 
@@ -144,6 +145,7 @@ async function handle(req) {
   }
 
   console.log("[cron] pool3 results:", JSON.stringify(rebalanceResults).slice(0, 500));
+  try { await kv.set("cron-last-results", { ranAt, weth: price, results: rebalanceResults }, { ex: 7200 }); } catch (_) {}
   return Response.json({ ok: true, ranAt, weth: price, rebalanceResults });
 }
 

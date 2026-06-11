@@ -6,6 +6,9 @@ import { POOL_ADDRESS } from "../../lib/config";
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
+const RANGE_COEFF_2 = 1;   // multiplicateur range pool 2
+const RANGE_COEFF_3 = 1;   // multiplicateur range pool 3
+
 const sql = neon(process.env.DATABASE_URL);
 
 const RPC_URLS = [
@@ -181,7 +184,7 @@ async function handleCase1(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat(newRangePct.toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
@@ -280,7 +283,7 @@ async function handleCase2(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat(newRangePct.toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   const sqrtRatio    = Math.sqrt(1 + newRangePct / 100);
   const liveMinPrice = livePrice / sqrtRatio;
@@ -356,7 +359,7 @@ async function handleCase3(poolNum = 2) {
   if (!isNaN(rangeMin) && !isNaN(rangeMax) && (livePrice < rangeMin || livePrice > rangeMax))
     return Response.json({ skipped: true, reason: `Prix WETH $${livePrice.toFixed(2)} hors range [$${rangeMin}–$${rangeMax}] — cas 1 ou 2 approprié` });
 
-  // 4. Vérifier que la position est ouverte depuis > 6h
+  // 4. Vérifier que la position est ouverte depuis > 12h
   const openedAt  = new Date(lastPos.created_at);
   const ageHours  = (Date.now() - openedAt.getTime()) / 3_600_000;
   if (ageHours < 6)
@@ -369,7 +372,7 @@ async function handleCase3(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat(newRangePct.toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   // 6. Rebalancer si le range actuel de la position est > 1.5x le nouveau range (percentile)
   const actualRangePct = (!isNaN(rangeMin) && !isNaN(rangeMax) && rangeMin > 0)
@@ -672,7 +675,7 @@ async function handleCase4(poolNum = 2) {
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
       newRangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100);
   } catch (_) {}
-  newRangePct = parseFloat(newRangePct.toFixed(2));
+  newRangePct = parseFloat((newRangePct * (poolNum === 3 ? RANGE_COEFF_3 : RANGE_COEFF_2)).toFixed(2));
 
   // Vérifier le solde USDC du wallet (min 50$) — skippe par défaut si lecture impossible
   {

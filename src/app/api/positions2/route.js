@@ -1,13 +1,14 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange, getNextCronAt } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
 import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
 
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
-const WALLET = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
+const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
+const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
 const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -43,8 +44,7 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ];
 
-const CACHE_TTL_MS = 300_000; // 5 minutes
-global._cytPos2Cache = { data: null, time: 0 };
+global._cytPos2Cache = { data: null };
 
 // ── RPC — un seul nœud sélectionné par requête ────────────────────────────────
 
@@ -311,10 +311,10 @@ async function buildPosition(tokenId, ethCall, openData) {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const c = global._cytPos2Cache;
-  if (c.data && Date.now() - c.time < CACHE_TTL_MS) {
+  const cached = await readPositionsCache(2);
+  if (cached) {
     const cronWeth = await getLastTwoPrices();
-    return Response.json({ ...c.data, cronWeth });
+    return Response.json({ ...cached, cronWeth });
   }
 
   try {
@@ -391,8 +391,9 @@ export async function GET() {
           if (wethPriceNum > 0) wethWalletUSD = (wethAmt * wethPriceNum).toFixed(2);
         } catch (_) {}
       } catch (_) {}
-      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD };
-      global._cytPos2Cache = { data, time: Date.now() };
+      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, walletShort };
+      global._cytPos2Cache = { data };
+      await writePositionsCache(2, data);
       return Response.json(data);
     }
 
@@ -516,8 +517,23 @@ export async function GET() {
     const nextCronAt = await getNextCronAt();
     const cronWeth   = await getLastTwoPrices();
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth };
-    global._cytPos2Cache = { data, time: Date.now() };
+    let rebalanceBlock = null;
+    try {
+      const blockRows = await sql`
+        SELECT created_at FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = 2
+          AND created_at > NOW() - INTERVAL '24 hours'
+        ORDER BY created_at ASC
+      `;
+      if (blockRows.length >= 4) {
+        const oldest = new Date(blockRows[0].created_at);
+        rebalanceBlock = { blocked: true, unlockAt: new Date(oldest.getTime() + 24 * 60 * 60 * 1000).toISOString() };
+      }
+    } catch (_) {}
+
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, walletShort, rebalanceBlock };
+    global._cytPos2Cache = { data };
+    await writePositionsCache(2, data);
     return Response.json(data);
 
   } catch (err) {
