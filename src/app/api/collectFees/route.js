@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { writeCollectedToday, writeCollectErr } from "../../lib/cronKv";
+import { writeCollectedToday, writeCollectErr, writeErrorState } from "../../lib/cronKv";
 import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 async function sendErrorEmail(subject, body) {
@@ -338,7 +338,8 @@ export async function POST(req) {
       } catch (e) {
         restakeError = e.message ?? String(e);
         console.log(`[collectFees restake] ${restakeError}`);
-        await sendErrorEmail("[CryptoYieldTracker] Erreur — Restake collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${restakeError}`);
+        await writeErrorState(poolNum, true, `Restake échoué — NFT #${rawTokenId} dans wallet non staké. Relancer via cas 7. Erreur : ${restakeError}`);
+        await sendErrorEmail("[CryptoYieldTracker] Erreur — Restake collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${restakeError}\n\nRelancer avec : autoRebalance?case=7&poolNum=${poolNum}`);
       }
     }
 

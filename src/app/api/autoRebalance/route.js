@@ -71,7 +71,7 @@ async function getPositionState(poolNum) {
 }
 
 async function handleRequest(forceCase, poolNum = 2) {
-  if (![1, 2, 3, 4, 5, 6].includes(forceCase))
+  if (![1, 2, 3, 4, 5, 6, 7].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
   // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
@@ -112,6 +112,7 @@ async function handleRequest(forceCase, poolNum = 2) {
   if (forceCase === 4) return handleCase4(poolNum);
   if (forceCase === 5) return handleCase5(poolNum);
   if (forceCase === 6) return handleCase6(poolNum);
+  if (forceCase === 7) return handleCase7(poolNum);
 }
 
 export async function GET(req) {
@@ -532,6 +533,123 @@ async function handleCase6(poolNum = 2) {
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 6 (collect fees manuel)", `Erreur : ${msg}`);
     return Response.json({ case: 6, error: msg }, { status: 500 });
   }
+}
+
+async function handleCase7(poolNum = 2) {
+  const VOTER = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+  const NFPM  = "0x827922686190790b37229fd06084350E74485b72";
+
+  const VOTER_IFACE = new ethers.Interface(["function gauges(address pool) view returns (address)"]);
+  const NFPM_IFACE  = new ethers.Interface([
+    "function approve(address to, uint256 tokenId)",
+    "function setApprovalForAll(address operator, bool approved)",
+    "function isApprovedForAll(address owner, address operator) view returns (bool)",
+    "function ownerOf(uint256 tokenId) view returns (address)",
+  ]);
+  const GAUGE_IFACE = new ethers.Interface([
+    "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
+    "function deposit(uint256 tokenId)",
+  ]);
+
+  // 1. Lire le tokenId
+  let tokenId, rawTokenId;
+  try {
+    const state = await getPositionState(poolNum);
+    if (!state?.token_id)
+      return Response.json({ error: "Aucun tokenId trouvé en DB/Redis" }, { status: 404 });
+    rawTokenId = state.token_id;
+    tokenId = BigInt(rawTokenId);
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
+  const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+  if (!privateKey)
+    return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
+
+  const provider = new ethers.JsonRpcProvider(RPC_URLS[0]);
+  const wallet   = new ethers.Wallet(privateKey, provider);
+
+  async function waitTx(tx) {
+    try {
+      const r = await tx.wait();
+      if (r?.status === 0) throw new Error("reverted");
+      return r;
+    } catch (_) {
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const r2 = await provider.getTransactionReceipt(tx.hash).catch(() => null);
+        if (r2) {
+          if (r2.status === 0) throw new Error(`revert on-chain (${tx.hash})`);
+          return r2;
+        }
+      }
+      throw new Error(`timeout tx ${tx.hash}`);
+    }
+  }
+
+  // 2. Gauge address
+  let gaugeAddr;
+  try {
+    const h = await provider.call({ to: VOTER, data: VOTER_IFACE.encodeFunctionData("gauges", [POOL_ADDRESS]) });
+    [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", h);
+    if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress) throw new Error("ZeroAddress");
+  } catch (e) {
+    return Response.json({ error: `Gauge introuvable : ${e.message}` }, { status: 500 });
+  }
+
+  // 3. Déjà staké ?
+  try {
+    const h = await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("stakedContains", [wallet.address, tokenId]) });
+    const [isStaked] = GAUGE_IFACE.decodeFunctionResult("stakedContains", h);
+    if (isStaked) {
+      await writeErrorState(poolNum, false);
+      return Response.json({ ok: true, msg: `NFT #${rawTokenId} déjà staké — état erreur réinitialisé`, tokenId: rawTokenId });
+    }
+  } catch (_) {}
+
+  // 4. NFT dans le wallet ?
+  try {
+    const h = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]) });
+    const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", h);
+    if (owner.toLowerCase() !== wallet.address.toLowerCase())
+      return Response.json({ error: `NFT #${rawTokenId} appartient à ${owner}, pas au wallet` }, { status: 400 });
+  } catch (e) {
+    return Response.json({ error: `ownerOf échoué : ${e.message}` }, { status: 500 });
+  }
+
+  // 5. Approve tokenId + setApprovalForAll
+  try {
+    const txApp = await wallet.sendTransaction({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]) });
+    await waitTx(txApp);
+  } catch (e) {
+    return Response.json({ error: `approve tokenId échoué : ${e.message}` }, { status: 500 });
+  }
+  try {
+    const needsAll = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]) })
+      .then(h => { const [v] = NFPM_IFACE.decodeFunctionResult("isApprovedForAll", h); return !v; })
+      .catch(() => true);
+    if (needsAll) {
+      const txAll = await wallet.sendTransaction({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]) });
+      await waitTx(txAll).catch(() => {});
+    }
+  } catch (_) {}
+
+  // 6. Deposit dans le gauge
+  let depositHash;
+  try {
+    let gaugeGas = 300000n;
+    try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); gaugeGas = est * 3n / 2n; } catch (_) {}
+    const txDeposit = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]), gasLimit: gaugeGas });
+    depositHash = txDeposit.hash;
+    await waitTx(txDeposit);
+  } catch (e) {
+    return Response.json({ error: `deposit gauge échoué : ${e.message}` }, { status: 500 });
+  }
+
+  // 7. Effacer l'état d'erreur
+  await writeErrorState(poolNum, false);
+  return Response.json({ ok: true, msg: `NFT #${rawTokenId} restaké avec succès`, txDeposit: depositHash, tokenId: rawTokenId });
 }
 
 async function handleCase4(poolNum = 2) {
