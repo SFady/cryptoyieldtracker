@@ -158,13 +158,22 @@ export async function POST(req) {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
 
-    // 1. Récupérer le tokenId depuis la DB
-    const rows = await sql`
-      SELECT token_id FROM lp_events
-      WHERE action1 = 'CREATE_OK' AND action2 IS NULL
-        AND COALESCE(pool_num, 2) = ${poolNum}
-      ORDER BY id DESC LIMIT 1
-    `;
+    // 1. Récupérer le tokenId depuis la DB (retry sur erreur Neon transitoire)
+    let rows = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        rows = await sql`
+          SELECT token_id FROM lp_events
+          WHERE action1 = 'CREATE_OK' AND action2 IS NULL
+            AND COALESCE(pool_num, 2) = ${poolNum}
+          ORDER BY id DESC LIMIT 1
+        `;
+        break;
+      } catch (e) {
+        if (attempt < 2) { await new Promise(r => setTimeout(r, 2000)); continue; }
+        throw e;
+      }
+    }
     if (rows.length === 0 || !rows[0].token_id)
       return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     rawTokenId = rows[0].token_id;
