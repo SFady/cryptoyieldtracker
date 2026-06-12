@@ -312,7 +312,7 @@ function TestRebalanceSection() {
         <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1.5px", textTransform: "uppercase" }}>
           Tests Rebalance
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {[2, 3].map(n => (
             <button key={n} onClick={() => { setPoolNum(n); setStatus({}); setResults({}); }}
               style={{
@@ -325,24 +325,17 @@ function TestRebalanceSection() {
               Pool {n}
             </button>
           ))}
-        </div>
-      </div>
-
-      {hasError && (
-        <div style={{ marginBottom: 10, padding: "8px 12px", background: "rgba(180,100,100,0.08)", border: "1px solid rgba(180,100,100,0.3)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "#c97070", flex: 1 }}>
-            ⚠ Erreur en base — {lastRow.action1}{lastRow.action2 ? " / " + lastRow.action2 : ""}
-          </span>
           <button onClick={resetError} disabled={resetting} style={{
-            fontFamily: "monospace", fontSize: "0.65rem", fontWeight: 700,
-            padding: "4px 12px", borderRadius: 4, cursor: resetting ? "default" : "pointer",
-            background: "rgba(180,100,100,0.15)", border: "1px solid rgba(180,100,100,0.4)",
-            color: resetting ? "#664444" : "#ff7777",
+            fontFamily: "monospace", fontSize: "0.6rem", fontWeight: 700,
+            padding: "3px 10px", borderRadius: 4, cursor: resetting ? "default" : "pointer",
+            background: "transparent",
+            border: "1px solid rgba(180,100,100,0.35)",
+            color: resetting ? "#664444" : "#aa5555",
           }}>
-            {resetting ? "..." : "↺ Reset"}
+            {resetting ? "..." : "↺ Reset err"}
           </button>
         </div>
-      )}
+      </div>
 
       {REBALANCE_CASES.map(({ num, label, color }) => {
         const isLoading    = status[num] === "loading";
