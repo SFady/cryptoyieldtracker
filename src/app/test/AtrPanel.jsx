@@ -245,8 +245,26 @@ function TestRebalanceSection() {
   }, []);
 
   const hasError = lastRow &&
+    lastRow.action1 !== "FEE_COLLECT" &&
     ((lastRow.action1 && lastRow.action1.includes("ERR")) ||
      (lastRow.action2 && lastRow.action2.includes("ERR")));
+
+  const [resetting, setResetting] = useState(false);
+  async function resetError() {
+    setResetting(true);
+    try {
+      await fetch("/api/reset-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ poolNum }),
+      });
+      const d = await fetch("/api/lpStatus").then(r => r.json());
+      setLastRow(d.lastRow ?? null);
+      setStatus({});
+      setResults({});
+    } catch (_) {}
+    setResetting(false);
+  }
 
   function handleClick(caseNum) {
     if (status[caseNum] === "loading") return;
@@ -309,6 +327,22 @@ function TestRebalanceSection() {
           ))}
         </div>
       </div>
+
+      {hasError && (
+        <div style={{ marginBottom: 10, padding: "8px 12px", background: "rgba(180,100,100,0.08)", border: "1px solid rgba(180,100,100,0.3)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "#c97070", flex: 1 }}>
+            ⚠ Erreur en base — {lastRow.action1}{lastRow.action2 ? " / " + lastRow.action2 : ""}
+          </span>
+          <button onClick={resetError} disabled={resetting} style={{
+            fontFamily: "monospace", fontSize: "0.65rem", fontWeight: 700,
+            padding: "4px 12px", borderRadius: 4, cursor: resetting ? "default" : "pointer",
+            background: "rgba(180,100,100,0.15)", border: "1px solid rgba(180,100,100,0.4)",
+            color: resetting ? "#664444" : "#ff7777",
+          }}>
+            {resetting ? "..." : "↺ Reset"}
+          </button>
+        </div>
+      )}
 
       {REBALANCE_CASES.map(({ num, label, color }) => {
         const isLoading    = status[num] === "loading";
