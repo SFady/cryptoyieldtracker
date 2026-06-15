@@ -740,7 +740,8 @@ async function handleCase7(poolNum = 2) {
     const posData = NFPM_IFACE.decodeFunctionResult("positions", posHex);
     posLiquidity = posData.liquidity.toString();
     if (posData.liquidity === 0n)
-      return Response.json({ error: `NFT #${rawTokenId} a 0 liquidité — position vide, impossible de staker` }, { status: 400 });
+      return await findStakedViaGauge(gaugeAddr, wallet, poolNum) ??
+        Response.json({ error: `NFT #${rawTokenId} a 0 liquidité — position vide, impossible de staker` }, { status: 400 });
   } catch (_) {}
 
   // 6. Simulation deposit + envoi
