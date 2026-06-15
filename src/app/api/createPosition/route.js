@@ -694,7 +694,10 @@ export async function POST(req) {
         data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
       });
       await waitForTx(provider, txApproveId);
-    } catch (e) { throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${e.shortMessage ?? e.message}`); }
+    } catch (e) {
+      // "nonce already used" = la tx approve est déjà on-chain → on continue
+      if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${e.shortMessage ?? e.message}`);
+    }
 
     try {
       let needsApproval = true;
@@ -714,7 +717,10 @@ export async function POST(req) {
         });
         await waitForTx(provider, txAll);
       }
-    } catch (e) { throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`); }
+    } catch (e) {
+      // "nonce already used" = la tx setApprovalForAll est déjà on-chain → on continue
+      if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`);
+    }
 
     // 12. Dépôt dans le gauge
     // Simulation pour capturer le vrai message de revert avant d'envoyer la tx

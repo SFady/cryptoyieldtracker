@@ -546,6 +546,34 @@ async function handleCase8(poolNum = 2) {
   return Response.json({ ok: true, msg: `Erreur COLLECT_ERR réinitialisée pour pool ${poolNum}` });
 }
 
+async function enrichAndSaveLpState(provider, NFPM, NFPM_IFACE, tokenIdBig, rawId, poolNum) {
+  let lpData = { action1: "CREATE_OK", action2: null, token_id: rawId, created_at: new Date().toISOString() };
+  // 1. Données de range depuis le dernier CREATE_OK en DB
+  try {
+    const rows = await sql`
+      SELECT usdc_placed, range_pct, range_min, range_max, usdc_remaining
+      FROM lp_events WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (rows[0]) lpData = { ...lpData, ...rows[0] };
+  } catch (_) {}
+  // 2. Si range toujours manquante, lire les ticks on-chain
+  if (!lpData.range_min || !lpData.range_pct) {
+    try {
+      const posHex = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("positions", [tokenIdBig]) });
+      const pos = NFPM_IFACE.decodeFunctionResult("positions", posHex);
+      const tickToPrice = t => Math.pow(1.0001, Number(t)) * 1e12;
+      const rMin = tickToPrice(pos.tickLower);
+      const rMax = tickToPrice(pos.tickUpper);
+      lpData.range_min  = rMin;
+      lpData.range_max  = rMax;
+      lpData.range_pct  = parseFloat(((rMax / rMin - 1) * 100).toFixed(2));
+      if (!lpData.usdc_placed) lpData.usdc_placed = 300; // valeur par défaut — le vrai budget vient du wallet
+    } catch (_) {}
+  }
+  await writeLpState(poolNum, lpData);
+}
+
 async function findStakedViaGauge(gaugeAddr, wallet, poolNum) {
   try {
     const GAUGE_EXT = new ethers.Interface(["function stakedValues(address depositor) view returns (uint256[])"]);
