@@ -598,8 +598,18 @@ async function handleCase7(poolNum = 2) {
   if (!privateKey)
     return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
 
-  const provider = new ethers.JsonRpcProvider(RPC_URLS[0]);
-  const wallet   = new ethers.Wallet(privateKey, provider);
+  // Trouver un RPC fonctionnel (rotation si Alchemy down)
+  let provider;
+  for (const url of RPC_URLS) {
+    try {
+      const p = new ethers.JsonRpcProvider(url);
+      await p.getBlockNumber();
+      provider = p;
+      break;
+    } catch (_) {}
+  }
+  if (!provider) return Response.json({ error: "Tous les RPCs sont indisponibles" }, { status: 503 });
+  const wallet = new ethers.Wallet(privateKey, provider);
 
   // 1. Lire le tokenId — DB/Redis d'abord, puis scan NFPM wallet si invalide/brûlé
   let tokenId, rawTokenId, dbCandidate;
