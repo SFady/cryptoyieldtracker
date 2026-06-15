@@ -259,8 +259,8 @@ function TestRebalanceSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ poolNum }),
       });
-      const d = await fetch("/api/lpStatus").then(r => r.json());
-      setLastRow(d.lastRow ?? null);
+      // Ne pas re-fetcher le DB (toujours ERR) — null débloque l'UI, l'API Redis est la vraie gate
+      setLastRow(null);
       setStatus({});
       setResults({});
     } catch (_) {}
