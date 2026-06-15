@@ -269,7 +269,8 @@ function TestRebalanceSection() {
 
   function handleClick(caseNum) {
     if (status[caseNum] === "loading") return;
-    if (hasError) {
+    // Cases 7 et 8 sont des actions de recovery — bypass du check erreur côté client
+    if (hasError && caseNum !== 7 && caseNum !== 8) {
       const reason = lastRow.error_msg
         ? lastRow.error_msg.slice(0, 120)
         : `${lastRow.action1}${lastRow.action2 ? " / " + lastRow.action2 : ""}`;
