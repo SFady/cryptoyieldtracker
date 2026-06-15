@@ -85,9 +85,7 @@ async function handleRequest(forceCase, poolNum = 2) {
   if (await checkRedisLock())
     return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
-  // 2. Vérifier l'absence d'erreur (Redis → DB) — Cas 7 (restake) bypasse ce check
-  if (forceCase === 7) return handleCase7(poolNum);
-
+  // 2. Vérifier l'absence d'erreur (Redis → DB)
   try {
     const cached = await readErrorState(poolNum);
     if (cached !== null) {

@@ -240,7 +240,7 @@ export async function POST(req) {
         try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
         const tx = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
         await waitForTx(tx);
-      } catch (e) { throw new Error(`[collect] ${e.message ?? e}`); }
+      } catch (e) { console.log(`[collect] non-bloquant : ${e.message ?? e}`); }
     }
 
     // 6. Swap fees WETH → USDC
