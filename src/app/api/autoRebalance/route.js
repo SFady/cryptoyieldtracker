@@ -575,20 +575,20 @@ async function handleCase7(poolNum = 2) {
   const wallet   = new ethers.Wallet(privateKey, provider);
 
   // 1. Lire le tokenId — DB/Redis d'abord, puis scan NFPM wallet si invalide/brûlé
-  let tokenId, rawTokenId;
+  let tokenId, rawTokenId, dbCandidate;
   try {
     const state = await getPositionState(poolNum);
     if (state?.token_id) {
       const candidate = BigInt(state.token_id);
-      // Vérifier que le NFT est bien dans le wallet (pas brûlé ni re-staké)
       const ownerOk = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("ownerOf", [candidate]) })
         .then(h => { const [o] = NFPM_IFACE.decodeFunctionResult("ownerOf", h); return o.toLowerCase() === wallet.address.toLowerCase(); })
         .catch(() => false);
       if (ownerOk) { tokenId = candidate; rawTokenId = state.token_id; }
+      else { dbCandidate = { id: candidate, raw: state.token_id }; } // NFT pas dans le wallet (peut-être déjà staké)
     }
   } catch (_) {}
 
-  // Fallback : scanner le solde NFPM du wallet pour trouver un NFT WETH/USDC non staké
+  // Scan NFPM wallet si pas trouvé via DB
   if (!tokenId) {
     try {
       const countHex = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("balanceOf", [wallet.address]) });
@@ -607,8 +607,6 @@ async function handleCase7(poolNum = 2) {
         } catch (_) {}
       }
     } catch (_) {}
-    if (!tokenId)
-      return Response.json({ error: "Aucun NFT WETH/USDC trouvé dans le wallet (DB et scan NFPM)" }, { status: 404 });
   }
 
   async function waitTx(tx) {
@@ -638,6 +636,21 @@ async function handleCase7(poolNum = 2) {
   } catch (e) {
     return Response.json({ error: `Gauge introuvable : ${e.message}` }, { status: 500 });
   }
+
+  // 2b. Si wallet vide mais DB a un candidat, vérifier si déjà staké dans le gauge
+  if (!tokenId && dbCandidate) {
+    try {
+      const h = await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("stakedContains", [wallet.address, dbCandidate.id]) });
+      const [isStaked] = GAUGE_IFACE.decodeFunctionResult("stakedContains", h);
+      if (isStaked) {
+        await writeErrorState(poolNum, false);
+        return Response.json({ ok: true, msg: `NFT #${dbCandidate.raw} déjà staké dans le gauge — état erreur réinitialisé`, tokenId: dbCandidate.raw });
+      }
+    } catch (_) {}
+    return Response.json({ error: `NFT #${dbCandidate.raw} introuvable (ni dans le wallet ni dans le gauge)` }, { status: 404 });
+  }
+  if (!tokenId)
+    return Response.json({ error: "Aucun NFT WETH/USDC trouvé (DB vide + wallet vide)" }, { status: 404 });
 
   // 3. Déjà staké ?
   try {
