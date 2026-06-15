@@ -715,9 +715,24 @@ async function handleCase7(poolNum = 2) {
     }
   } catch (_) {}
 
-  // 6. Deposit dans le gauge
+  // 5b. Vérifier la liquidité de la position avant deposit
+  let posLiquidity = "?";
+  try {
+    const posHex = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("positions", [tokenId]) });
+    const posData = NFPM_IFACE.decodeFunctionResult("positions", posHex);
+    posLiquidity = posData.liquidity.toString();
+    if (posData.liquidity === 0n)
+      return Response.json({ error: `NFT #${rawTokenId} a 0 liquidité — position vide, impossible de staker` }, { status: 400 });
+  } catch (_) {}
+
+  // 6. Simulation deposit + envoi
   let depositHash;
   try {
+    try {
+      await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
+    } catch (simErr) {
+      throw new Error(`[simulation] ${simErr.shortMessage ?? simErr.message} | tokenId=${rawTokenId} liquidity=${posLiquidity} gauge=${gaugeAddr}`);
+    }
     let gaugeGas = 300000n;
     try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); gaugeGas = est * 3n / 2n; } catch (_) {}
     const txDeposit = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]), gasLimit: gaugeGas });
