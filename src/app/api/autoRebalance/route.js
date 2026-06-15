@@ -652,8 +652,9 @@ async function handleCase7(poolNum = 2) {
     return Response.json({ error: `Gauge introuvable : ${e.message}` }, { status: 500 });
   }
 
-  // 2b. Si wallet vide mais DB a un candidat, vérifier si déjà staké dans le gauge
+  // 2b. Si wallet vide mais DB a un candidat : vérifier gauge puis ownerOf
   if (!tokenId && dbCandidate) {
+    // Déjà staké ?
     try {
       const h = await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("stakedContains", [wallet.address, dbCandidate.id]) });
       const [isStaked] = GAUGE_IFACE.decodeFunctionResult("stakedContains", h);
@@ -662,7 +663,17 @@ async function handleCase7(poolNum = 2) {
         return Response.json({ ok: true, msg: `NFT #${dbCandidate.raw} déjà staké dans le gauge — état erreur réinitialisé`, tokenId: dbCandidate.raw });
       }
     } catch (_) {}
-    return Response.json({ error: `NFT #${dbCandidate.raw} introuvable (ni dans le wallet ni dans le gauge)` }, { status: 404 });
+    // Peut-être dans le wallet mais scan NFPM raté (RPC flaky) — vérifier ownerOf direct
+    try {
+      const h = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("ownerOf", [dbCandidate.id]) });
+      const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", h);
+      if (owner.toLowerCase() === wallet.address.toLowerCase()) {
+        tokenId = dbCandidate.id;
+        rawTokenId = dbCandidate.raw;
+      }
+    } catch (_) {}
+    if (!tokenId)
+      return Response.json({ error: `NFT #${dbCandidate.raw} introuvable (ni dans le wallet ni dans le gauge)` }, { status: 404 });
   }
   if (!tokenId)
     return Response.json({ error: "Aucun NFT WETH/USDC trouvé (DB vide + wallet vide)" }, { status: 404 });
