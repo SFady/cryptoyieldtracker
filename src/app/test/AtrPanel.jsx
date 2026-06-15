@@ -227,6 +227,7 @@ const REBALANCE_CASES = [
   { num: 4, label: "CAS 4 — Aucune position",      color: "#556688" },
   { num: 5, label: "CAS 5 — Collect auto 7h–8h",  color: "#f97316" },
   { num: 6, label: "CAS 6 — Collect manuel",       color: "#64b4ff" },
+  { num: 7, label: "CAS 7 — Restake NFT",          color: "#00c9a7" },
 ];
 
 function TestRebalanceSection() {
