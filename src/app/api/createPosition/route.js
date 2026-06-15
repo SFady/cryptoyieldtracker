@@ -219,6 +219,8 @@ export async function POST(req) {
   if (!amountUSDC || !minPrice || !maxPrice || !currentPrice)
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });
 
+  let mintedTokenId = null; // hoissé pour être accessible dans le catch
+
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant dans .env.local` }, { status: 500 });
@@ -654,7 +656,7 @@ export async function POST(req) {
         l.topics[0] === TRANSFER_TOPIC &&
         l.topics[1] === "0x0000000000000000000000000000000000000000000000000000000000000000"
       );
-      if (log) tokenId = ethers.toBigInt(log.topics[3]);
+      if (log) { tokenId = ethers.toBigInt(log.topics[3]); mintedTokenId = tokenId; }
     } catch (e) { throw new Error(`[étape 9 – mint] ${e.shortMessage ?? e.message} | ${mintDiag}`); }
 
     if (tokenId == null)
@@ -692,7 +694,7 @@ export async function POST(req) {
         data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
       });
       await waitForTx(provider, txApproveId);
-    } catch (e) { throw new Error(`[étape 11a – approve tokenId] ${e.shortMessage ?? e.message}`); }
+    } catch (e) { throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${e.shortMessage ?? e.message}`); }
 
     try {
       let needsApproval = true;
@@ -801,6 +803,7 @@ export async function POST(req) {
       range_min: minPrice ?? null,
       range_max: maxPrice ?? null,
       range_pct: rangePct,
+      token_id:  mintedTokenId?.toString() ?? null,
       error_msg: msg,
       pool_num:  poolNum ?? null,
       type:      caseNum ?? null,

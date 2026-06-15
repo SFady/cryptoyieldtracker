@@ -556,23 +556,16 @@ async function handleCase7(poolNum = 2) {
     "function setApprovalForAll(address operator, bool approved)",
     "function isApprovedForAll(address owner, address operator) view returns (bool)",
     "function ownerOf(uint256 tokenId) view returns (address)",
+    "function balanceOf(address owner) view returns (uint256)",
+    "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+    "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
   ]);
   const GAUGE_IFACE = new ethers.Interface([
     "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
     "function deposit(uint256 tokenId)",
   ]);
-
-  // 1. Lire le tokenId
-  let tokenId, rawTokenId;
-  try {
-    const state = await getPositionState(poolNum);
-    if (!state?.token_id)
-      return Response.json({ error: "Aucun tokenId trouvé en DB/Redis" }, { status: 404 });
-    rawTokenId = state.token_id;
-    tokenId = BigInt(rawTokenId);
-  } catch (e) {
-    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
-  }
+  const WETH_ADDR = "0x4200000000000000000000000000000000000006";
+  const USDC_ADDR = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
   const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
   if (!privateKey)
@@ -580,6 +573,43 @@ async function handleCase7(poolNum = 2) {
 
   const provider = new ethers.JsonRpcProvider(RPC_URLS[0]);
   const wallet   = new ethers.Wallet(privateKey, provider);
+
+  // 1. Lire le tokenId — DB/Redis d'abord, puis scan NFPM wallet si invalide/brûlé
+  let tokenId, rawTokenId;
+  try {
+    const state = await getPositionState(poolNum);
+    if (state?.token_id) {
+      const candidate = BigInt(state.token_id);
+      // Vérifier que le NFT est bien dans le wallet (pas brûlé ni re-staké)
+      const ownerOk = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("ownerOf", [candidate]) })
+        .then(h => { const [o] = NFPM_IFACE.decodeFunctionResult("ownerOf", h); return o.toLowerCase() === wallet.address.toLowerCase(); })
+        .catch(() => false);
+      if (ownerOk) { tokenId = candidate; rawTokenId = state.token_id; }
+    }
+  } catch (_) {}
+
+  // Fallback : scanner le solde NFPM du wallet pour trouver un NFT WETH/USDC non staké
+  if (!tokenId) {
+    try {
+      const countHex = await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("balanceOf", [wallet.address]) });
+      const [count] = NFPM_IFACE.decodeFunctionResult("balanceOf", countHex);
+      for (let i = 0n; i < count; i++) {
+        try {
+          const [tid] = NFPM_IFACE.decodeFunctionResult("tokenOfOwnerByIndex",
+            await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("tokenOfOwnerByIndex", [wallet.address, i]) }));
+          const pos = NFPM_IFACE.decodeFunctionResult("positions",
+            await provider.call({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("positions", [tid]) }));
+          if (pos.token0.toLowerCase() === WETH_ADDR.toLowerCase() &&
+              pos.token1.toLowerCase() === USDC_ADDR.toLowerCase() &&
+              pos.liquidity > 0n) {
+            tokenId = tid; rawTokenId = tid.toString(); break;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    if (!tokenId)
+      return Response.json({ error: "Aucun NFT WETH/USDC trouvé dans le wallet (DB et scan NFPM)" }, { status: 404 });
+  }
 
   async function waitTx(tx) {
     try {
