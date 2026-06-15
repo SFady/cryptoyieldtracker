@@ -609,6 +609,21 @@ async function handleCase7(poolNum = 2) {
     } catch (_) {}
   }
 
+  // Fallback DB étendu : chercher le dernier token_id connu toutes actions confondues (CREATE_ERR inclus)
+  if (!tokenId && !dbCandidate) {
+    try {
+      const rows = await sql`
+        SELECT token_id FROM lp_events
+        WHERE token_id IS NOT NULL AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (rows[0]?.token_id) {
+        const candidate = BigInt(rows[0].token_id);
+        dbCandidate = { id: candidate, raw: rows[0].token_id };
+      }
+    } catch (_) {}
+  }
+
   async function waitTx(tx) {
     try {
       const r = await tx.wait();
