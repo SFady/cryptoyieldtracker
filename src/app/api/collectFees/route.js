@@ -383,11 +383,16 @@ export async function POST(req) {
 
   } catch (e) {
     const msg = e.message ?? String(e);
-    try {
-      await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('FEE_COLLECT', 'COLLECT_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
-      await writeCollectErr(poolNum, true);
-    } catch (_) {}
-    await sendErrorEmail("[CryptoYieldTracker] Erreur — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}`);
+    // Ne bloquer Case 5 que si une opération on-chain a échoué (rawTokenId lu = on a tenté quelque chose)
+    // Si rawTokenId=null, c'est une erreur DB/infra avant toute opération → retry automatique au prochain cron
+    const isInfraError = rawTokenId === null || msg.includes("Control plane request failed") || msg.includes("neon:retryable");
+    if (!isInfraError) {
+      try {
+        await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('FEE_COLLECT', 'COLLECT_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
+        await writeCollectErr(poolNum, true);
+      } catch (_) {}
+    }
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}${isInfraError ? "\n\n⚠ Erreur infra/DB transitoire — retry automatique au prochain cron" : ""}`);
     return Response.json({ error: msg }, { status: 500 });
   }
 }

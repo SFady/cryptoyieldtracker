@@ -74,8 +74,12 @@ async function getPositionState(poolNum) {
 }
 
 async function handleRequest(forceCase, poolNum = 2) {
-  if (![1, 2, 3, 4, 5, 6, 7].includes(forceCase))
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
+
+  // Cases de recovery — bypass des checks lock/erreur
+  if (forceCase === 7) return handleCase7(poolNum);
+  if (forceCase === 8) return handleCase8(poolNum);
 
   // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
   if (await checkRedisLock())
@@ -537,6 +541,11 @@ async function handleCase6(poolNum = 2) {
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 6 (collect fees manuel)", `Erreur : ${msg}`);
     return Response.json({ case: 6, error: msg }, { status: 500 });
   }
+}
+
+async function handleCase8(poolNum = 2) {
+  await writeCollectErr(poolNum, false);
+  return Response.json({ ok: true, msg: `Erreur COLLECT_ERR réinitialisée pour pool ${poolNum}` });
 }
 
 async function handleCase7(poolNum = 2) {
