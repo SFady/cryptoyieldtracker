@@ -302,6 +302,8 @@ function TestRebalanceSection() {
       const json = await res.json();
       setStatus(s => ({ ...s, [caseNum]: res.ok && json.ok !== false ? "ok" : "error" }));
       setResults(r => ({ ...r, [caseNum]: JSON.stringify(json, null, 2) }));
+      // Cas de recovery : si succès, débloquer l'UI sans attendre un refresh DB
+      if ((caseNum === 7 || caseNum === 8) && res.ok && json.ok) setLastRow(null);
     } catch (e) {
       setStatus(s => ({ ...s, [caseNum]: "error" }));
       setResults(r => ({ ...r, [caseNum]: e.message }));
