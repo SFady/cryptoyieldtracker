@@ -546,6 +546,22 @@ async function handleCase8(poolNum = 2) {
   return Response.json({ ok: true, msg: `Erreur COLLECT_ERR réinitialisée pour pool ${poolNum}` });
 }
 
+async function findStakedViaGauge(gaugeAddr, wallet, poolNum) {
+  try {
+    const GAUGE_EXT = new ethers.Interface(["function stakedValues(address depositor) view returns (uint256[])"]);
+    const h = await wallet.provider.call({ to: gaugeAddr, data: GAUGE_EXT.encodeFunctionData("stakedValues", [wallet.address]) });
+    const [ids] = GAUGE_EXT.decodeFunctionResult("stakedValues", h);
+    if (!ids || ids.length === 0) return null;
+    const stId = ids[0];
+    const raw  = stId.toString();
+    await writeErrorState(poolNum, false);
+    await writeLpState(poolNum, { action1: "CREATE_OK", action2: null, token_id: raw, created_at: new Date().toISOString() });
+    return Response.json({ ok: true, msg: `NFT #${raw} trouvé staké dans le gauge via stakedValues — erreur et lpState réinitialisés`, tokenId: raw });
+  } catch (_) {
+    return null;
+  }
+}
+
 async function handleCase7(poolNum = 2) {
   const VOTER = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
   const NFPM  = "0x827922686190790b37229fd06084350E74485b72";
@@ -673,10 +689,12 @@ async function handleCase7(poolNum = 2) {
       }
     } catch (_) {}
     if (!tokenId)
-      return Response.json({ error: `NFT #${dbCandidate.raw} introuvable (ni dans le wallet ni dans le gauge)` }, { status: 404 });
+      return await findStakedViaGauge(gaugeAddr, wallet, poolNum) ??
+        Response.json({ error: `NFT #${dbCandidate.raw} introuvable (ni dans le wallet ni dans le gauge)` }, { status: 404 });
   }
   if (!tokenId)
-    return Response.json({ error: "Aucun NFT WETH/USDC trouvé (DB vide + wallet vide)" }, { status: 404 });
+    return await findStakedViaGauge(gaugeAddr, wallet, poolNum) ??
+      Response.json({ error: "Aucun NFT WETH/USDC trouvé (DB vide + wallet vide)" }, { status: 404 });
 
   // 3. Déjà staké ?
   try {
