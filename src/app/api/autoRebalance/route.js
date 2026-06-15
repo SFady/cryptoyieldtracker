@@ -554,8 +554,19 @@ async function findStakedViaGauge(gaugeAddr, wallet, poolNum) {
     if (!ids || ids.length === 0) return null;
     const stId = ids[0];
     const raw  = stId.toString();
+    // Enrichir avec les données de range du dernier CREATE_OK pour que les cas 1/2/3 aient usdc_placed/range_pct/range_min/range_max
+    let lpData = { action1: "CREATE_OK", action2: null, token_id: raw, created_at: new Date().toISOString() };
+    try {
+      const rows = await sql`
+        SELECT usdc_placed, range_pct, range_min, range_max, usdc_remaining
+        FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (rows[0]) lpData = { ...lpData, ...rows[0] };
+    } catch (_) {}
     await writeErrorState(poolNum, false);
-    await writeLpState(poolNum, { action1: "CREATE_OK", action2: null, token_id: raw, created_at: new Date().toISOString() });
+    await writeLpState(poolNum, lpData);
     return Response.json({ ok: true, msg: `NFT #${raw} trouvé staké dans le gauge via stakedValues — erreur et lpState réinitialisés`, tokenId: raw });
   } catch (_) {
     return null;
