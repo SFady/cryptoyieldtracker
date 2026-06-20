@@ -329,7 +329,7 @@ export async function POST(req) {
         const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
         const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
         console.log(`[collectFees] before=${usdcBefore} after=${usdcAfter} delta=${delta} dest=${dest}`);
-        const toSend = delta * 75n / 100n;
+        const toSend = delta / 2n;
         if (toSend > 0n) {
           const txTransfer = await wallet.sendTransaction({
             to:   USDC,
