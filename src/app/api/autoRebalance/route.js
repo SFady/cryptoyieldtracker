@@ -73,12 +73,12 @@ async function getPositionState(poolNum) {
   return state;
 }
 
-async function handleRequest(forceCase, poolNum = 2) {
+async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null) {
   if (![1, 2, 3, 4, 5, 6, 7, 8].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
   // Cases de recovery — bypass des checks lock/erreur
-  if (forceCase === 7) return handleCase7(poolNum);
+  if (forceCase === 7) return handleCase7(poolNum, overrideTokenId);
   if (forceCase === 8) return handleCase8(poolNum);
 
   // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
@@ -129,8 +129,8 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
-  const { forceCase, poolNum } = await req.json().catch(() => ({}));
-  return handleRequest(forceCase, poolNum ?? 2);
+  const { forceCase, poolNum, overrideTokenId } = await req.json().catch(() => ({}));
+  return handleRequest(forceCase, poolNum ?? 2, overrideTokenId ?? null);
 }
 
 async function handleCase1(poolNum = 2) {
@@ -601,7 +601,7 @@ async function findStakedViaGauge(gaugeAddr, wallet, poolNum) {
   }
 }
 
-async function handleCase7(poolNum = 2) {
+async function handleCase7(poolNum = 2, overrideTokenId = null) {
   const VOTER = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
   const NFPM  = "0x827922686190790b37229fd06084350E74485b72";
 
@@ -639,9 +639,13 @@ async function handleCase7(poolNum = 2) {
   if (!provider) return Response.json({ error: "Tous les RPCs sont indisponibles" }, { status: 503 });
   const wallet = new ethers.Wallet(privateKey, provider);
 
-  // 1. Lire le tokenId — DB/Redis d'abord, puis scan NFPM wallet si invalide/brûlé
+  // 1. Lire le tokenId — override manuel, sinon DB/Redis, puis scan NFPM wallet
   let tokenId, rawTokenId, dbCandidate;
-  try {
+  if (overrideTokenId) {
+    tokenId    = BigInt(overrideTokenId);
+    rawTokenId = String(overrideTokenId);
+  }
+  if (!tokenId) try {
     const state = await getPositionState(poolNum);
     if (state?.token_id) {
       const candidate = BigInt(state.token_id);

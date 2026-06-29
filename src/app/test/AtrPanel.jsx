@@ -236,6 +236,9 @@ function TestRebalanceSection() {
   const [results,    setResults]    = useState({});
   const [confirming, setConfirming] = useState({});
   const [lastRow,    setLastRow]    = useState(undefined);
+  const [tokenId7,   setTokenId7]   = useState(() => {
+    try { return localStorage.getItem("cas7-tokenId") ?? ""; } catch { return ""; }
+  });
   const timers = useRef({});
 
   useEffect(() => {
@@ -294,10 +297,15 @@ function TestRebalanceSection() {
     setStatus(s => ({ ...s, [caseNum]: "loading" }));
     setResults(r => ({ ...r, [caseNum]: "" }));
     try {
+      const body = { forceCase: caseNum, poolNum };
+      if (caseNum === 7 && tokenId7.trim()) {
+        body.overrideTokenId = tokenId7.trim();
+        try { localStorage.setItem("cas7-tokenId", tokenId7.trim()); } catch {}
+      }
       const res  = await fetch("/api/autoRebalance", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ forceCase: caseNum, poolNum }),
+        body:    JSON.stringify(body),
       });
       const json = await res.json();
       setStatus(s => ({ ...s, [caseNum]: res.ok && json.ok !== false ? "ok" : "error" }));
@@ -367,6 +375,20 @@ function TestRebalanceSection() {
             </div>
 
             <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {num === 7 && (
+                <input
+                  value={tokenId7}
+                  onChange={e => setTokenId7(e.target.value)}
+                  placeholder="TokenId (optionnel — sinon DB)"
+                  style={{
+                    fontFamily: "monospace", fontSize: "0.72rem",
+                    padding: "6px 10px", borderRadius: 5,
+                    background: "rgba(0,201,167,0.07)",
+                    border: "1px solid rgba(0,201,167,0.3)",
+                    color: "#00c9a7", outline: "none", width: "100%", boxSizing: "border-box",
+                  }}
+                />
+              )}
               <button
                 onClick={() => handleClick(num)}
                 disabled={isLoading}
