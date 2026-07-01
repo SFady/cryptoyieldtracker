@@ -903,7 +903,7 @@ function HyperliquidCancelAllSection() {
 
   const color    = "#ff5c5c";
   const btnColor = confirming ? "#f0b429" : color;
-  const btnLabel = status === "loading" ? "..." : confirming ? "⚠ CONFIRMER ?" : "✕ Annuler tous les ordres";
+  const btnLabel = status === "loading" ? "..." : confirming ? "⚠ CONFIRMER ?" : "✕ Annuler ordres + fermer positions";
 
   return (
     <div style={{ marginTop: 10 }}>
@@ -921,7 +921,7 @@ function HyperliquidCancelAllSection() {
           letterSpacing: "1.5px", textTransform: "uppercase",
           color, fontWeight: 600,
         }}>
-          CANCEL ALL ORDERS — HYPERLIQUID
+          CANCEL ORDERS + CLOSE POSITIONS — HYPERLIQUID
         </div>
 
         <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>

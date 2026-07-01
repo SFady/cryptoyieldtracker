@@ -152,7 +152,7 @@ export async function POST(req) {
         p: slLimit,
         s: sizeStr,
         r: true,
-        t: { trigger: { isMarket: true, tpsl: "sl", triggerPx: slTrigger } },
+        t: { trigger: { isMarket: true, tpsl: "sl", triggerPx: parseFloat(slTrigger) } },
       }],
       grouping: "normalTpsl",
     }, nonce3);

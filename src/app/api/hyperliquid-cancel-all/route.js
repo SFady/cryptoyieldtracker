@@ -77,30 +77,61 @@ export async function POST() {
   const wallet  = new ethers.Wallet(privateKey);
   const address = wallet.address;
 
-  const [openOrders, meta] = await Promise.all([
-    hlInfo({ type: "openOrders", user: address }),
+  const [openOrders, state, meta, mids] = await Promise.all([
+    hlInfo({ type: "openOrders",        user: address }),
+    hlInfo({ type: "clearinghouseState", user: address }),
     hlInfo({ type: "meta" }),
+    hlInfo({ type: "allMids" }),
   ]);
 
-  if (!Array.isArray(openOrders) || openOrders.length === 0)
-    return Response.json({ ok: true, cancelled: 0, message: "Aucun ordre ouvert" });
+  const coinToIdx      = {};
+  const coinToDecimals = {};
+  meta.universe.forEach((a, i) => {
+    coinToIdx[a.name]      = i;
+    coinToDecimals[a.name] = a.szDecimals ?? 4;
+  });
 
-  const coinToIdx = {};
-  meta.universe.forEach((a, i) => { coinToIdx[a.name] = i; });
-
-  const cancels = openOrders
+  // 1. Cancel open orders
+  let cancelResult = null;
+  const cancels = (Array.isArray(openOrders) ? openOrders : [])
     .filter(o => coinToIdx[o.coin] !== undefined)
     .map(o => ({ a: coinToIdx[o.coin], o: o.oid }));
 
-  if (cancels.length === 0)
-    return Response.json({ ok: true, cancelled: 0, message: "Aucun ordre annulable" });
+  if (cancels.length > 0) {
+    cancelResult = await signAndSend(wallet, { type: "cancel", cancels }, Date.now());
+  }
 
-  const nonce  = Date.now();
-  const result = await signAndSend(wallet, { type: "cancel", cancels }, nonce);
+  // 2. Close open positions (IoC market close, reduce only)
+  const positions = (state.assetPositions ?? []).filter(p => parseFloat(p.position.szi) !== 0);
+  const closeResults = [];
+
+  for (const { position } of positions) {
+    const coin  = position.coin;
+    const szi   = parseFloat(position.szi);
+    const isBuy = szi < 0;
+    const size  = Math.abs(szi).toFixed(coinToDecimals[coin] ?? 4);
+    const mid   = parseFloat(mids[coin]);
+    if (!mid || coinToIdx[coin] === undefined) {
+      closeResults.push({ coin, error: "asset ou prix introuvable" });
+      continue;
+    }
+    const rawPrice   = isBuy ? mid * 1.04 : mid * 0.96;
+    const closePrice = (Math.round(rawPrice / 0.1) * 0.1).toFixed(1);
+
+    const result = await signAndSend(wallet, {
+      type:   "order",
+      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
+      grouping: "na",
+    }, Date.now());
+
+    closeResults.push({ coin, szi, size, closePrice, result });
+  }
 
   return Response.json({
-    ok:        result.status === "ok",
-    cancelled: cancels.length,
-    result,
+    ok:           true,
+    cancelled:    cancels.length,
+    cancelResult,
+    closed:       closeResults.length,
+    closeResults,
   });
 }
