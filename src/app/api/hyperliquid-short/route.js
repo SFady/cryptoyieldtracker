@@ -99,7 +99,7 @@ export async function POST(req) {
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC + Stop loss à +5% en un seul appel (normalTpsl exige un ordre principal non-trigger)
+  // 2. Short IoC + SL à +5% en un seul appel atomique
   const slTrigger = normPx(ethPrice * 1.05);
   const slLimit   = normPx(ethPrice * 1.05 * 1.02);
 
@@ -107,7 +107,7 @@ export async function POST(req) {
     type: "order",
     orders: [
       { a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } },
-      { a: assetIdx, b: true,  p: slLimit,  s: sizeStr, r: true,
+      { a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
         t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
     ],
     grouping: "normalTpsl",
@@ -116,9 +116,9 @@ export async function POST(req) {
   if (combinedResult.status !== "ok")
     return Response.json({ error: `order échoué : ${JSON.stringify(combinedResult)}` }, { status: 500 });
 
-  const statuses   = combinedResult?.response?.data?.statuses ?? [];
-  const ioStatus   = statuses[0];
-  const slStatus   = statuses[1];
+  const statuses  = combinedResult?.response?.data?.statuses ?? [];
+  const ioStatus  = statuses[0];
+  const slStatus  = statuses[1];
 
   if (ioStatus?.error)
     return Response.json({ error: `IoC rejeté : ${ioStatus.error}`, combinedResult }, { status: 500 });
