@@ -20,16 +20,13 @@ async function hlInfo(body) {
 function buildConnectionId(action, nonce) {
   const msgPackBytes = encode(action);
 
-  const nonceHex   = nonce.toString(16).padStart(16, "0");
-  const nonceBytes = ethers.getBytes("0x" + nonceHex);
-  const zeroAddr   = new Uint8Array(20);
+  // layout: msgpack(action) | nonce(8B big-endian) | 0x00 (null vault flag)
+  const data = new Uint8Array(msgPackBytes.length + 9);
+  data.set(msgPackBytes, 0);
+  new DataView(data.buffer).setBigUint64(msgPackBytes.length, BigInt(nonce), false);
+  data[msgPackBytes.length + 8] = 0;
 
-  const combined = new Uint8Array(msgPackBytes.length + 8 + 20);
-  combined.set(msgPackBytes, 0);
-  combined.set(nonceBytes, msgPackBytes.length);
-  combined.set(zeroAddr, msgPackBytes.length + 8);
-
-  return ethers.keccak256(combined);
+  return ethers.keccak256(data);
 }
 
 async function signAndSend(wallet, action, nonce) {
