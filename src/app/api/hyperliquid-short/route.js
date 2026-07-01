@@ -122,7 +122,7 @@ export async function POST(req) {
       type: "order",
       orders: [{
         a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
-        t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } },
+        t: { trigger: { isMarket: true, triggerPx: parseFloat(slTrigger), tpsl: "sl" } },
       }],
       grouping: "normalTpsl",
     }, Date.now());
