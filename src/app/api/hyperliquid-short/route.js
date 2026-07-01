@@ -98,7 +98,7 @@ export async function POST(req) {
   const [ethPrice, assetIdx] = await Promise.all([getEthMidPrice(), getEthAssetIndex()]);
 
   const lev      = Math.max(1, Math.min(50, Math.round(leverage)));
-  const sizeEth  = sizeUsd / ethPrice;
+  const sizeEth  = Math.ceil((sizeUsd / ethPrice) * 10000) / 10000;
   const sizeStr  = sizeEth.toFixed(4);
   // ETH tick size = 0.1 → 1 decimal max
   const roundTick = (n) => (Math.round(n / 0.1) * 0.1).toFixed(1);
