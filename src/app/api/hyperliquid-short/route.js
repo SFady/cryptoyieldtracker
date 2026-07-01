@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { signL1Action } from "@nktkas/hyperliquid/signing";
+import { encode } from "@msgpack/msgpack";
 
 export const runtime     = "nodejs";
 export const maxDuration = 60;
@@ -31,16 +31,36 @@ async function getEthMidPrice() {
   return price;
 }
 
-async function signAndSend(wallet, action, nonce) {
-  const sig = await signL1Action({ wallet, action, nonce });
+function buildConnectionId(action, nonce) {
+  const msgPackBytes = encode(action);
+  const data = new Uint8Array(msgPackBytes.length + 9);
+  data.set(msgPackBytes, 0);
+  new DataView(data.buffer).setBigUint64(msgPackBytes.length, BigInt(nonce), false);
+  data[msgPackBytes.length + 8] = 0;
+  return ethers.keccak256(data);
+}
 
+async function signAndSend(wallet, action, nonce) {
+  const connectionId = buildConnectionId(action, nonce);
+  const sig = await wallet.signTypedData(
+    { chainId: 1337, name: "Exchange", verifyingContract: "0x0000000000000000000000000000000000000000", version: "1" },
+    { Agent: [{ name: "source", type: "string" }, { name: "connectionId", type: "bytes32" }] },
+    { source: "a", connectionId }
+  );
+  const { r, s, v } = ethers.Signature.from(sig);
   const res = await fetch(HL_EXCHANGE, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action, nonce, signature: { r: sig.r, s: sig.s, v: sig.v }, vaultAddress: null }),
+    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
     signal:  AbortSignal.timeout(15000),
   });
   return res.json();
+}
+
+// Supprime le zéro de fin : "2835.0" → "2835", "2835.5" → "2835.5"
+function normPx(n) {
+  const s = (Math.round(n / 0.1) * 0.1).toFixed(1);
+  return s.endsWith(".0") ? s.slice(0, -2) : s;
 }
 
 export async function GET() {
@@ -64,30 +84,25 @@ export async function POST(req) {
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
 
   const wallet = new ethers.Wallet(privateKey);
-
   const [ethPrice, assetIdx] = await Promise.all([getEthMidPrice(), getEthAssetIndex()]);
 
   const lev      = Math.max(1, Math.min(50, Math.round(leverage)));
   const sizeEth  = Math.ceil((sizeUsd / ethPrice) * 10000) / 10000;
   const sizeStr  = sizeEth.toFixed(4);
-  const roundTick = (n) => (Math.round(n / 0.1) * 0.1).toFixed(1);
-  const priceStr  = roundTick(ethPrice * 0.98);
+  const priceStr = normPx(ethPrice * 0.98);
 
   // 1. Set isolated leverage
   const levResult = await signAndSend(wallet, {
-    type:     "updateLeverage",
-    asset:    assetIdx,
-    isCross:  false,
-    leverage: lev,
+    type: "updateLeverage", asset: assetIdx, isCross: false, leverage: lev,
   }, Date.now());
 
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC (market equivalent)
+  // 2. Short IoC
   const orderResult = await signAndSend(wallet, {
-    type:     "order",
-    orders:   [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
+    type: "order",
+    orders: [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
     grouping: "na",
   }, Date.now());
 
@@ -98,21 +113,21 @@ export async function POST(req) {
   if (orderStatus?.error)
     return Response.json({ error: `order rejeté : ${orderStatus.error}`, orderResult }, { status: 500 });
 
-  // 3. Stop loss à +5% (clés dans l'ordre du schema : isMarket → triggerPx → tpsl)
-  const slTrigger = roundTick(ethPrice * 1.05);
-  const slLimit   = roundTick(ethPrice * 1.05 * 1.02);
+  // 3. Stop loss à +5% (clés dans l'ordre du schéma : isMarket → triggerPx → tpsl)
+  const slTrigger = normPx(ethPrice * 1.05);
+  const slLimit   = normPx(ethPrice * 1.05 * 1.02);
   let slResult    = null;
   try {
     slResult = await signAndSend(wallet, {
-      type:     "order",
-      orders:   [{
+      type: "order",
+      orders: [{
         a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
         t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } },
       }],
       grouping: "normalTpsl",
     }, Date.now());
   } catch (e) {
-    console.error("[hl-short] SL failed:", e.message);
+    slResult = { error: e.message };
   }
 
   return Response.json({
@@ -122,7 +137,8 @@ export async function POST(req) {
     sizeUsd,
     leverage:  lev,
     priceIoC:  parseFloat(priceStr),
-    slPrice:   parseFloat(slTrigger),
+    slTrigger: parseFloat(slTrigger),
+    slLimit:   parseFloat(slLimit),
     orderResult,
     slResult,
   });
