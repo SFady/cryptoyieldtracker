@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { encode } from "@msgpack/msgpack";
+import { signL1Action } from "@nktkas/hyperliquid/signing";
 
 export const runtime     = "nodejs";
 export const maxDuration = 60;
@@ -31,43 +31,13 @@ async function getEthMidPrice() {
   return price;
 }
 
-function buildConnectionId(action, nonce) {
-  const msgPackBytes = encode(action);
-
-  // layout: msgpack(action) | nonce(8B big-endian) | 0x00 (null vault flag)
-  const data = new Uint8Array(msgPackBytes.length + 9);
-  data.set(msgPackBytes, 0);
-  new DataView(data.buffer).setBigUint64(msgPackBytes.length, BigInt(nonce), false);
-  data[msgPackBytes.length + 8] = 0;
-
-  return ethers.keccak256(data);
-}
-
 async function signAndSend(wallet, action, nonce) {
-  const connectionId = buildConnectionId(action, nonce);
-
-  const sig = await wallet.signTypedData(
-    {
-      chainId:           1337,
-      name:              "Exchange",
-      verifyingContract: "0x0000000000000000000000000000000000000000",
-      version:           "1",
-    },
-    {
-      Agent: [
-        { name: "source",       type: "string"  },
-        { name: "connectionId", type: "bytes32" },
-      ],
-    },
-    { source: "a", connectionId }
-  );
-
-  const { r, s, v } = ethers.Signature.from(sig);
+  const sig = await signL1Action({ wallet, action, nonce });
 
   const res = await fetch(HL_EXCHANGE, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
+    body:    JSON.stringify({ action, nonce, signature: { r: sig.r, s: sig.s, v: sig.v }, vaultAddress: null }),
     signal:  AbortSignal.timeout(15000),
   });
   return res.json();
@@ -100,29 +70,26 @@ export async function POST(req) {
   const lev      = Math.max(1, Math.min(50, Math.round(leverage)));
   const sizeEth  = Math.ceil((sizeUsd / ethPrice) * 10000) / 10000;
   const sizeStr  = sizeEth.toFixed(4);
-  // ETH tick size = 0.1 → 1 decimal max
   const roundTick = (n) => (Math.round(n / 0.1) * 0.1).toFixed(1);
   const priceStr  = roundTick(ethPrice * 0.98);
 
   // 1. Set isolated leverage
-  const nonce1    = Date.now();
   const levResult = await signAndSend(wallet, {
     type:     "updateLeverage",
     asset:    assetIdx,
     isCross:  false,
     leverage: lev,
-  }, nonce1);
+  }, Date.now());
 
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
   // 2. Short IoC (market equivalent)
-  const nonce2      = Date.now();
   const orderResult = await signAndSend(wallet, {
-    type:   "order",
-    orders: [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
+    type:     "order",
+    orders:   [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
     grouping: "na",
-  }, nonce2);
+  }, Date.now());
 
   if (orderResult.status !== "ok")
     return Response.json({ error: `order échoué : ${JSON.stringify(orderResult)}` }, { status: 500 });
@@ -131,20 +98,19 @@ export async function POST(req) {
   if (orderStatus?.error)
     return Response.json({ error: `order rejeté : ${orderStatus.error}`, orderResult }, { status: 500 });
 
-  // 3. Stop loss à +5% — clés dans l'ordre du schema : isMarket → triggerPx → tpsl
+  // 3. Stop loss à +5% (clés dans l'ordre du schema : isMarket → triggerPx → tpsl)
   const slTrigger = roundTick(ethPrice * 1.05);
   const slLimit   = roundTick(ethPrice * 1.05 * 1.02);
-  const nonce3    = Date.now();
   let slResult    = null;
   try {
     slResult = await signAndSend(wallet, {
-      type:   "order",
-      orders: [{
+      type:     "order",
+      orders:   [{
         a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
         t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } },
       }],
       grouping: "normalTpsl",
-    }, nonce3);
+    }, Date.now());
   } catch (e) {
     console.error("[hl-short] SL failed:", e.message);
   }

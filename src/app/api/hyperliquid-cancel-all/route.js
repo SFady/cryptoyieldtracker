@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { encode } from "@msgpack/msgpack";
+import { signL1Action } from "@nktkas/hyperliquid/signing";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -17,43 +17,13 @@ async function hlInfo(body) {
   return res.json();
 }
 
-function buildConnectionId(action, nonce) {
-  const msgPackBytes = encode(action);
-
-  // layout: msgpack(action) | nonce(8B big-endian) | 0x00 (null vault flag)
-  const data = new Uint8Array(msgPackBytes.length + 9);
-  data.set(msgPackBytes, 0);
-  new DataView(data.buffer).setBigUint64(msgPackBytes.length, BigInt(nonce), false);
-  data[msgPackBytes.length + 8] = 0;
-
-  return ethers.keccak256(data);
-}
-
 async function signAndSend(wallet, action, nonce) {
-  const connectionId = buildConnectionId(action, nonce);
-
-  const sig = await wallet.signTypedData(
-    {
-      chainId:           1337,
-      name:              "Exchange",
-      verifyingContract: "0x0000000000000000000000000000000000000000",
-      version:           "1",
-    },
-    {
-      Agent: [
-        { name: "source",       type: "string"  },
-        { name: "connectionId", type: "bytes32" },
-      ],
-    },
-    { source: "a", connectionId }
-  );
-
-  const { r, s, v } = ethers.Signature.from(sig);
+  const sig = await signL1Action({ wallet, action, nonce });
 
   const res = await fetch(HL_EXCHANGE, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
+    body:    JSON.stringify({ action, nonce, signature: { r: sig.r, s: sig.s, v: sig.v }, vaultAddress: null }),
     signal:  AbortSignal.timeout(15000),
   });
   return res.json();
