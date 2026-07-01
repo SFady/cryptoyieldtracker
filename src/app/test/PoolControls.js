@@ -54,8 +54,21 @@ export default function PoolControls() {
           body: JSON.stringify({ poolNum, noTransfer: true }),
         });
         const data = await res.json();
-        if (res.ok) setResult({ ok: true,  msg: `Fermé ✓ — ${data.collected?.length ?? 0} position(s)` });
-        else        setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+        if (!res.ok) { setResult({ ok: false, msg: data.error ?? JSON.stringify(data) }); return; }
+
+        // Fermer aussi les positions Hyperliquid (pool 2 uniquement)
+        if (poolNum === 2) {
+          try {
+            const hlRes  = await fetch("/api/hyperliquid-cancel-all", { method: "POST" });
+            const hlData = await hlRes.json();
+            if (!hlRes.ok) throw new Error(hlData?.error ?? JSON.stringify(hlData));
+            setResult({ ok: true, msg: `Fermé ✓ — ${data.collected?.length ?? 0} position(s) · Hyperliquid fermé` });
+          } catch (hlErr) {
+            setResult({ ok: true, msg: `LP fermée ✓ — Hyperliquid : ${hlErr.message}` });
+          }
+        } else {
+          setResult({ ok: true, msg: `Fermé ✓ — ${data.collected?.length ?? 0} position(s)` });
+        }
       }
     } catch (e) {
       setResult({ ok: false, msg: e.message });

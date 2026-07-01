@@ -449,6 +449,18 @@ function ClosePanel() {
       const res  = await fetch("/api/closePositions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ noTransfer: true }) });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
+
+      // Fermer aussi les positions Hyperliquid (pool 2)
+      try {
+        const hlRes = await fetch("/api/hyperliquid-cancel-all", { method: "POST" });
+        const hlJson = await hlRes.json();
+        if (!hlRes.ok) throw new Error(hlJson?.error ?? JSON.stringify(hlJson));
+      } catch (hlErr) {
+        setStatus("ok");
+        setMsg(`LP fermée ✓ — Hyperliquid : ${hlErr.message}`);
+        return;
+      }
+
       setStatus("ok");
       setMsg(json.message);
     } catch (e) {
