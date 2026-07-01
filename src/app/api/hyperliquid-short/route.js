@@ -99,50 +99,41 @@ export async function POST(req) {
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC
-  const orderResult = await signAndSend(wallet, {
-    type: "order",
-    orders: [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
-    grouping: "na",
-  }, Date.now());
-
-  if (orderResult.status !== "ok")
-    return Response.json({ error: `order échoué : ${JSON.stringify(orderResult)}` }, { status: 500 });
-
-  const orderStatus = orderResult?.response?.data?.statuses?.[0];
-  if (orderStatus?.error)
-    return Response.json({ error: `order rejeté : ${orderStatus.error}`, orderResult }, { status: 500 });
-
-  // 3. Stop loss à +5% (clés dans l'ordre du schéma : isMarket → triggerPx → tpsl)
+  // 2. Short IoC + Stop loss à +5% en un seul appel (normalTpsl exige un ordre principal non-trigger)
   const slTrigger = normPx(ethPrice * 1.05);
   const slLimit   = normPx(ethPrice * 1.05 * 1.02);
-  const slAction  = {
+
+  const combinedResult = await signAndSend(wallet, {
     type: "order",
-    orders: [{
-      a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
-      t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } },
-    }],
+    orders: [
+      { a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } },
+      { a: assetIdx, b: true,  p: slLimit,  s: sizeStr, r: true,
+        t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
+    ],
     grouping: "normalTpsl",
-  };
-  const slMsgpackHex = Buffer.from(encode(slAction)).toString("hex");
-  let slResult    = null;
-  try {
-    slResult = await signAndSend(wallet, slAction, Date.now());
-  } catch (e) {
-    slResult = { error: e.message };
-  }
+  }, Date.now());
+
+  if (combinedResult.status !== "ok")
+    return Response.json({ error: `order échoué : ${JSON.stringify(combinedResult)}` }, { status: 500 });
+
+  const statuses   = combinedResult?.response?.data?.statuses ?? [];
+  const ioStatus   = statuses[0];
+  const slStatus   = statuses[1];
+
+  if (ioStatus?.error)
+    return Response.json({ error: `IoC rejeté : ${ioStatus.error}`, combinedResult }, { status: 500 });
 
   return Response.json({
-    ok:           true,
+    ok:          true,
     ethPrice,
-    sizeEth:      parseFloat(sizeStr),
+    sizeEth:     parseFloat(sizeStr),
     sizeUsd,
-    leverage:     lev,
-    priceIoC:     parseFloat(priceStr),
-    slTrigger:    parseFloat(slTrigger),
-    slLimit:      parseFloat(slLimit),
-    slMsgpackHex,
-    orderResult,
-    slResult,
+    leverage:    lev,
+    priceIoC:    parseFloat(priceStr),
+    slTrigger:   parseFloat(slTrigger),
+    slLimit:     parseFloat(slLimit),
+    ioStatus,
+    slStatus,
+    combinedResult,
   });
 }
