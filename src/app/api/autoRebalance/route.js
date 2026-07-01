@@ -213,17 +213,43 @@ async function handleCase1(poolNum = 2) {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
+    // 4b. Fermer toutes les positions Hyperliquid (pool 2 uniquement)
+    if (poolNum === 2) {
+      try {
+        const hlRes  = await fetch(`${base}/api/hyperliquid-cancel-all`, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+        });
+        const hlData = await hlRes.json();
+        if (!hlRes.ok) throw new Error(typeof hlData?.error === "string" ? hlData.error : JSON.stringify(hlData));
+      } catch (e) { throw new Error(`hyperliquid-cancel-all failed: ${e?.message ?? String(e)}`); }
+    }
+
     // 5. Créer nouvelle position 50% WETH / 50% USDC
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.7, poolNum, caseNum: 1 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 1 }),
       signal: AbortSignal.timeout(90000),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
+    // 6. Short ETH 10$ avec SL à la borne haute du nouveau range (pool 2 uniquement)
+    let shortResult;
+    if (poolNum === 2) {
+      try {
+        const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sizeUsd: 10, leverage: 2, slPriceTrigger: liveMaxPrice }),
+          signal: AbortSignal.timeout(30000),
+        });
+        shortResult = await shortRes.json();
+        if (!shortRes.ok) throw new Error(typeof shortResult?.error === "string" ? shortResult.error : JSON.stringify(shortResult));
+      } catch (e) { throw new Error(`hyperliquid-short failed: ${e?.message ?? String(e)}`); }
+    }
+
     await release();
-    return Response.json({ ok: true, case: 1, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
+    return Response.json({ ok: true, case: 1, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data, shortResult });
   } catch (e) {
     await release();
     const msg = e?.message ?? String(e);
@@ -312,17 +338,43 @@ async function handleCase2(poolNum = 2) {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
+    // 4b. Fermer toutes les positions Hyperliquid (pool 2 uniquement)
+    if (poolNum === 2) {
+      try {
+        const hlRes  = await fetch(`${base}/api/hyperliquid-cancel-all`, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+        });
+        const hlData = await hlRes.json();
+        if (!hlRes.ok) throw new Error(typeof hlData?.error === "string" ? hlData.error : JSON.stringify(hlData));
+      } catch (e) { throw new Error(`hyperliquid-cancel-all failed: ${e?.message ?? String(e)}`); }
+    }
+
     // 5. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.3, poolNum, caseNum: 2 }),
+      body: JSON.stringify({ amountUSDC: 999999, minPrice: liveMinPrice, maxPrice: liveMaxPrice, currentPrice: livePrice, targetRatio: 0.5, poolNum, caseNum: 2 }),
       signal: AbortSignal.timeout(90000),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
+    // 6. Short ETH 10$ avec SL à la borne haute du nouveau range (pool 2 uniquement)
+    let shortResult;
+    if (poolNum === 2) {
+      try {
+        const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sizeUsd: 10, leverage: 2, slPriceTrigger: liveMaxPrice }),
+          signal: AbortSignal.timeout(30000),
+        });
+        shortResult = await shortRes.json();
+        if (!shortRes.ok) throw new Error(typeof shortResult?.error === "string" ? shortResult.error : JSON.stringify(shortResult));
+      } catch (e) { throw new Error(`hyperliquid-short failed: ${e?.message ?? String(e)}`); }
+    }
+
     await release();
-    return Response.json({ ok: true, case: 2, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
+    return Response.json({ ok: true, case: 2, newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data, shortResult });
   } catch (e) {
     await release();
     const msg = e?.message ?? String(e);
@@ -408,6 +460,18 @@ async function handleCase3(poolNum = 2) {
       if (!closeData.collected?.length) throw new Error(`closePositions n'a rien collecté — position introuvable dans le gauge (tokenId=${lastPos.token_id})`);
     } catch (e) { throw new Error(`closePositions failed: ${e?.message ?? String(e)}`); }
 
+    // 7b. Fermer toutes les positions Hyperliquid (pool 2 uniquement)
+    if (poolNum === 2) {
+      try {
+        const hlRes  = await fetch(`${base}/api/hyperliquid-cancel-all`, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+        });
+        const hlData = await hlRes.json();
+        if (!hlRes.ok) throw new Error(typeof hlData?.error === "string" ? hlData.error : JSON.stringify(hlData));
+      } catch (e) { throw new Error(`hyperliquid-cancel-all failed: ${e?.message ?? String(e)}`); }
+    }
+
     // 8. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -417,8 +481,22 @@ async function handleCase3(poolNum = 2) {
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
+    // 9. Short ETH 10$ avec SL à la borne haute du nouveau range (pool 2 uniquement)
+    let shortResult;
+    if (poolNum === 2) {
+      try {
+        const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sizeUsd: 10, leverage: 2, slPriceTrigger: liveMaxPrice }),
+          signal: AbortSignal.timeout(30000),
+        });
+        shortResult = await shortRes.json();
+        if (!shortRes.ok) throw new Error(typeof shortResult?.error === "string" ? shortResult.error : JSON.stringify(shortResult));
+      } catch (e) { throw new Error(`hyperliquid-short failed: ${e?.message ?? String(e)}`); }
+    }
+
     await release();
-    return Response.json({ ok: true, case: 3, ageHours: ageHours.toFixed(1), newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data });
+    return Response.json({ ok: true, case: 3, ageHours: ageHours.toFixed(1), newRangePct, livePrice, minPrice: liveMinPrice.toFixed(0), maxPrice: liveMaxPrice.toFixed(0), createResult: data, shortResult });
   } catch (e) {
     await release();
     const msg = e?.message ?? String(e);
@@ -887,7 +965,19 @@ async function handleCase4(poolNum = 2) {
   if (!release) return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
   try {
-    // 4. Créer nouvelle position 50/50
+    // 4. Fermer toutes les positions Hyperliquid résiduelles (pool 2 uniquement)
+    if (poolNum === 2) {
+      try {
+        const hlRes  = await fetch(`${base}/api/hyperliquid-cancel-all`, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+        });
+        const hlData = await hlRes.json();
+        if (!hlRes.ok) throw new Error(typeof hlData?.error === "string" ? hlData.error : JSON.stringify(hlData));
+      } catch (e) { throw new Error(`hyperliquid-cancel-all failed: ${e?.message ?? String(e)}`); }
+    }
+
+    // 5. Créer nouvelle position 50/50
     const res = await fetch(`${base}/api/createPosition`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ amountUSDC: 999999, minPrice, maxPrice, currentPrice: livePrice4, targetRatio: 0.5, poolNum, caseNum: 4 }),
@@ -896,8 +986,22 @@ async function handleCase4(poolNum = 2) {
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "createPosition failed"));
 
+    // 6. Short ETH 10$ avec SL à la borne haute du nouveau range (pool 2 uniquement)
+    let shortResult;
+    if (poolNum === 2) {
+      try {
+        const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sizeUsd: 10, leverage: 2, slPriceTrigger: maxPrice }),
+          signal: AbortSignal.timeout(30000),
+        });
+        shortResult = await shortRes.json();
+        if (!shortRes.ok) throw new Error(typeof shortResult?.error === "string" ? shortResult.error : JSON.stringify(shortResult));
+      } catch (e) { throw new Error(`hyperliquid-short failed: ${e?.message ?? String(e)}`); }
+    }
+
     await release();
-    return Response.json({ ok: true, case: 4, newRangePct, livePrice: livePrice4, minPrice: minPrice.toFixed(0), maxPrice: maxPrice.toFixed(0), createResult: data });
+    return Response.json({ ok: true, case: 4, newRangePct, livePrice: livePrice4, minPrice: minPrice.toFixed(0), maxPrice: maxPrice.toFixed(0), createResult: data, shortResult });
   } catch (e) {
     await release();
     const msg = e?.message ?? String(e);

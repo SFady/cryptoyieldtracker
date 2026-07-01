@@ -75,7 +75,7 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const { sizeUsd, leverage = 2 } = await req.json().catch(() => ({}));
+  const { sizeUsd, leverage = 2, slPriceTrigger } = await req.json().catch(() => ({}));
 
   if (!sizeUsd || sizeUsd <= 0)
     return Response.json({ error: "sizeUsd requis et > 0" }, { status: 400 });
@@ -99,9 +99,10 @@ export async function POST(req) {
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC + SL à +5% en un seul appel atomique
-  const slTrigger = normPx(ethPrice * 1.05);
-  const slLimit   = normPx(ethPrice * 1.05 * 1.02);
+  // 2. Short IoC + SL en un seul appel atomique
+  const slBase    = slPriceTrigger ?? ethPrice * 1.05;
+  const slTrigger = normPx(slBase);
+  const slLimit   = normPx(slBase * 1.02);
 
   const combinedResult = await signAndSend(wallet, {
     type: "order",
