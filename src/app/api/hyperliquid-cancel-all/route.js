@@ -19,16 +19,15 @@ async function hlInfo(body) {
 
 function buildConnectionId(action, nonce) {
   const msgPackBytes = encode(action);
-  const actionKeccak = ethers.keccak256(msgPackBytes);
 
   const nonceHex   = nonce.toString(16).padStart(16, "0");
   const nonceBytes = ethers.getBytes("0x" + nonceHex);
   const zeroAddr   = new Uint8Array(20);
 
-  const combined = new Uint8Array(60);
-  combined.set(ethers.getBytes(actionKeccak), 0);
-  combined.set(nonceBytes, 32);
-  combined.set(zeroAddr, 40);
+  const combined = new Uint8Array(msgPackBytes.length + 8 + 20);
+  combined.set(msgPackBytes, 0);
+  combined.set(nonceBytes, msgPackBytes.length);
+  combined.set(zeroAddr, msgPackBytes.length + 8);
 
   return ethers.keccak256(combined);
 }
