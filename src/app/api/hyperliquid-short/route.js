@@ -116,29 +116,32 @@ export async function POST(req) {
   // 3. Stop loss à +5% (clés dans l'ordre du schéma : isMarket → triggerPx → tpsl)
   const slTrigger = normPx(ethPrice * 1.05);
   const slLimit   = normPx(ethPrice * 1.05 * 1.02);
+  const slAction  = {
+    type: "order",
+    orders: [{
+      a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
+      t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } },
+    }],
+    grouping: "normalTpsl",
+  };
+  const slMsgpackHex = Buffer.from(encode(slAction)).toString("hex");
   let slResult    = null;
   try {
-    slResult = await signAndSend(wallet, {
-      type: "order",
-      orders: [{
-        a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
-        t: { trigger: { isMarket: true, triggerPx: parseFloat(slTrigger), tpsl: "sl" } },
-      }],
-      grouping: "normalTpsl",
-    }, Date.now());
+    slResult = await signAndSend(wallet, slAction, Date.now());
   } catch (e) {
     slResult = { error: e.message };
   }
 
   return Response.json({
-    ok:        true,
+    ok:           true,
     ethPrice,
-    sizeEth:   parseFloat(sizeStr),
+    sizeEth:      parseFloat(sizeStr),
     sizeUsd,
-    leverage:  lev,
-    priceIoC:  parseFloat(priceStr),
-    slTrigger: parseFloat(slTrigger),
-    slLimit:   parseFloat(slLimit),
+    leverage:     lev,
+    priceIoC:     parseFloat(priceStr),
+    slTrigger:    parseFloat(slTrigger),
+    slLimit:      parseFloat(slLimit),
+    slMsgpackHex,
     orderResult,
     slResult,
   });
