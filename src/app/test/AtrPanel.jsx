@@ -216,6 +216,8 @@ export default function AtrPanel() {
       )}
 
       <TestRebalanceSection />
+      <HyperliquidShortSection />
+      <HyperliquidCancelAllSection />
     </div>
   );
 }
@@ -862,6 +864,249 @@ function CreatePanel({ data }) {
         >
           {status === "loading" ? "ENVOI EN COURS..." : "CONFIRMER LA POSITION"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function HyperliquidCancelAllSection() {
+  const [status,     setStatus]     = useState(null);
+  const [result,     setResult]     = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const timerRef = useRef(null);
+
+  function handleClick() {
+    if (status === "loading") return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      submit();
+    }
+  }
+
+  async function submit() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/hyperliquid-cancel-all", { method: "POST" });
+      const json = await res.json();
+      setStatus(json.ok ? "ok" : "error");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const color    = "#ff5c5c";
+  const btnColor = confirming ? "#f0b429" : color;
+  const btnLabel = status === "loading" ? "..." : confirming ? "⚠ CONFIRMER ?" : "✕ Annuler tous les ordres";
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{
+        background: "rgba(18,18,45,0.95)",
+        border: `1px solid ${color}33`,
+        borderRadius: 10,
+        overflow: "hidden",
+      }}>
+        <div style={{
+          padding: "7px 14px",
+          background: `${color}0d`,
+          borderBottom: `1px solid ${color}22`,
+          fontFamily: "monospace", fontSize: "0.65rem",
+          letterSpacing: "1.5px", textTransform: "uppercase",
+          color, fontWeight: 600,
+        }}>
+          CANCEL ALL ORDERS — HYPERLIQUID
+        </div>
+
+        <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={handleClick}
+            disabled={status === "loading"}
+            style={{
+              padding: "9px 16px",
+              background: confirming ? "rgba(240,180,41,0.15)" : status === "loading" ? `${color}11` : `${color}15`,
+              border: `1px solid ${btnColor}66`,
+              borderRadius: 6,
+              color: status === "loading" ? `${btnColor}66` : btnColor,
+              fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "1px",
+              cursor: status === "loading" ? "default" : "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            {btnLabel}
+          </button>
+
+          {result && (
+            <pre style={{
+              fontFamily: "monospace", fontSize: "0.7rem",
+              color: status === "ok" ? "#00e5a0" : "#c97070",
+              background: "rgba(0,0,0,0.3)",
+              border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
+              borderRadius: 6, padding: "10px 12px", margin: 0,
+              overflowX: "auto", maxHeight: 140, overflowY: "auto",
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HyperliquidShortSection() {
+  const [sizeUsd,    setSizeUsd]    = useState("");
+  const [leverage,   setLeverage]   = useState("2");
+  const [status,     setStatus]     = useState(null);
+  const [result,     setResult]     = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const timerRef = useRef(null);
+
+  function handleClick() {
+    if (status === "loading") return;
+    if (!sizeUsd || parseFloat(sizeUsd) <= 0) return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      submit();
+    }
+  }
+
+  async function submit() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/hyperliquid-short", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ sizeUsd: parseFloat(sizeUsd), leverage: parseFloat(leverage) || 2 }),
+      });
+      const json = await res.json();
+      setStatus(json.ok ? "ok" : "error");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const color    = "#e05aff";
+  const btnColor = confirming ? "#f0b429" : color;
+  const btnLabel = status === "loading" ? "..." : confirming ? "⚠ CONFIRMER ?" : "▼ SHORT ETH";
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 10 }}>
+        Hyperliquid
+      </div>
+
+      <div style={{
+        background: "rgba(18,18,45,0.95)",
+        border: `1px solid ${color}33`,
+        borderRadius: 10,
+        overflow: "hidden",
+      }}>
+        <div style={{
+          padding: "7px 14px",
+          background: `${color}0d`,
+          borderBottom: `1px solid ${color}22`,
+          fontFamily: "monospace", fontSize: "0.65rem",
+          letterSpacing: "1.5px", textTransform: "uppercase",
+          color, fontWeight: 600,
+        }}>
+          SHORT ETH — ISOLATED
+        </div>
+
+        <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 2 }}>
+              <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 4 }}>TAILLE (USDC)</div>
+              <input
+                type="number"
+                value={sizeUsd}
+                onChange={e => setSizeUsd(e.target.value)}
+                placeholder="ex: 200"
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  fontFamily: "monospace", fontSize: "0.8rem",
+                  padding: "7px 10px", borderRadius: 5,
+                  background: `${color}0a`, border: `1px solid ${color}33`,
+                  color: "#eaf6ff", outline: "none",
+                }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 4 }}>LEVIER</div>
+              <input
+                type="number"
+                value={leverage}
+                onChange={e => setLeverage(e.target.value)}
+                min="1" max="50" step="1"
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  fontFamily: "monospace", fontSize: "0.8rem",
+                  padding: "7px 10px", borderRadius: 5,
+                  background: `${color}0a`, border: `1px solid ${color}33`,
+                  color: "#eaf6ff", outline: "none",
+                }}
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={handleClick}
+            disabled={status === "loading" || !sizeUsd || parseFloat(sizeUsd) <= 0}
+            style={{
+              padding: "9px 16px",
+              background: confirming ? "rgba(240,180,41,0.15)" : status === "loading" ? `${color}11` : `${color}22`,
+              border: `1px solid ${btnColor}66`,
+              borderRadius: 6,
+              color: status === "loading" ? `${btnColor}66` : btnColor,
+              fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "1px",
+              cursor: (status === "loading" || !sizeUsd) ? "default" : "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            {btnLabel}
+          </button>
+
+          {result && status === "ok" && (
+            <div style={{
+              fontFamily: "monospace", fontSize: "0.7rem", color: "#00e5a0",
+              background: "rgba(0,229,160,0.05)", border: "1px solid rgba(0,229,160,0.2)",
+              borderRadius: 6, padding: "8px 12px",
+              display: "flex", flexDirection: "column", gap: 3,
+            }}>
+              <span>Entrée  : <b>${result.ethPrice?.toFixed(2)}</b></span>
+              <span>SL +5%  : <b style={{ color: "#f0b429" }}>${result.slPrice?.toFixed(2)}</b></span>
+              <span>Taille  : {result.sizeEth?.toFixed(4)} ETH ({result.sizeUsd} USDC)</span>
+              <span>Levier  : ×{result.leverage} isolated</span>
+            </div>
+          )}
+          {result && (
+            <pre style={{
+              fontFamily: "monospace", fontSize: "0.65rem",
+              color: status === "ok" ? "#4488aa" : "#c97070",
+              background: "rgba(0,0,0,0.3)",
+              border: `1px solid ${status === "ok" ? "rgba(40,80,120,0.3)" : "rgba(180,100,100,0.2)"}`,
+              borderRadius: 6, padding: "10px 12px", margin: 0,
+              overflowX: "auto", maxHeight: 160, overflowY: "auto",
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
