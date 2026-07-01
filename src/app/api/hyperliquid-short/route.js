@@ -116,30 +116,38 @@ export async function POST(req) {
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC + SL trigger dans la même action (une seule signature)
-  const slTrigger = roundTick(ethPrice * 1.05);
-  const slLimit   = roundTick(ethPrice * 1.05 * 1.02);
-  const nonce2    = Date.now();
+  // 2. Short IoC (market equivalent)
+  const nonce2      = Date.now();
   const orderResult = await signAndSend(wallet, {
     type:   "order",
-    orders: [
-      // Short IoC
-      { a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } },
-      // SL +5% (actif si le short remplit)
-      { a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true, t: { trigger: { isMarket: true, tpsl: "sl", triggerPx: slTrigger } } },
-    ],
-    grouping: "normalTpsl",
+    orders: [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
+    grouping: "na",
   }, nonce2);
 
   if (orderResult.status !== "ok")
     return Response.json({ error: `order échoué : ${JSON.stringify(orderResult)}` }, { status: 500 });
 
-  const statuses   = orderResult?.response?.data?.statuses ?? [];
-  const shortStatus = statuses[0];
-  const slStatus    = statuses[1];
+  const orderStatus = orderResult?.response?.data?.statuses?.[0];
+  if (orderStatus?.error)
+    return Response.json({ error: `order rejeté : ${orderStatus.error}`, orderResult }, { status: 500 });
 
-  if (shortStatus?.error)
-    return Response.json({ error: `short rejeté : ${shortStatus.error}`, orderResult }, { status: 500 });
+  // 3. Stop loss à +5% — clés dans l'ordre du schema : isMarket → triggerPx → tpsl
+  const slTrigger = roundTick(ethPrice * 1.05);
+  const slLimit   = roundTick(ethPrice * 1.05 * 1.02);
+  const nonce3    = Date.now();
+  let slResult    = null;
+  try {
+    slResult = await signAndSend(wallet, {
+      type:   "order",
+      orders: [{
+        a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
+        t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } },
+      }],
+      grouping: "normalTpsl",
+    }, nonce3);
+  } catch (e) {
+    console.error("[hl-short] SL failed:", e.message);
+  }
 
   return Response.json({
     ok:        true,
@@ -149,8 +157,7 @@ export async function POST(req) {
     leverage:  lev,
     priceIoC:  parseFloat(priceStr),
     slPrice:   parseFloat(slTrigger),
-    shortStatus,
-    slStatus,
     orderResult,
+    slResult,
   });
 }

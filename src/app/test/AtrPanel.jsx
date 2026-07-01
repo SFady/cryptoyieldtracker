@@ -1088,7 +1088,7 @@ function HyperliquidShortSection() {
               display: "flex", flexDirection: "column", gap: 3,
             }}>
               <span>Entrée  : <b>${result.ethPrice?.toFixed(2)}</b></span>
-              <span>SL +5%  : <b style={{ color: "#f0b429" }}>${result.slPrice?.toFixed(2)}</b>{result.slStatus?.resting ? " ✓" : result.slStatus?.error ? ` ✗ ${result.slStatus.error}` : ""}</span>
+              <span>SL +5%  : <b style={{ color: "#f0b429" }}>${result.slPrice?.toFixed(2)}</b>{result.slResult?.status === "ok" ? " ✓" : result.slResult ? " ✗" : ""}</span>
               <span>Taille  : {result.sizeEth?.toFixed(4)} ETH ({result.sizeUsd} USDC)</span>
               <span>Levier  : ×{result.leverage} isolated</span>
             </div>
