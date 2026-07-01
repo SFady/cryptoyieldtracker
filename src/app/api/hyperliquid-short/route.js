@@ -100,7 +100,9 @@ export async function POST(req) {
   const lev      = Math.max(1, Math.min(50, Math.round(leverage)));
   const sizeEth  = sizeUsd / ethPrice;
   const sizeStr  = sizeEth.toFixed(4);
-  const priceStr = (ethPrice * 0.98).toFixed(2);
+  // ETH tick size = 0.1 → 1 decimal max
+  const roundTick = (n) => (Math.round(n / 0.1) * 0.1).toFixed(1);
+  const priceStr  = roundTick(ethPrice * 0.98);
 
   // 1. Set isolated leverage
   const nonce1    = Date.now();
@@ -115,7 +117,7 @@ export async function POST(req) {
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
   // 2. Short IoC (market equivalent)
-  const nonce2      = nonce1 + 1;
+  const nonce2      = Date.now();
   const orderResult = await signAndSend(wallet, {
     type:   "order",
     orders: [{
@@ -132,10 +134,14 @@ export async function POST(req) {
   if (orderResult.status !== "ok")
     return Response.json({ error: `order échoué : ${JSON.stringify(orderResult)}` }, { status: 500 });
 
-  // 3. Stop loss at +5% (buy to close if price rises 5% above entry)
-  const slTrigger   = (ethPrice * 1.05).toFixed(2);
-  const slLimit     = (ethPrice * 1.05 * 1.02).toFixed(2);
-  const nonce3      = nonce2 + 1;
+  const orderStatus = orderResult?.response?.data?.statuses?.[0];
+  if (orderStatus?.error)
+    return Response.json({ error: `order rejeté : ${orderStatus.error}`, orderResult }, { status: 500 });
+
+  // 3. Stop loss at +5% (buy trigger to close short if price rises)
+  const slTrigger   = roundTick(ethPrice * 1.05);
+  const slLimit     = roundTick(ethPrice * 1.05 * 1.02);
+  const nonce3      = Date.now();
   let slResult      = null;
   try {
     slResult = await signAndSend(wallet, {
@@ -148,7 +154,7 @@ export async function POST(req) {
         r: true,
         t: { trigger: { isMarket: true, tpsl: "sl", triggerPx: slTrigger } },
       }],
-      grouping: "na",
+      grouping: "normalTpsl",
     }, nonce3);
   } catch (e) {
     console.error("[hl-short] SL order failed:", e.message);
