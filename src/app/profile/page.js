@@ -303,6 +303,10 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
     finally { setHlLoading(false); }
   }
 
+  React.useEffect(() => {
+    if (poolNum === 2) loadHl();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleCollectClick() {
     if (collecting) return;
     if (!confirming) {
@@ -390,34 +394,39 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
       {poolNum === 2 && (
         <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
           <div style={{
-            padding: "7px 18px", display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "7px 18px",
             fontSize: "0.7rem", fontFamily: "monospace", letterSpacing: "1.5px",
             textTransform: "uppercase", color: "#9988cc", fontWeight: 600,
             background: "rgba(124,77,255,0.08)",
           }}>
-            <span>Hyperliquid</span>
-            <button onClick={loadHl} disabled={hlLoading} style={{
-              background: "transparent", border: "none",
-              color: hlLoading ? "#555577" : "#9988cc",
-              fontFamily: "monospace", fontSize: "0.8rem",
-              cursor: hlLoading ? "default" : "pointer", padding: 0, lineHeight: 1,
-            }}>
-              {hlLoading ? "…" : "↺"}
-            </button>
+            Hyperliquid
           </div>
+          {hlLoading && (
+            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#445566" }}>…</div>
+          )}
           {hlError && (
             <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#c97070" }}>⚠ {hlError}</div>
           )}
-          {!hlData && !hlError && (
-            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#445566" }}>↺ pour charger</div>
-          )}
-          {hlData && (
-            <>
-              <TokenRow token={{ symbol: "Placé",      balance: "", usd: Math.max(0, hlData.accountValue - hlData.withdrawable).toFixed(2) }} accent="#eaf6ff" />
-              <TokenRow token={{ symbol: "Disponible", balance: "", usd: hlData.withdrawable.toFixed(2) }} accent="#eaf6ff" />
-              <TotalRow label="Compte total" value={`$${hlData.accountValue.toFixed(2)}`} />
-            </>
-          )}
+          {hlData && (() => {
+            const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
+            if (!ethShort) return null;
+            const pnl      = ethShort.pnl;
+            const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
+            const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
+            return (
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "9px 18px",
+              }}>
+                <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#9988cc", fontSize: "0.88rem" }}>
+                  PnL short
+                </span>
+                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: pnlColor }}>
+                  {pnlStr} $
+                </span>
+              </div>
+            );
+          })()}
         </div>
       )}
 
