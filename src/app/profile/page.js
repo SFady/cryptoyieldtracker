@@ -414,17 +414,30 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
             const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
             const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
             return (
-              <div style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "9px 18px",
-              }}>
-                <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#9988cc", fontSize: "0.88rem" }}>
-                  PnL short
-                </span>
-                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: pnlColor }}>
-                  {pnlStr} $
-                </span>
-              </div>
+              <>
+                <div style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)",
+                }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>
+                    Position Value
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>
+                    ${ethShort.sizeUSD.toFixed(2)}
+                  </span>
+                </div>
+                <div style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "9px 18px",
+                }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>
+                    PnL short
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: pnlColor }}>
+                    {pnlStr} $
+                  </span>
+                </div>
+              </>
             );
           })()}
         </div>
