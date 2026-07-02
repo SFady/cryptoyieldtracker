@@ -420,10 +420,10 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
                   padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)",
                 }}>
                   <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>
-                    Position Value
+                    Entry Price
                   </span>
                   <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>
-                    ${ethShort.sizeUSD.toFixed(2)}
+                    ${ethShort.entryPx.toFixed(1)}
                   </span>
                 </div>
                 <div style={{
