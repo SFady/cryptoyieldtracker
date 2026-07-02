@@ -288,6 +288,21 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const [confirming, setConfirming] = React.useState(false);
   const confirmTimer = React.useRef(null);
 
+  const [hlData,    setHlData]    = React.useState(null);
+  const [hlLoading, setHlLoading] = React.useState(false);
+  const [hlError,   setHlError]   = React.useState(null);
+
+  async function loadHl() {
+    setHlLoading(true); setHlError(null);
+    try {
+      const res  = await fetch("/api/hyperliquid-status");
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setHlData(json);
+    } catch (e) { setHlError(e.message); }
+    finally { setHlLoading(false); }
+  }
+
   function handleCollectClick() {
     if (collecting) return;
     if (!confirming) {
@@ -370,6 +385,41 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
         <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />
       </Section>
+
+      {/* Hyperliquid — pool 2 uniquement */}
+      {poolNum === 2 && (
+        <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{
+            padding: "7px 18px", display: "flex", justifyContent: "space-between", alignItems: "center",
+            fontSize: "0.7rem", fontFamily: "monospace", letterSpacing: "1.5px",
+            textTransform: "uppercase", color: "#9988cc", fontWeight: 600,
+            background: "rgba(124,77,255,0.08)",
+          }}>
+            <span>Hyperliquid</span>
+            <button onClick={loadHl} disabled={hlLoading} style={{
+              background: "transparent", border: "none",
+              color: hlLoading ? "#555577" : "#9988cc",
+              fontFamily: "monospace", fontSize: "0.8rem",
+              cursor: hlLoading ? "default" : "pointer", padding: 0, lineHeight: 1,
+            }}>
+              {hlLoading ? "…" : "↺"}
+            </button>
+          </div>
+          {hlError && (
+            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#c97070" }}>⚠ {hlError}</div>
+          )}
+          {!hlData && !hlError && (
+            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#445566" }}>↺ pour charger</div>
+          )}
+          {hlData && (
+            <>
+              <TokenRow token={{ symbol: "Placé",      balance: "", usd: Math.max(0, hlData.accountValue - hlData.withdrawable).toFixed(2) }} accent="#eaf6ff" />
+              <TokenRow token={{ symbol: "Disponible", balance: "", usd: hlData.withdrawable.toFixed(2) }} accent="#eaf6ff" />
+              <TotalRow label="Compte total" value={`$${hlData.accountValue.toFixed(2)}`} />
+            </>
+          )}
+        </div>
+      )}
 
       {/* Solde non utilisé */}
       {(usdcWallet !== null || wethWallet !== null) && (
