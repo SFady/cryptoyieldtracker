@@ -975,7 +975,7 @@ function HyperliquidCancelAllSection() {
 
 function HyperliquidShortSection() {
   const [sizeUsd,    setSizeUsd]    = useState("");
-  const [leverage,   setLeverage]   = useState("2");
+  const [leverage,   setLeverage]   = useState("4");
   const [status,     setStatus]     = useState(null);
   const [result,     setResult]     = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -1001,7 +1001,7 @@ function HyperliquidShortSection() {
       const res  = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ sizeUsd: parseFloat(sizeUsd), leverage: parseFloat(leverage) || 2 }),
+        body:    JSON.stringify({ sizeUsd: parseFloat(sizeUsd), leverage: parseFloat(leverage) || 4 }),
       });
       const json = await res.json();
       setStatus(json.ok ? "ok" : "error");
