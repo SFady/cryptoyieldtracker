@@ -100,10 +100,14 @@ export async function POST(req) {
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC + SL en un seul appel atomique
+  // 2. Short IoC + SL + TP en un seul appel atomique
   const slBase    = slPriceTrigger ?? ethPrice * 1.05;
   const slTrigger = normPx(slBase);
   const slLimit   = normPx(slBase * 1.02);
+
+  const tpBase    = ethPrice * 0.95;
+  const tpTrigger = normPx(tpBase);
+  const tpLimit   = normPx(tpBase * 1.02);
 
   const combinedResult = await signAndSend(wallet, {
     type: "order",
@@ -111,6 +115,8 @@ export async function POST(req) {
       { a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } },
       { a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
         t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
+      { a: assetIdx, b: true, p: tpLimit, s: sizeStr, r: true,
+        t: { trigger: { isMarket: true, triggerPx: tpTrigger, tpsl: "tp" } } },
     ],
     grouping: "normalTpsl",
   }, Date.now());
@@ -121,6 +127,7 @@ export async function POST(req) {
   const statuses  = combinedResult?.response?.data?.statuses ?? [];
   const ioStatus  = statuses[0];
   const slStatus  = statuses[1];
+  const tpStatus  = statuses[2];
 
   if (ioStatus?.error)
     return Response.json({ error: `IoC rejeté : ${ioStatus.error}`, combinedResult }, { status: 500 });
@@ -136,8 +143,11 @@ export async function POST(req) {
     priceIoC:    parseFloat(priceStr),
     slTrigger:   parseFloat(slTrigger),
     slLimit:     parseFloat(slLimit),
+    tpTrigger:   parseFloat(tpTrigger),
+    tpLimit:     parseFloat(tpLimit),
     ioStatus,
     slStatus,
+    tpStatus,
     combinedResult,
   });
 }
