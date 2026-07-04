@@ -118,6 +118,15 @@ export async function POST() {
       grouping: "normalTpsl",
     }, Date.now());
 
+    const fakeSlOid = result?.response?.data?.statuses?.[1]?.resting?.oid;
+    if (fakeSlOid !== undefined) {
+      await new Promise(r => setTimeout(r, 300));
+      await signAndSend(wallet, {
+        type: "cancel",
+        cancels: [{ a: coinToIdx[coin], o: fakeSlOid }],
+      }, Date.now());
+    }
+
     closeResults.push({ coin, szi, size, closePrice, result });
   }
 
