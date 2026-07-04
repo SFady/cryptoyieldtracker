@@ -17,6 +17,11 @@ async function hlInfo(body) {
   return res.json();
 }
 
+function normPx(n) {
+  const s = (Math.round(n / 0.1) * 0.1).toFixed(1);
+  return s.endsWith(".0") ? s.slice(0, -2) : s;
+}
+
 function buildConnectionId(action, nonce) {
   const msgPackBytes = encode(action);
   const data = new Uint8Array(msgPackBytes.length + 9);
@@ -100,12 +105,16 @@ export async function POST() {
       closeResults.push({ coin, error: "asset ou prix introuvable" });
       continue;
     }
-    const rawPrice   = isBuy ? mid * 1.04 : mid * 0.96;
-    const closePrice = (Math.round(rawPrice / 0.1) * 0.1).toFixed(1);
+    const closePrice = normPx(isBuy ? mid * 1.05 : mid * 0.95);
+    const fakeSLPx   = normPx(isBuy ? mid * 2.0  : mid * 0.5);
 
     const result = await signAndSend(wallet, {
       type:   "order",
-      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
+      orders: [
+        { a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } },
+        { a: coinToIdx[coin], b: isBuy, p: fakeSLPx,   s: size, r: true,
+          t: { trigger: { isMarket: true, triggerPx: fakeSLPx, tpsl: "sl" } } },
+      ],
       grouping: "normalTpsl",
     }, Date.now());
 
