@@ -243,7 +243,7 @@ async function handleCase1(poolNum = 2) {
         if (sizeUsd < 5) throw new Error(`Solde Hyperliquid insuffisant : $${sizeUsd.toFixed(2)}`);
         const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: liveMaxPrice }),
+          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: liveMaxPrice, tpPriceTrigger: liveMinPrice }),
           signal: AbortSignal.timeout(30000),
         });
         shortResult = await shortRes.json();
@@ -371,7 +371,7 @@ async function handleCase2(poolNum = 2) {
         if (sizeUsd < 5) throw new Error(`Solde Hyperliquid insuffisant : $${sizeUsd.toFixed(2)}`);
         const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: liveMaxPrice }),
+          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: liveMaxPrice, tpPriceTrigger: liveMinPrice }),
           signal: AbortSignal.timeout(30000),
         });
         shortResult = await shortRes.json();
@@ -496,7 +496,7 @@ async function handleCase3(poolNum = 2) {
         if (sizeUsd < 5) throw new Error(`Solde Hyperliquid insuffisant : $${sizeUsd.toFixed(2)}`);
         const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: liveMaxPrice }),
+          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: liveMaxPrice, tpPriceTrigger: liveMinPrice }),
           signal: AbortSignal.timeout(30000),
         });
         shortResult = await shortRes.json();
@@ -1004,7 +1004,7 @@ async function handleCase4(poolNum = 2) {
         if (sizeUsd < 5) throw new Error(`Solde Hyperliquid insuffisant : $${sizeUsd.toFixed(2)}`);
         const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: maxPrice }),
+          body: JSON.stringify({ sizeUsd, leverage: 4, slPriceTrigger: maxPrice, tpPriceTrigger: minPrice }),
           signal: AbortSignal.timeout(30000),
         });
         shortResult = await shortRes.json();

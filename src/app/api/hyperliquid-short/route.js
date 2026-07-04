@@ -75,7 +75,7 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const { sizeUsd, leverage = 2, slPriceTrigger } = await req.json().catch(() => ({}));
+  const { sizeUsd, leverage = 2, slPriceTrigger, tpPriceTrigger } = await req.json().catch(() => ({}));
 
   if (!sizeUsd || sizeUsd <= 0)
     return Response.json({ error: "sizeUsd requis et > 0" }, { status: 400 });
@@ -105,7 +105,7 @@ export async function POST(req) {
   const slTrigger = normPx(slBase);
   const slLimit   = normPx(slBase * 1.02);
 
-  const tpBase    = ethPrice * 0.95;
+  const tpBase    = tpPriceTrigger ?? ethPrice * 0.95;
   const tpTrigger = normPx(tpBase);
   const tpLimit   = normPx(tpBase * 1.02);
 
