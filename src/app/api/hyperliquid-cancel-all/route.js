@@ -106,13 +106,13 @@ export async function POST() {
       continue;
     }
     const closePrice = normPx(isBuy ? mid * 1.05 : mid * 0.95);
-    const fakeSLPx   = normPx(isBuy ? mid * 2.0  : mid * 0.5);
+    const fakeSLPx   = normPx(isBuy ? mid * 0.5  : mid * 2.0);
 
     const result = await signAndSend(wallet, {
       type:   "order",
       orders: [
-        { a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } },
-        { a: coinToIdx[coin], b: isBuy, p: fakeSLPx,   s: size, r: true,
+        { a: coinToIdx[coin], b: isBuy,  p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } },
+        { a: coinToIdx[coin], b: !isBuy, p: fakeSLPx,   s: size, r: true,
           t: { trigger: { isMarket: true, triggerPx: fakeSLPx, tpsl: "sl" } } },
       ],
       grouping: "normalTpsl",
