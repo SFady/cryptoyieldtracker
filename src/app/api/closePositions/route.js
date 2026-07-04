@@ -650,21 +650,18 @@ export async function POST(req) {
         const source = caseNum ? `cas${caseNum}` : halfFees ? "cas1" : allFees ? "cas2" : sellWethFees ? "cas1-weth" : transferUsdcFees ? "cas2-old" : keepWeth ? "cas3" : "close";
         let toSend;
         if (halfFees) {
-          // CAS 1 : 50% de toutes les fees (WETH fees + USDC fees + AERO) → external
-          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
-          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
-          toSend = (wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc) / 2n;
+          // 50% de l'AERO gagné (en USDC) → external
+          const aeroUsdc = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          toSend = aeroUsdc / 2n;
         } else if (threeQuarterFees) {
-          // CAS 3 : 50% de toutes les fees → external, 50% gardé en wallet
-          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
-          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
-          console.log(`[threeQuarterFees] wethFeesUsdc=${wethFeesUsdc} usdcFees=${actualUsdcFeesFromLP} aeroUsdc=${aeroUsdc}`);
-          toSend = (wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc) / 2n;
+          // 50% de l'AERO gagné (en USDC) → external
+          const aeroUsdc = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          console.log(`[threeQuarterFees] usdcFees=${actualUsdcFeesFromLP} aeroUsdc=${aeroUsdc}`);
+          toSend = aeroUsdc / 2n;
         } else if (allFees) {
-          // CAS 2 : 100% de toutes les fees (WETH fees + USDC fees + AERO) → external
-          const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
-          const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
-          toSend = wethFeesUsdc + actualUsdcFeesFromLP + aeroUsdc;
+          // 50% de l'AERO gagné (en USDC) → external
+          const aeroUsdc = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
+          toSend = aeroUsdc / 2n;
         } else if (sellWethFees) {
           const wethFeesUsdc = usdcAfterWethFeeSwap > usdcBeforeSwaps ? usdcAfterWethFeeSwap - usdcBeforeSwaps : 0n;
           const aeroUsdc     = usdcAfterSwaps > usdcAfterWethFeeSwap ? usdcAfterSwaps - usdcAfterWethFeeSwap : 0n;
