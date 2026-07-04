@@ -105,8 +105,8 @@ export async function POST() {
 
     const result = await signAndSend(wallet, {
       type:   "order",
-      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "FillOrKill" } } }],
-      grouping: "na",
+      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
+      grouping: "normalTpsl",
     }, Date.now());
 
     closeResults.push({ coin, szi, size, closePrice, result });
