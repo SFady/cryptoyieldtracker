@@ -86,9 +86,10 @@ export async function POST(req) {
   const wallet = new ethers.Wallet(privateKey);
   const [ethPrice, assetIdx] = await Promise.all([getEthMidPrice(), getEthAssetIndex()]);
 
-  const lev      = Math.max(1, Math.min(50, Math.round(leverage)));
-  const sizeEth  = Math.ceil((sizeUsd / ethPrice) * 10000) / 10000;
-  const sizeStr  = sizeEth.toFixed(4);
+  const lev         = Math.max(1, Math.min(50, Math.round(leverage)));
+  const notionalUsd = sizeUsd * lev;
+  const sizeEth     = Math.ceil((notionalUsd / ethPrice) * 10000) / 10000;
+  const sizeStr     = sizeEth.toFixed(4);
   const priceStr = normPx(ethPrice * 0.98);
 
   // 1. Set isolated leverage
@@ -128,7 +129,9 @@ export async function POST(req) {
     ok:          true,
     ethPrice,
     sizeEth:     parseFloat(sizeStr),
-    sizeUsd,
+    marginUsd:   sizeUsd,
+    notionalUsd,
+    sizeUsd:     notionalUsd,
     leverage:    lev,
     priceIoC:    parseFloat(priceStr),
     slTrigger:   parseFloat(slTrigger),

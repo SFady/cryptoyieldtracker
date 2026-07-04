@@ -1042,12 +1042,12 @@ function HyperliquidShortSection() {
         <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 2 }}>
-              <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 4 }}>TAILLE (USDC)</div>
+              <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#6666aa", marginBottom: 4 }}>MARGE (USDC)</div>
               <input
                 type="number"
                 value={sizeUsd}
                 onChange={e => setSizeUsd(e.target.value)}
-                placeholder="ex: 200"
+                placeholder="ex: 125"
                 style={{
                   width: "100%", boxSizing: "border-box",
                   fontFamily: "monospace", fontSize: "0.8rem",
@@ -1101,7 +1101,7 @@ function HyperliquidShortSection() {
             }}>
               <span>Entrée  : <b>${result.ethPrice?.toFixed(2)}</b></span>
               <span>SL +5%  : <b style={{ color: "#f0b429" }}>${result.slPrice?.toFixed(2)}</b>{result.slResult?.status === "ok" ? " ✓" : result.slResult ? " ✗" : ""}</span>
-              <span>Taille  : {result.sizeEth?.toFixed(4)} ETH ({result.sizeUsd} USDC)</span>
+              <span>Taille  : {result.sizeEth?.toFixed(4)} ETH ({result.notionalUsd} USDC notionnel, marge {result.marginUsd} USDC)</span>
               <span>Levier  : ×{result.leverage} isolated</span>
             </div>
           )}
