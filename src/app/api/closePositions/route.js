@@ -641,10 +641,18 @@ export async function POST(req) {
     try {
       const dest = noTransfer ? null : (poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET);
       if (dest) {
-        let usdcAfterSwaps = 0n;
-        for (let i = 0; i < 4; i++) {
-          try { usdcAfterSwaps = await readBal(stablecoin, wallet.address); break; } catch (_) {}
-          await new Promise(r => setTimeout(r, 2000));
+        let usdcAfterSwaps = usdcAfterWethFeeSwap;
+        if (aeroSwapHash) {
+          for (let i = 0; i < 8; i++) {
+            try {
+              const bal = await readBal(stablecoin, wallet.address);
+              usdcAfterSwaps = bal;
+              if (bal > usdcAfterWethFeeSwap) break;
+            } catch (_) {}
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        } else {
+          try { usdcAfterSwaps = await readBal(stablecoin, wallet.address); } catch (_) {}
         }
         const delta = usdcAfterSwaps > usdcBeforeSwaps ? usdcAfterSwaps - usdcBeforeSwaps : 0n;
         const source = caseNum ? `cas${caseNum}` : halfFees ? "cas1" : allFees ? "cas2" : sellWethFees ? "cas1-weth" : transferUsdcFees ? "cas2-old" : keepWeth ? "cas3" : "close";
