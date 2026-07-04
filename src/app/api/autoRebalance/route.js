@@ -960,6 +960,19 @@ async function handleCase4(poolNum = 2) {
       return Response.json({ skipped: true, reason: `Solde USDC insuffisant : $${usdcBal.toFixed(2)} (min $50)${!balRead ? " — lecture RPC échouée" : ""}` });
   }
 
+  // 2b. Vérifier limite 4 rebalances en 24h (même garde que cas 1/2/3)
+  try {
+    const cnt = await sql`
+      SELECT COUNT(*)::int AS n FROM lp_events
+      WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = ${poolNum}
+        AND created_at > NOW() - INTERVAL '24 hours'
+    `;
+    if (cnt[0].n >= 4)
+      return Response.json({ skipped: true, reason: `4 rebalances déjà effectués dans les 24h (pool ${poolNum})` });
+  } catch (e) {
+    return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
+  }
+
   const livePrice4 = await getPoolWethPrice(0);
   if (!livePrice4 || livePrice4 < 100 || livePrice4 > 100000)
     return Response.json({ skipped: true, reason: `Prix WETH on-chain invalide : ${livePrice4}` });
