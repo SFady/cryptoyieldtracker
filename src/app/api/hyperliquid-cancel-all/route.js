@@ -58,7 +58,7 @@ export async function POST() {
   const privateKey = process.env.PRIVATE_KEY_HL1;
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
 
-  const wallet  = new ethers.Wallet(privateKey);
+  const wallet  = new ethers.Wallet(privateKey.trim());
   const address = wallet.address;
 
   const [openOrders, state, meta, mids] = await Promise.all([

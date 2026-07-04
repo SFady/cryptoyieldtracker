@@ -83,7 +83,7 @@ export async function POST(req) {
   const privateKey = process.env.PRIVATE_KEY_HL1;
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
 
-  const wallet = new ethers.Wallet(privateKey);
+  const wallet = new ethers.Wallet(privateKey.trim());
   const [ethPrice, assetIdx] = await Promise.all([getEthMidPrice(), getEthAssetIndex()]);
 
   const lev         = Math.max(1, Math.min(50, Math.round(leverage)));
