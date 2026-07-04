@@ -83,6 +83,7 @@ export async function POST() {
 
   if (cancels.length > 0) {
     cancelResult = await signAndSend(wallet, { type: "cancel", cancels }, Date.now());
+    await new Promise(r => setTimeout(r, 300));
   }
 
   // 2. Close open positions (IoC market close, reduce only)
@@ -104,7 +105,7 @@ export async function POST() {
 
     const result = await signAndSend(wallet, {
       type:   "order",
-      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
+      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: false, t: { limit: { tif: "Ioc" } } }],
       grouping: "na",
     }, Date.now());
 
