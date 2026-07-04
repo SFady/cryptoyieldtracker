@@ -118,16 +118,20 @@ export async function POST() {
       grouping: "normalTpsl",
     }, Date.now());
 
-    const fakeSlOid = result?.response?.data?.statuses?.[1]?.resting?.oid;
-    if (fakeSlOid !== undefined) {
-      await new Promise(r => setTimeout(r, 300));
-      await signAndSend(wallet, {
-        type: "cancel",
-        cancels: [{ a: coinToIdx[coin], o: fakeSlOid }],
-      }, Date.now());
-    }
-
     closeResults.push({ coin, szi, size, closePrice, result });
+  }
+
+  // 3. Cancel residual orders (fake SL brackets left by close orders)
+  let cleanupResult = null;
+  if (closeResults.length > 0) {
+    await new Promise(r => setTimeout(r, 500));
+    const remainingOrders = await hlInfo({ type: "openOrders", user: address });
+    const residual = (Array.isArray(remainingOrders) ? remainingOrders : [])
+      .filter(o => coinToIdx[o.coin] !== undefined)
+      .map(o => ({ a: coinToIdx[o.coin], o: o.oid }));
+    if (residual.length > 0) {
+      cleanupResult = await signAndSend(wallet, { type: "cancel", cancels: residual }, Date.now());
+    }
   }
 
   return Response.json({
@@ -136,5 +140,6 @@ export async function POST() {
     cancelResult,
     closed:       closeResults.length,
     closeResults,
+    cleanupResult,
   });
 }
