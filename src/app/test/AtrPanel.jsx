@@ -952,7 +952,7 @@ function HlTransferAmountItem({ isOpen, onToggle, borderBottom }) {
   const color = "#64b4ff";
 
   function handleValidate() {
-    if (!amount || parseFloat(amount) <= 0) return;
+    if (!amount || parseFloat(amount) < 5) return;
     if (!confirming) {
       setConfirming(true);
       timerRef.current = setTimeout(() => setConfirming(false), 3000);
@@ -1008,7 +1008,7 @@ function HlTransferAmountItem({ isOpen, onToggle, borderBottom }) {
       {isOpen && (
         <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
-            HL → Arbitrum → Base (tout-en-un, ~4 min max)
+            HL → Arbitrum → Base (tout-en-un, ~4 min max) · min $5
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
@@ -1032,7 +1032,7 @@ function HlTransferAmountItem({ isOpen, onToggle, borderBottom }) {
             />
             <button
               onClick={handleValidate}
-              disabled={isLoading || !amount || parseFloat(amount) <= 0}
+              disabled={isLoading || !amount || parseFloat(amount) < 5}
               style={{
                 padding: "7px 14px",
                 background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,

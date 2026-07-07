@@ -96,8 +96,8 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 export async function POST(req) {
   const { amount } = await req.json().catch(() => ({}));
-  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0)
-    return Response.json({ error: "Montant invalide" }, { status: 400 });
+  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) < 5)
+    return Response.json({ error: "Montant minimum : $5" }, { status: 400 });
 
   const privateKeyHl   = process.env.PRIVATE_KEY_HL1;
   const privateKeyPool = process.env.PRIVATE_KEY;
