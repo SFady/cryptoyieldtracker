@@ -69,20 +69,14 @@ export async function POST(req) {
     return Response.json({ error: `Quote Across échouée : ${e.message}` }, { status: 500 });
   }
 
-  function parseBigInt(val, fallback) {
-    try {
-      if (val === undefined || val === null) return fallback;
-      const n = Number(val);
-      if (isNaN(n) || !isFinite(n)) return fallback;
-      return BigInt(Math.round(n));
-    } catch (_) { return fallback; }
-  }
-
-  const outputAmount        = parseBigInt(quote.outputAmount, amountWei * 98n / 100n);
-  const quoteTimestamp      = Number(quote.quoteTimestamp);
-  const fillDeadline        = Math.floor(Date.now() / 1000) + 21600;
+  const outputAmount        = BigInt(quote.outputAmount);
+  const quoteTimestamp      = Number(quote.timestamp);
+  const fillDeadline        = Number(quote.fillDeadline);
   const exclusiveRelayer    = quote.exclusiveRelayer ?? ethers.ZeroAddress;
-  const exclusivityDeadline = Number(quote.exclusivityDeadline ?? 0);
+  const exclusivityDeadline = exclusiveRelayer !== ethers.ZeroAddress
+    ? quoteTimestamp + Number(quote.exclusivityDeadline ?? 0)
+    : 0;
+  const spokePoolAddr       = quote.spokePoolAddress ?? SPOKE_POOL_ARB;
 
   // 3. Approve SpokePool
   try {
@@ -93,22 +87,22 @@ export async function POST(req) {
   }
 
   // 4. Deposit via Across SpokePool
-  const spokePool = new ethers.Contract(SPOKE_POOL_ARB, SPOKE_ABI, wallet);
+  const spokePool = new ethers.Contract(spokePoolAddr, SPOKE_ABI, wallet);
   let depositTx;
   try {
     depositTx = await spokePool.depositV3(
-      wallet.address,       // depositor
-      wallet.address,       // recipient (même wallet sur Base)
-      USDC_ARB,             // inputToken
-      USDC_BASE,            // outputToken
-      amountWei,            // inputAmount
-      outputAmount,         // outputAmount (après frais)
-      BASE_CHAIN_ID,        // destinationChainId
+      wallet.address,
+      wallet.address,
+      USDC_ARB,
+      USDC_BASE,
+      amountWei,
+      outputAmount,
+      BASE_CHAIN_ID,
       exclusiveRelayer,
       quoteTimestamp,
       fillDeadline,
       exclusivityDeadline,
-      "0x",                 // message vide
+      "0x",
     );
     await depositTx.wait();
   } catch (e) {

@@ -60,26 +60,20 @@ async function bridgeArbToBase(wallet, amountUsdc) {
   const quote    = await quoteRes.json();
   if (!quote.totalRelayFee) throw new Error(`Quote Across : ${JSON.stringify(quote)}`);
 
-  function parseBigInt(val, fallback) {
-    try {
-      if (val === undefined || val === null) return fallback;
-      const n = Number(val);
-      if (isNaN(n) || !isFinite(n)) return fallback;
-      return BigInt(Math.round(n));
-    } catch (_) { return fallback; }
-  }
-
-  const outputAmount        = parseBigInt(quote.outputAmount, amountWei * 98n / 100n);
-  const quoteTimestamp      = Number(quote.quoteTimestamp);
-  const fillDeadline        = Math.floor(Date.now() / 1000) + 21600;
+  const outputAmount        = BigInt(quote.outputAmount);
+  const quoteTimestamp      = Number(quote.timestamp);
+  const fillDeadline        = Number(quote.fillDeadline);
   const exclusiveRelayer    = quote.exclusiveRelayer ?? ethers.ZeroAddress;
-  const exclusivityDeadline = Number(quote.exclusivityDeadline ?? 0);
+  const exclusivityDeadline = exclusiveRelayer !== ethers.ZeroAddress
+    ? quoteTimestamp + Number(quote.exclusivityDeadline ?? 0)
+    : 0;
+  const spokePoolAddr       = quote.spokePoolAddress ?? SPOKE_POOL_ARB;
 
   const usdc = new ethers.Contract(USDC_ARB, ERC20_ABI, wallet);
   const approveTx = await usdc.approve(SPOKE_POOL_ARB, amountWei);
   await approveTx.wait();
 
-  const spokePool = new ethers.Contract(SPOKE_POOL_ARB, SPOKE_ABI, wallet);
+  const spokePool = new ethers.Contract(spokePoolAddr, SPOKE_ABI, wallet);
   const depositTx = await spokePool.depositV3(
     wallet.address, wallet.address,
     USDC_ARB, USDC_BASE,
