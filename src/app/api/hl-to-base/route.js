@@ -70,7 +70,7 @@ async function bridgeArbToBase(wallet, amountUsdc) {
   const spokePoolAddr       = quote.spokePoolAddress ?? SPOKE_POOL_ARB;
 
   const usdc = new ethers.Contract(USDC_ARB, ERC20_ABI, wallet);
-  const approveTx = await usdc.approve(SPOKE_POOL_ARB, amountWei);
+  const approveTx = await usdc.approve(spokePoolAddr, amountWei);
   await approveTx.wait();
 
   const spokePool = new ethers.Contract(spokePoolAddr, SPOKE_ABI, wallet);

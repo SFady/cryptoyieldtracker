@@ -80,7 +80,7 @@ export async function POST(req) {
 
   // 3. Approve SpokePool
   try {
-    const approveTx = await usdc.approve(SPOKE_POOL_ARB, amountWei);
+    const approveTx = await usdc.approve(spokePoolAddr, amountWei);
     await approveTx.wait();
   } catch (e) {
     return Response.json({ error: `Approve échoué : ${e.message}` }, { status: 500 });
