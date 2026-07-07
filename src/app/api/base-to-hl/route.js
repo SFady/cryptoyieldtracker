@@ -50,16 +50,19 @@ export async function POST(req) {
   if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) < 5)
     return Response.json({ error: "Montant minimum : $5" }, { status: 400 });
 
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+  const privateKey   = process.env.PRIVATE_KEY;
+  const privateKeyHl = process.env.PRIVATE_KEY_HL1;
+  if (!privateKey)   return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+  if (!privateKeyHl) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
 
-  // Wallets Base et Arbitrum (même clé, chaînes différentes)
-  let baseProvider, arbProvider, baseWallet, arbWallet;
+  // Wallets Base et Arbitrum
+  let baseProvider, arbProvider, baseWallet, arbWallet, hl1Wallet;
   try {
     baseProvider = await getProvider(BASE_RPCS);
     arbProvider  = await getProvider(ARBITRUM_RPCS);
     baseWallet   = new ethers.Wallet(privateKey.trim(), baseProvider);
     arbWallet    = new ethers.Wallet(privateKey.trim(), arbProvider);
+    hl1Wallet    = new ethers.Wallet(privateKeyHl.trim(), arbProvider);
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
@@ -137,17 +140,35 @@ export async function POST(req) {
       });
   }
 
-  // 5. Dépôt sur Hyperliquid depuis Arbitrum
+  // 5. Dépôt sur Hyperliquid via HL1 (pour créditer le compte HL de HL1)
   const usdcArb    = new ethers.Contract(USDC_ARB, ERC20_ABI, arbWallet);
+  const usdcArbHl1 = new ethers.Contract(USDC_ARB, ERC20_ABI, hl1Wallet);
   const depositAmt = BigInt(Math.round(arbBalance * 1e6));
 
-  // Simple transfert USDC vers le bridge HL (pas d'appel de fonction deposit)
+  // 5a. Pool 2 envoie les USDC à l'adresse HL1 sur Arbitrum
+  try {
+    const toHl1Tx = await usdcArb.transfer(hl1Wallet.address, depositAmt);
+    await toHl1Tx.wait();
+  } catch (e) {
+    return Response.json({ error: `Transfert USDC → HL1 échoué : ${e.message}`, arbBalance }, { status: 500 });
+  }
+
+  // 5b. Pool 2 envoie un peu d'ETH à HL1 pour le gas si nécessaire
+  const hl1EthBal = await arbProvider.getBalance(hl1Wallet.address);
+  if (hl1EthBal < ethers.parseEther("0.00005")) {
+    try {
+      const ethTx = await arbWallet.sendTransaction({ to: hl1Wallet.address, value: ethers.parseEther("0.0001") });
+      await ethTx.wait();
+    } catch (_) {}
+  }
+
+  // 5c. HL1 envoie les USDC au bridge → crédite le compte HL de HL1
   let hlTx;
   try {
-    hlTx = await usdcArb.transfer(HL_BRIDGE_ARB, depositAmt);
+    hlTx = await usdcArbHl1.transfer(HL_BRIDGE_ARB, depositAmt);
     await hlTx.wait();
   } catch (e) {
-    return Response.json({ error: `Transfert USDC → HL échoué : ${e.message}`, arbBalance, hlBridgeUsed: HL_BRIDGE_ARB }, { status: 500 });
+    return Response.json({ error: `Dépôt HL bridge échoué : ${e.message}`, arbBalance, hlBridgeUsed: HL_BRIDGE_ARB }, { status: 500 });
   }
 
   return Response.json({
@@ -156,6 +177,7 @@ export async function POST(req) {
     amountArb:    arbBalance.toFixed(2),
     hlDepositTx:  hlTx.hash,
     bridgeTxHash: bridgeTx.hash,
+    hlAccount:    hl1Wallet.address,
     destination:  "Hyperliquid",
   });
 }
