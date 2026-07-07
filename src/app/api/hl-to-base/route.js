@@ -9,8 +9,8 @@ const ARBITRUM_RPCS = [
   "https://arbitrum-one.publicnode.com",
 ].filter(Boolean);
 
-const USDC_ARB       = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
-const USDC_BASE      = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const USDC_ARB       = "0xaf88d065e77c8cc2239327c5edb3a432268e5831";
+const USDC_BASE      = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const SPOKE_POOL_ARB = "0xe35e9842fceaca96570b734083f4a58e8f7c165f";
 const ARB_CHAIN_ID   = 42161;
 const BASE_CHAIN_ID  = 8453;
@@ -60,7 +60,16 @@ async function bridgeArbToBase(wallet, amountUsdc) {
   const quote    = await quoteRes.json();
   if (!quote.totalRelayFee) throw new Error(`Quote Across : ${JSON.stringify(quote)}`);
 
-  const outputAmount        = BigInt(quote.outputAmount ?? amountWei);
+  function parseBigInt(val, fallback) {
+    try {
+      if (val === undefined || val === null) return fallback;
+      const n = Number(val);
+      if (isNaN(n) || !isFinite(n)) return fallback;
+      return BigInt(Math.round(n));
+    } catch (_) { return fallback; }
+  }
+
+  const outputAmount        = parseBigInt(quote.outputAmount, amountWei * 98n / 100n);
   const quoteTimestamp      = Number(quote.quoteTimestamp);
   const fillDeadline        = Math.floor(Date.now() / 1000) + 21600;
   const exclusiveRelayer    = quote.exclusiveRelayer ?? ethers.ZeroAddress;

@@ -9,8 +9,8 @@ const ARBITRUM_RPCS = [
   "https://arbitrum-one.publicnode.com",
 ].filter(Boolean);
 
-const USDC_ARB        = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
-const USDC_BASE       = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const USDC_ARB        = "0xaf88d065e77c8cc2239327c5edb3a432268e5831";
+const USDC_BASE       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const SPOKE_POOL_ARB  = "0xe35e9842fceaca96570b734083f4a58e8f7c165f";
 const ARB_CHAIN_ID    = 42161;
 const BASE_CHAIN_ID   = 8453;
@@ -69,10 +69,19 @@ export async function POST(req) {
     return Response.json({ error: `Quote Across échouée : ${e.message}` }, { status: 500 });
   }
 
-  const outputAmount      = BigInt(quote.outputAmount ?? (amountWei - BigInt(quote.totalRelayFee?.total ?? 0)));
-  const quoteTimestamp    = Number(quote.quoteTimestamp);
-  const fillDeadline      = Math.floor(Date.now() / 1000) + 21600; // +6h
-  const exclusiveRelayer  = quote.exclusiveRelayer  ?? ethers.ZeroAddress;
+  function parseBigInt(val, fallback) {
+    try {
+      if (val === undefined || val === null) return fallback;
+      const n = Number(val);
+      if (isNaN(n) || !isFinite(n)) return fallback;
+      return BigInt(Math.round(n));
+    } catch (_) { return fallback; }
+  }
+
+  const outputAmount        = parseBigInt(quote.outputAmount, amountWei * 98n / 100n);
+  const quoteTimestamp      = Number(quote.quoteTimestamp);
+  const fillDeadline        = Math.floor(Date.now() / 1000) + 21600;
+  const exclusiveRelayer    = quote.exclusiveRelayer ?? ethers.ZeroAddress;
   const exclusivityDeadline = Number(quote.exclusivityDeadline ?? 0);
 
   // 3. Approve SpokePool
@@ -103,7 +112,7 @@ export async function POST(req) {
     );
     await depositTx.wait();
   } catch (e) {
-    return Response.json({ error: `Deposit Across échoué : ${e.message}` }, { status: 500 });
+    return Response.json({ error: `Deposit Across échoué : ${e.message}`, quote }, { status: 500 });
   }
 
   return Response.json({
