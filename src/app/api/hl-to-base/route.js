@@ -11,7 +11,7 @@ const ARBITRUM_RPCS = [
 
 const USDC_ARB       = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 const USDC_BASE      = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const SPOKE_POOL_ARB = "0xe35e9842fceaCA96570B734083f4a58e8F7C165f";
+const SPOKE_POOL_ARB = "0xe35e9842fceaca96570b734083f4a58e8f7c165f";
 const ARB_CHAIN_ID   = 42161;
 const BASE_CHAIN_ID  = 8453;
 const ACROSS_API     = "https://app.across.to/api/suggested-fees";
