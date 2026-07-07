@@ -218,6 +218,7 @@ export default function AtrPanel() {
       <TestRebalanceSection />
       <HyperliquidShortSection />
       <HyperliquidCancelAllSection />
+      <DiversSection />
     </div>
   );
 }
@@ -877,6 +878,194 @@ function CreatePanel({ data }) {
           {status === "loading" ? "ENVOI EN COURS..." : "CONFIRMER LA POSITION"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function DiversSection() {
+  const [open,       setOpen]       = useState(false);
+  const [expanded,   setExpanded]   = useState(null);
+  const color = "#64b4ff";
+
+  function toggleItem(key) {
+    setExpanded(v => v === key ? null : key);
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <button
+        onClick={() => { setOpen(v => !v); setExpanded(null); }}
+        style={{
+          width: "100%",
+          padding: "11px 14px",
+          background: open ? `${color}12` : `${color}08`,
+          border: `1px solid ${color}44`,
+          borderRadius: open ? "10px 10px 0 0" : 10,
+          color,
+          fontFamily: "monospace",
+          fontSize: "0.75rem",
+          fontWeight: 700,
+          letterSpacing: "1px",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span>DIVERS</span>
+        <span style={{ fontSize: "0.65rem", opacity: 0.7 }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          background: "rgba(18,18,45,0.97)",
+          border: `1px solid ${color}33`,
+          borderTop: "none",
+          borderRadius: "0 0 10px 10px",
+          overflow: "hidden",
+        }}>
+          <HlTransferAmountItem
+            isOpen={expanded === "hl-transfer"}
+            onToggle={() => toggleItem("hl-transfer")}
+            borderBottom
+          />
+          {["Divers 2", "Divers 3"].map((label, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "11px 14px",
+                borderBottom: i < 1 ? `1px solid ${color}11` : "none",
+                fontFamily: "monospace",
+                fontSize: "0.8rem",
+                color: "#9988cc",
+              }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HlTransferAmountItem({ isOpen, onToggle, borderBottom }) {
+  const [amount,     setAmount]     = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [status,     setStatus]     = useState(null);
+  const [result,     setResult]     = useState(null);
+  const timerRef = useRef(null);
+  const color = "#64b4ff";
+
+  function handleValidate() {
+    if (!amount || parseFloat(amount) <= 0) return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      submit();
+    }
+  }
+
+  async function submit() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/hyperliquid-transfer-from-amount", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ amount: parseFloat(amount) }),
+      });
+      const json = await res.json();
+      setStatus(json.ok ? "ok" : "error");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const btnColor = confirming ? "#f0b429" : color;
+  const btnLabel = status === "loading" ? "..." : confirming ? "⚠ OK ?" : "Valider";
+
+  return (
+    <div style={{ borderBottom: borderBottom ? `1px solid ${color}11` : "none" }}>
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "11px 14px",
+          fontFamily: "monospace",
+          fontSize: "0.8rem",
+          color: isOpen ? color : "#9988cc",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: isOpen ? `${color}08` : "transparent",
+        }}
+      >
+        <span>hyperliquid-transfer-from-amount</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              placeholder="Montant USDC"
+              value={amount}
+              onChange={e => { setAmount(e.target.value); setConfirming(false); setStatus(null); setResult(null); }}
+              style={{
+                flex: 1,
+                fontFamily: "monospace",
+                fontSize: "0.8rem",
+                padding: "7px 10px",
+                borderRadius: 5,
+                background: `${color}08`,
+                border: `1px solid ${color}33`,
+                color: "#eaf6ff",
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={handleValidate}
+              disabled={status === "loading" || !amount || parseFloat(amount) <= 0}
+              style={{
+                padding: "7px 14px",
+                background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,
+                border: `1px solid ${btnColor}66`,
+                borderRadius: 5,
+                color: status === "loading" || !amount ? `${btnColor}44` : btnColor,
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: (status === "loading" || !amount) ? "default" : "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              {btnLabel}
+            </button>
+          </div>
+
+          {result && (
+            <div style={{
+              fontFamily: "monospace",
+              fontSize: "0.7rem",
+              color: status === "ok" ? "#00e5a0" : "#c97070",
+              background: status === "ok" ? "rgba(0,229,160,0.06)" : "rgba(180,100,100,0.08)",
+              border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
+              borderRadius: 5,
+              padding: "8px 10px",
+            }}>
+              {status === "ok" ? "✓ " : "⚠ "}{JSON.stringify(result)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
