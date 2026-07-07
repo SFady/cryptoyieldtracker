@@ -1,22 +1,34 @@
 import { ethers } from "ethers";
-import { encode } from "@msgpack/msgpack";
 
 export const runtime     = "nodejs";
 export const maxDuration = 60;
 
 const HL_EXCHANGE = "https://api.hyperliquid.xyz/exchange";
 
-async function signAction(wallet, action, nonce) {
-  const msgpackBytes = encode({ method: "POST", path: "/exchange", body: { action, nonce } });
-  const hash = ethers.keccak256(
-    ethers.concat([
-      ethers.toUtf8Bytes("\x19Ethereum Signed Message:\n"),
-      ethers.toUtf8Bytes(String(msgpackBytes.length)),
-      msgpackBytes,
-    ])
+async function signWithdraw(wallet, action) {
+  const sig = await wallet.signTypedData(
+    {
+      name:            "HyperliquidSignTransaction",
+      version:         "1",
+      chainId:         42161,
+      verifyingContract: "0x0000000000000000000000000000000000000000",
+    },
+    {
+      "HyperliquidTransaction:Withdraw": [
+        { name: "hyperliquidChain", type: "string" },
+        { name: "destination",      type: "string" },
+        { name: "amount",           type: "string" },
+        { name: "time",             type: "uint64"  },
+      ],
+    },
+    {
+      hyperliquidChain: action.hyperliquidChain,
+      destination:      action.destination,
+      amount:           action.amount,
+      time:             action.time,
+    }
   );
-  const sig = wallet.signingKey.sign(hash);
-  return { r: sig.r, s: sig.s, v: sig.v };
+  return ethers.Signature.from(sig);
 }
 
 export async function POST(req) {
@@ -48,17 +60,18 @@ export async function POST(req) {
       destination:      pool2Address,
     };
 
-    const sig = await signAction(wallet, action, nonce);
+    const sig = await signWithdraw(wallet, action);
 
     const res  = await fetch(HL_EXCHANGE, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ action, nonce, signature: sig }),
+      body:    JSON.stringify({ action, nonce, signature: { r: sig.r, s: sig.s, v: sig.v } }),
       signal:  AbortSignal.timeout(15000),
     });
     const json = await res.json();
 
-    if (json.status === "ok") return Response.json({ ok: true, amount, destination: pool2Address, result: json });
+    if (json.status === "ok")
+      return Response.json({ ok: true, amount, destination: pool2Address, result: json });
     return Response.json({ error: json.response ?? JSON.stringify(json) }, { status: 400 });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
