@@ -22,11 +22,10 @@ const USDC_ARB       = "0xaf88d065e77c8cc2239327c5edb3a432268e5831";
 const BASE_CHAIN_ID  = 8453;
 const ARB_CHAIN_ID   = 42161;
 const ACROSS_API     = "https://app.across.to/api/suggested-fees";
-const HL_BRIDGE_ARB  = "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7"; // Bridge HL sur Arbitrum
+const HL_BRIDGE_ARB  = process.env.HL_BRIDGE_ARB ?? "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7";
 
-const ERC20_ABI  = ["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)"];
+const ERC20_ABI  = ["function approve(address,uint256) returns(bool)", "function balanceOf(address) view returns(uint256)", "function transfer(address,uint256) returns(bool)"];
 const SPOKE_ABI  = ["function depositV3(address,address,address,address,uint256,uint256,uint256,address,uint32,uint32,uint32,bytes) payable"];
-const HL_BRIDGE_ABI = ["function deposit(uint64 usd) external"];
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -140,22 +139,15 @@ export async function POST(req) {
 
   // 5. Dépôt sur Hyperliquid depuis Arbitrum
   const usdcArb    = new ethers.Contract(USDC_ARB, ERC20_ABI, arbWallet);
-  const hlBridge   = new ethers.Contract(HL_BRIDGE_ARB, HL_BRIDGE_ABI, arbWallet);
   const depositAmt = BigInt(Math.round(arbBalance * 1e6));
 
-  try {
-    const approveTx = await usdcArb.approve(HL_BRIDGE_ARB, depositAmt);
-    await approveTx.wait();
-  } catch (e) {
-    return Response.json({ error: `Approve HL échoué : ${e.message}`, arbBalance }, { status: 500 });
-  }
-
+  // Simple transfert USDC vers le bridge HL (pas d'appel de fonction deposit)
   let hlTx;
   try {
-    hlTx = await hlBridge.deposit(depositAmt);
+    hlTx = await usdcArb.transfer(HL_BRIDGE_ARB, depositAmt);
     await hlTx.wait();
   } catch (e) {
-    return Response.json({ error: `Dépôt HL échoué : ${e.message}`, arbBalance }, { status: 500 });
+    return Response.json({ error: `Transfert USDC → HL échoué : ${e.message}`, arbBalance, hlBridgeUsed: HL_BRIDGE_ARB }, { status: 500 });
   }
 
   return Response.json({
