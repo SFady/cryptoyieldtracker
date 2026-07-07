@@ -929,20 +929,14 @@ function DiversSection() {
             onToggle={() => toggleItem("hl-transfer")}
             borderBottom
           />
-          {["Divers 2", "Divers 3"].map((label, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "11px 14px",
-                borderBottom: i < 1 ? `1px solid ${color}11` : "none",
-                fontFamily: "monospace",
-                fontSize: "0.8rem",
-                color: "#9988cc",
-              }}
-            >
-              {label}
-            </div>
-          ))}
+          <HlBridgeToBaseItem
+            isOpen={expanded === "hl-bridge"}
+            onToggle={() => toggleItem("hl-bridge")}
+            borderBottom
+          />
+          <div style={{ padding: "11px 14px", fontFamily: "monospace", fontSize: "0.8rem", color: "#9988cc" }}>
+            Divers 3
+          </div>
         </div>
       )}
     </div>
@@ -1052,17 +1046,22 @@ function HlTransferAmountItem({ isOpen, onToggle, borderBottom }) {
           </div>
 
           {result && (
-            <div style={{
+            <pre style={{
               fontFamily: "monospace",
-              fontSize: "0.7rem",
+              fontSize: "0.75rem",
               color: status === "ok" ? "#00e5a0" : "#c97070",
               background: status === "ok" ? "rgba(0,229,160,0.06)" : "rgba(180,100,100,0.08)",
               border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
-              borderRadius: 5,
-              padding: "8px 10px",
+              borderRadius: 6,
+              padding: "12px 14px",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: 260,
+              overflowY: "auto",
             }}>
-              {status === "ok" ? "✓ " : "⚠ "}{JSON.stringify(result)}
-            </div>
+              {status === "ok" ? "✓ " : "⚠ "}{JSON.stringify(result, null, 2)}
+            </pre>
           )}
         </div>
       )}
@@ -1158,6 +1157,135 @@ function HyperliquidCancelAllSection() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function HlBridgeToBaseItem({ isOpen, onToggle, borderBottom }) {
+  const [amount,     setAmount]     = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [status,     setStatus]     = useState(null);
+  const [result,     setResult]     = useState(null);
+  const timerRef = useRef(null);
+  const color = "#64b4ff";
+
+  function handleValidate() {
+    if (!amount || parseFloat(amount) <= 0) return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      submit();
+    }
+  }
+
+  async function submit() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/hyperliquid-bridge-to-base", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ amount: parseFloat(amount) }),
+      });
+      const json = await res.json();
+      setStatus(json.ok ? "ok" : "error");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const btnColor = confirming ? "#f0b429" : color;
+  const btnLabel = status === "loading" ? "..." : confirming ? "⚠ OK ?" : "Valider";
+
+  return (
+    <div style={{ borderBottom: borderBottom ? `1px solid ${color}11` : "none" }}>
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "11px 14px",
+          fontFamily: "monospace",
+          fontSize: "0.8rem",
+          color: isOpen ? color : "#9988cc",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: isOpen ? `${color}08` : "transparent",
+        }}
+      >
+        <span>hyperliquid-bridge-to-base</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
+            Arbitrum → Base via Across · déclencher après réception du retrait HL
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              placeholder="Montant USDC"
+              value={amount}
+              onChange={e => { setAmount(e.target.value); setConfirming(false); setStatus(null); setResult(null); }}
+              style={{
+                flex: 1,
+                fontFamily: "monospace",
+                fontSize: "0.8rem",
+                padding: "7px 10px",
+                borderRadius: 5,
+                background: `${color}08`,
+                border: `1px solid ${color}33`,
+                color: "#eaf6ff",
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={handleValidate}
+              disabled={status === "loading" || !amount || parseFloat(amount) <= 0}
+              style={{
+                padding: "7px 14px",
+                background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,
+                border: `1px solid ${btnColor}66`,
+                borderRadius: 5,
+                color: status === "loading" || !amount ? `${btnColor}44` : btnColor,
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: (status === "loading" || !amount) ? "default" : "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              {btnLabel}
+            </button>
+          </div>
+
+          {result && (
+            <pre style={{
+              fontFamily: "monospace",
+              fontSize: "0.75rem",
+              color: status === "ok" ? "#00e5a0" : "#c97070",
+              background: status === "ok" ? "rgba(0,229,160,0.06)" : "rgba(180,100,100,0.08)",
+              border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
+              borderRadius: 6,
+              padding: "12px 14px",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: 260,
+              overflowY: "auto",
+            }}>
+              {status === "ok" ? "✓ " : "⚠ "}{JSON.stringify(result, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }
