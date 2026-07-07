@@ -934,9 +934,15 @@ function DiversSection() {
             onToggle={() => toggleItem("hl-bridge")}
             borderBottom
           />
-          <div style={{ padding: "11px 14px", fontFamily: "monospace", fontSize: "0.8rem", color: "#9988cc" }}>
-            Divers 3
-          </div>
+          <BaseToArbItem
+            isOpen={expanded === "base-to-arb"}
+            onToggle={() => toggleItem("base-to-arb")}
+            borderBottom
+          />
+          <BaseToHlItem
+            isOpen={expanded === "base-to-hl"}
+            onToggle={() => toggleItem("base-to-hl")}
+          />
         </div>
       )}
     </div>
@@ -1294,6 +1300,282 @@ function HlBridgeToBaseItem({ isOpen, onToggle, borderBottom }) {
               overflowY: "auto",
             }}>
               {status === "ok" ? "✓ " : "⚠ "}{JSON.stringify(result, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BaseToArbItem({ isOpen, onToggle }) {
+  const [amount,     setAmount]     = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [status,     setStatus]     = useState(null);
+  const [result,     setResult]     = useState(null);
+  const timerRef = useRef(null);
+  const color = "#64b4ff";
+
+  function handleValidate() {
+    if (!amount || parseFloat(amount) < 5) return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      submit();
+    }
+  }
+
+  async function submit() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/base-to-arb", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ amount: parseFloat(amount) }),
+      });
+      const json = await res.json();
+      setStatus(json.ok ? "ok" : "error");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const isLoading = status === "loading";
+  const btnColor  = confirming ? "#f0b429" : color;
+  const btnLabel  = isLoading ? "..." : confirming ? "⚠ OK ?" : "Valider";
+
+  return (
+    <div>
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "11px 14px",
+          fontFamily: "monospace",
+          fontSize: "0.8rem",
+          color: isOpen ? color : "#9988cc",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: isOpen ? `${color}08` : "transparent",
+        }}
+      >
+        <span>base-to-arb</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
+            USDC Base → wallet Arbitrum via Across · min $5
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              placeholder="Montant USDC"
+              value={amount}
+              onChange={e => { setAmount(e.target.value); setConfirming(false); setStatus(null); setResult(null); }}
+              disabled={isLoading}
+              style={{
+                flex: 1,
+                fontFamily: "monospace",
+                fontSize: "0.8rem",
+                padding: "7px 10px",
+                borderRadius: 5,
+                background: `${color}08`,
+                border: `1px solid ${color}33`,
+                color: "#eaf6ff",
+                outline: "none",
+                opacity: isLoading ? 0.5 : 1,
+              }}
+            />
+            <button
+              onClick={handleValidate}
+              disabled={isLoading || !amount || parseFloat(amount) < 5}
+              style={{
+                padding: "7px 14px",
+                background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,
+                border: `1px solid ${btnColor}66`,
+                borderRadius: 5,
+                color: (isLoading || !amount || parseFloat(amount) < 5) ? `${btnColor}44` : btnColor,
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: (isLoading || !amount || parseFloat(amount) < 5) ? "default" : "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              {btnLabel}
+            </button>
+          </div>
+
+          {isLoading && (
+            <div style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#f0b429" }}>
+              ⏳ Bridge en cours...
+            </div>
+          )}
+
+          {result && (
+            <pre style={{
+              fontFamily: "monospace",
+              fontSize: "0.75rem",
+              color: status === "ok" ? "#00e5a0" : "#c97070",
+              background: status === "ok" ? "rgba(0,229,160,0.06)" : "rgba(180,100,100,0.08)",
+              border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.2)" : "rgba(180,100,100,0.2)"}`,
+              borderRadius: 6,
+              padding: "12px 14px",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: 260,
+              overflowY: "auto",
+            }}>
+              {status === "ok" ? "✓ " : "⚠ "}{JSON.stringify(result, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BaseToHlItem({ isOpen, onToggle }) {
+  const [amount,     setAmount]     = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [status,     setStatus]     = useState(null);
+  const [result,     setResult]     = useState(null);
+  const timerRef = useRef(null);
+  const color = "#64b4ff";
+
+  function handleValidate() {
+    if (!amount || parseFloat(amount) < 5) return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      submit();
+    }
+  }
+
+  async function submit() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/base-to-hl", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ amount: parseFloat(amount) }),
+      });
+      const json = await res.json();
+      setStatus(json.ok ? "ok" : json.pending ? "pending" : "error");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const isLoading = status === "loading";
+  const btnColor  = confirming ? "#f0b429" : color;
+  const btnLabel  = isLoading ? "..." : confirming ? "⚠ OK ?" : "Valider";
+
+  return (
+    <div>
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "11px 14px",
+          fontFamily: "monospace",
+          fontSize: "0.8rem",
+          color: isOpen ? color : "#9988cc",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: isOpen ? `${color}08` : "transparent",
+        }}
+      >
+        <span>base-to-hl</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
+            USDC Base → Arbitrum → Hyperliquid (tout-en-un, ~4 min max) · min $5
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              placeholder="Montant USDC"
+              value={amount}
+              onChange={e => { setAmount(e.target.value); setConfirming(false); setStatus(null); setResult(null); }}
+              disabled={isLoading}
+              style={{
+                flex: 1,
+                fontFamily: "monospace",
+                fontSize: "0.8rem",
+                padding: "7px 10px",
+                borderRadius: 5,
+                background: `${color}08`,
+                border: `1px solid ${color}33`,
+                color: "#eaf6ff",
+                outline: "none",
+                opacity: isLoading ? 0.5 : 1,
+              }}
+            />
+            <button
+              onClick={handleValidate}
+              disabled={isLoading || !amount || parseFloat(amount) < 5}
+              style={{
+                padding: "7px 14px",
+                background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,
+                border: `1px solid ${btnColor}66`,
+                borderRadius: 5,
+                color: (isLoading || !amount || parseFloat(amount) < 5) ? `${btnColor}44` : btnColor,
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: (isLoading || !amount || parseFloat(amount) < 5) ? "default" : "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              {btnLabel}
+            </button>
+          </div>
+
+          {isLoading && (
+            <div style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#f0b429" }}>
+              ⏳ En cours... (peut prendre jusqu'à 4 min)
+            </div>
+          )}
+
+          {result && (
+            <pre style={{
+              fontFamily: "monospace",
+              fontSize: "0.75rem",
+              color: status === "ok" ? "#00e5a0" : status === "pending" ? "#f0b429" : "#c97070",
+              background: status === "ok" ? "rgba(0,229,160,0.06)" : "rgba(0,0,0,0.25)",
+              border: `1px solid ${status === "ok" ? "rgba(0,229,160,0.2)" : "rgba(100,180,255,0.15)"}`,
+              borderRadius: 6,
+              padding: "12px 14px",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: 260,
+              overflowY: "auto",
+            }}>
+              {status === "ok" ? "✓ " : status === "pending" ? "⏳ " : "⚠ "}{JSON.stringify(result, null, 2)}
             </pre>
           )}
         </div>
