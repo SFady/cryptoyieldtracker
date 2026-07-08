@@ -1599,18 +1599,20 @@ function Pool2TotalItem({ isOpen, onToggle }) {
     setLoading(true);
     setError(null);
     try {
-      const [hlRes, posRes] = await Promise.all([
+      const [hlRes, posRes, readyRes] = await Promise.all([
         fetch("/api/hyperliquid-status"),
         fetch("/api/positions2"),
+        fetch("/api/pool2-ready"),
       ]);
-      const hl  = await hlRes.json();
-      const pos = await posRes.json();
+      const hl    = await hlRes.json();
+      const pos   = await posRes.json();
+      const ready = await readyRes.json();
       if (hl.error)  throw new Error(hl.error);
       if (pos.error) throw new Error(pos.error);
       const hlValue   = parseFloat(hl.accountValue   ?? 0);
       const usdcValue = parseFloat(pos.usdcWallet    ?? 0);
       const wethValue = parseFloat(pos.wethWalletUSD ?? 0);
-      setData({ hlValue, usdcValue, wethValue, total: hlValue + usdcValue + wethValue });
+      setData({ hlValue, usdcValue, wethValue, total: hlValue + usdcValue + wethValue, ready: ready.ready });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1688,6 +1690,13 @@ function Pool2TotalItem({ isOpen, onToggle }) {
               }}>
                 <span>Total</span>
                 <span style={{ color }}>${data.total.toFixed(2)}</span>
+              </div>
+              <div style={{
+                fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700,
+                color: data.ready ? "#00e5a0" : "#c97070",
+                marginTop: 4,
+              }}>
+                ready: {data.ready ? "true" : "false"}
               </div>
             </div>
           )}
