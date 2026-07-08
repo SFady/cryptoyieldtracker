@@ -942,6 +942,11 @@ function DiversSection() {
           <BaseToHlItem
             isOpen={expanded === "base-to-hl"}
             onToggle={() => toggleItem("base-to-hl")}
+            borderBottom
+          />
+          <Pool2TotalItem
+            isOpen={expanded === "pool2-total"}
+            onToggle={() => toggleItem("pool2-total")}
           />
         </div>
       )}
@@ -1577,6 +1582,114 @@ function BaseToHlItem({ isOpen, onToggle }) {
             }}>
               {status === "ok" ? "✓ " : status === "pending" ? "⏳ " : "⚠ "}{JSON.stringify(result, null, 2)}
             </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Pool2TotalItem({ isOpen, onToggle }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState(null);
+  const color = "#64b4ff";
+
+  async function fetchData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [hlRes, posRes] = await Promise.all([
+        fetch("/api/hyperliquid-status"),
+        fetch("/api/positions2"),
+      ]);
+      const hl  = await hlRes.json();
+      const pos = await posRes.json();
+      if (hl.error)  throw new Error(hl.error);
+      if (pos.error) throw new Error(pos.error);
+      const hlValue   = parseFloat(hl.accountValue   ?? 0);
+      const usdcValue = parseFloat(pos.usdcWallet    ?? 0);
+      const wethValue = parseFloat(pos.wethWalletUSD ?? 0);
+      setData({ hlValue, usdcValue, wethValue, total: hlValue + usdcValue + wethValue });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "11px 14px",
+          fontFamily: "monospace",
+          fontSize: "0.8rem",
+          color: isOpen ? color : "#9988cc",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: isOpen ? `${color}08` : "transparent",
+        }}
+      >
+        <span>pool2-total</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
+            Hyperliquid + USDC wallet + WETH wallet (pool 2)
+          </div>
+
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            style={{
+              padding: "7px 14px",
+              background: `${color}15`,
+              border: `1px solid ${color}44`,
+              borderRadius: 5,
+              color: loading ? `${color}44` : color,
+              fontFamily: "monospace",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              cursor: loading ? "default" : "pointer",
+              alignSelf: "flex-start",
+            }}
+          >
+            {loading ? "..." : "↺ Calculer"}
+          </button>
+
+          {error && (
+            <div style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "#c97070" }}>⚠ {error}</div>
+          )}
+
+          {data && !loading && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[
+                { label: "Hyperliquid", value: data.hlValue },
+                { label: "USDC wallet", value: data.usdcValue },
+                { label: "WETH wallet", value: data.wethValue },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", fontFamily: "monospace", fontSize: "0.72rem", color: "#9988cc" }}>
+                  <span>{label}</span>
+                  <span>${value.toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700,
+                color: "#eaf6ff",
+                borderTop: `1px solid ${color}22`,
+                paddingTop: 6, marginTop: 2,
+              }}>
+                <span>Total</span>
+                <span style={{ color }}>${data.total.toFixed(2)}</span>
+              </div>
+            </div>
           )}
         </div>
       )}
