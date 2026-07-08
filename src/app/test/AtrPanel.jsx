@@ -1698,6 +1698,22 @@ function Pool2TotalItem({ isOpen, onToggle }) {
               }}>
                 ready: {data.ready ? "true" : "false"}
               </div>
+              {(() => {
+                const toHl   = data.total / 8;
+                const toPool = data.total - toHl;
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6, borderTop: `1px solid ${color}22`, paddingTop: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "monospace", fontSize: "0.72rem", color: "#9988cc" }}>
+                      <span>to invest hyperliquid</span>
+                      <span style={{ color: "#a477ff" }}>${toHl.toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "monospace", fontSize: "0.72rem", color: "#9988cc" }}>
+                      <span>to invest pool</span>
+                      <span style={{ color: "#a477ff" }}>${toPool.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
