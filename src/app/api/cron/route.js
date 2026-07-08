@@ -102,24 +102,8 @@ async function handle(req) {
   }
 
   if (base) {
-    // Cas 5 : collecte de fees — toujours tenté en premier
-    try {
-      const res  = await fetch(`${base}/api/autoRebalance?case=5&poolNum=2`, { signal: AbortSignal.timeout(280000) });
-      rebalanceResults[5] = await res.json();
-    } catch (e) {
-      rebalanceResults[5] = { error: e.message };
-    }
-
-    // Appel ciblé du seul cas pertinent
-    const caseNum = await pickCase(2);
-    if (caseNum) {
-      try {
-        const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum}&poolNum=2`, { signal: AbortSignal.timeout(280000) });
-        rebalanceResults[caseNum] = await res.json();
-      } catch (e) {
-        rebalanceResults[caseNum] = { error: e.message };
-      }
-    }
+    // Pool 2 désactivé temporairement
+    rebalanceResults["p2"] = { skipped: true, reason: "pool2 désactivé" };
 
     // Pool 3 (si PRIVATE_KEY_3 configuré)
     console.log("[cron] pool2 results:", JSON.stringify(rebalanceResults));
