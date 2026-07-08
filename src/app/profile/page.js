@@ -410,7 +410,23 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           {hlData && (() => {
             const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
             if (!ethShort) return null;
-            const pnl      = ethShort.pnl;
+
+            // Prix de sortie le plus proche (TP ou SL)
+            const orders   = hlData.openOrders ?? [];
+            const coinOrders = orders.filter(o => o.coin === "ETH");
+            const tp = coinOrders.find(o => o.tpsl === "tp");
+            const sl = coinOrders.find(o => o.tpsl === "sl");
+            const tpPx = tp?.triggerPx ?? null;
+            const slPx = sl?.triggerPx ?? null;
+            let exitPx = ethShort.markPx;
+            if (tpPx !== null && slPx !== null)
+              exitPx = Math.abs(ethShort.markPx - tpPx) <= Math.abs(ethShort.markPx - slPx) ? tpPx : slPx;
+            else if (tpPx !== null) exitPx = tpPx;
+            else if (slPx !== null) exitPx = slPx;
+
+            const fees = exitPx * ethShort.szi * 0.0005;
+            const pnl  = ethShort.pnl + (ethShort.funding ?? 0) - fees;
+
             const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
             const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
             return (

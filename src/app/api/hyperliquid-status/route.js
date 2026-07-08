@@ -45,6 +45,7 @@ export async function GET() {
         entryPx:   parseFloat(pos.entryPx ?? 0),
         markPx:    parseFloat(mids[pos.coin] ?? 0),
         pnl:       parseFloat(pos.unrealizedPnl ?? 0),
+        funding:   parseFloat(pos.cumFunding?.sinceOpen ?? 0),
         leverage:  pos.leverage?.value ?? 1,
         margin:    parseFloat(pos.marginUsed ?? 0),
       }));
