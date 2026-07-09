@@ -1666,6 +1666,7 @@ function StartItem({ isOpen, onToggle }) {
           rangePercent: rangePct,
           targetRatio:  0.5,
           poolNum:      2,
+          exactBounds:  true,
         }),
       });
       const pool = await poolRes.json();

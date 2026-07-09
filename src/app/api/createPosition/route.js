@@ -215,7 +215,7 @@ async function pickRpc() {
 }
 
 export async function POST(req) {
-  const { amountUSDC, minPrice, maxPrice, currentPrice, targetRatio, poolNum, caseNum } = await req.json();
+  const { amountUSDC, minPrice, maxPrice, currentPrice, targetRatio, poolNum, caseNum, exactBounds } = await req.json();
   if (!amountUSDC || !minPrice || !maxPrice || !currentPrice)
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });
 
@@ -255,23 +255,29 @@ export async function POST(req) {
       poolPrice = sqrtP * sqrtP * 1e12;
     } catch (_) { /* fallback au prix UI */ }
 
-    // 2. Re-centrer le range sur le prix pool réel (corrige le lag UI → exécution)
-    //    puis essayer les 4 combinaisons d'arrondi pour minimiser le biais de tick spacing
+    // 2. Calcul des bornes
+    // exactBounds=true : utilise minPrice/maxPrice directement (bornes alignées HL)
+    // sinon : re-centrer sur le prix pool réel pour optimiser le ratio LP
     const halfFrac = Math.sqrt(maxPrice / minPrice) - 1;
     let effectiveRatio = targetRatio ?? 0.5;
-    let serverCenter   = findCenterForRatio(effectiveRatio, poolPrice, halfFrac);
-    // Si le prix actuel tombe sous la borne basse du range → ratio inatteignable → fallback 50/50
-    if (poolPrice < serverCenter / (1 + halfFrac)) {
-      effectiveRatio = 0.5;
-      serverCenter   = findCenterForRatio(0.5, poolPrice, halfFrac);
+    let serverMin, serverMax;
+    if (exactBounds) {
+      serverMin = minPrice;
+      serverMax = maxPrice;
+    } else {
+      let serverCenter = findCenterForRatio(effectiveRatio, poolPrice, halfFrac);
+      if (poolPrice < serverCenter / (1 + halfFrac)) {
+        effectiveRatio = 0.5;
+        serverCenter   = findCenterForRatio(0.5, poolPrice, halfFrac);
+      }
+      serverMin = serverCenter / (1 + halfFrac);
+      serverMax = serverCenter * (1 + halfFrac);
     }
-    const serverMin = serverCenter / (1 + halfFrac);
-    const serverMax = serverCenter * (1 + halfFrac);
 
     const rawLower   = priceToTick(serverMin);
     const rawUpper   = priceToTick(serverMax);
     const targetWidth = rawUpper - rawLower;
-    const widthScale  = serverCenter / Math.max(1, targetWidth) / 10;
+    const widthScale  = Math.sqrt(serverMin * serverMax) / Math.max(1, targetWidth) / 10;
     // Largeur arrondie au multiple de tickSpacing le plus proche — contrainte prioritaire
     const roundedTargetWidth = Math.round(targetWidth / tickSpacing) * tickSpacing || tickSpacing;
     // Score : largeur contrainte en premier, puis ratio LP réel
@@ -306,8 +312,9 @@ export async function POST(req) {
     // Pour les ranges étroits (2 ou 4 tick spacings) avec ratio ~50/50 :
     // le système de score est inefficace (trop peu de configurations possibles) →
     // centrer directement sur le tick courant arrondi au spacing le plus proche.
+    // Ignoré si exactBounds=true (les bornes doivent rester fixes).
     const numSpacings = Math.round(roundedTargetWidth / tickSpacing);
-    if (numSpacings >= 2 && numSpacings <= 4 && numSpacings % 2 === 0 && Math.abs(effectiveRatio - 0.5) < 0.1) {
+    if (!exactBounds && numSpacings >= 2 && numSpacings <= 4 && numSpacings % 2 === 0 && Math.abs(effectiveRatio - 0.5) < 0.1) {
       const halfWidth   = (numSpacings / 2) * tickSpacing;
       const poolTick    = priceToTick(poolPrice);
       const nearestTick = Math.round(poolTick / tickSpacing) * tickSpacing;
