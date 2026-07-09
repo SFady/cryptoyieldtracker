@@ -621,7 +621,7 @@ function CreatePanel({ data }) {
           currentPrice: basePrice,
           rangePercent: rangePct,
           targetRatio:  wethPct / 100,
-          poolNum:      2,
+          poolNum:      3,
         }),
       });
       const json = await res.json();
@@ -947,6 +947,11 @@ function DiversSection() {
           <Pool2TotalItem
             isOpen={expanded === "pool2-total"}
             onToggle={() => toggleItem("pool2-total")}
+            borderBottom
+          />
+          <StartItem
+            isOpen={expanded === "start"}
+            onToggle={() => toggleItem("start")}
           />
         </div>
       )}
@@ -1582,6 +1587,182 @@ function BaseToHlItem({ isOpen, onToggle }) {
             }}>
               {status === "ok" ? "✓ " : status === "pending" ? "⏳ " : "⚠ "}{JSON.stringify(result, null, 2)}
             </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StartItem({ isOpen, onToggle }) {
+  const [hlAmount,   setHlAmount]   = useState("");
+  const [poolAmount, setPoolAmount] = useState("");
+  const [leverage,   setLeverage]   = useState("4");
+  const [confirming, setConfirming] = useState(false);
+  const [status,     setStatus]     = useState(null);
+  const [log,        setLog]        = useState([]);
+  const timerRef = useRef(null);
+  const color = "#00e5a0";
+
+  function handleValidate() {
+    if (!hlAmount || !poolAmount || parseFloat(hlAmount) <= 0 || parseFloat(poolAmount) <= 0) return;
+    if (!confirming) {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    } else {
+      clearTimeout(timerRef.current);
+      setConfirming(false);
+      run();
+    }
+  }
+
+  async function run() {
+    setStatus("loading");
+    setLog([]);
+
+    try {
+      // 1. ATR data
+      const atrRes = await fetch("/api/atr");
+      const atr    = await atrRes.json();
+      if (atr.error) throw new Error(atr.error);
+
+      const rangePct = atr.atrPct * 2.0;
+      const halfFrac = rangePct / 200;
+      const slPrice  = atr.price * (1 + halfFrac);
+      const tpPrice  = atr.price / (1 + halfFrac);
+
+      setLog(l => [...l, `ATR ${atr.atrPct}% × 2 → ${rangePct.toFixed(2)}% · SL $${slPrice.toFixed(1)} · TP $${tpPrice.toFixed(1)}`]);
+
+      // 2. Short HL
+      const shortRes = await fetch("/api/hyperliquid-short", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          sizeUsd:          parseFloat(hlAmount),
+          leverage:         parseFloat(leverage) || 4,
+          slPriceTrigger:   slPrice,
+          tpPriceTrigger:   tpPrice,
+        }),
+      });
+      const short = await shortRes.json();
+      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
+
+      const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice);
+      setLog(l => [...l, `Short @ $${avgPx} · ${short.sizeEth} ETH · levier ×${short.leverage}`]);
+
+      // 3. Position pool centrée sur avgPx, 50/50
+      const minPrice = avgPx / (1 + halfFrac);
+      const maxPrice = avgPx * (1 + halfFrac);
+      setLog(l => [...l, `Pool range $${minPrice.toFixed(2)} – $${maxPrice.toFixed(2)} · 50/50`]);
+
+      const poolRes = await fetch("/api/createPosition", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          amountUSDC:   parseFloat(poolAmount),
+          minPrice:     parseFloat(minPrice.toFixed(2)),
+          maxPrice:     parseFloat(maxPrice.toFixed(2)),
+          currentPrice: avgPx,
+          rangePercent: rangePct,
+          targetRatio:  0.5,
+          poolNum:      2,
+        }),
+      });
+      const pool = await poolRes.json();
+      if (pool.error) throw new Error(pool.error);
+
+      setLog(l => [...l, `Pool ouverte ✓`]);
+      setStatus("ok");
+    } catch (e) {
+      setLog(l => [...l, `⚠ ${e.message}`]);
+      setStatus("error");
+    }
+  }
+
+  const isLoading = status === "loading";
+  const btnColor  = confirming ? "#f0b429" : color;
+  const btnLabel  = isLoading ? "..." : confirming ? "⚠ CONFIRMER ?" : "▶ START";
+
+  return (
+    <div>
+      <div
+        onClick={onToggle}
+        style={{
+          padding: "11px 14px",
+          fontFamily: "monospace",
+          fontSize: "0.8rem",
+          color: isOpen ? color : "#9988cc",
+          cursor: "pointer",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: isOpen ? `${color}08` : "transparent",
+        }}
+      >
+        <span>start</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
+            Short HL (SL=borne haute, TP=borne basse) + pool 50/50 centré sur avgPx
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            {[
+              { label: "Marge HL (USDC)", val: hlAmount,   set: setHlAmount   },
+              { label: "Pool (USDC)",     val: poolAmount, set: setPoolAmount  },
+              { label: "Levier",          val: leverage,   set: setLeverage    },
+            ].map(({ label, val, set }) => (
+              <div key={label}>
+                <div style={{ fontFamily: "monospace", fontSize: "0.58rem", color: "#6666aa", marginBottom: 3 }}>{label}</div>
+                <input
+                  type="number"
+                  value={val}
+                  onChange={e => { set(e.target.value); setConfirming(false); setStatus(null); setLog([]); }}
+                  disabled={isLoading}
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    fontFamily: "monospace", fontSize: "0.8rem",
+                    padding: "6px 8px", borderRadius: 5,
+                    background: `${color}08`, border: `1px solid ${color}22`,
+                    color: "#eaf6ff", outline: "none",
+                    opacity: isLoading ? 0.5 : 1,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={handleValidate}
+            disabled={isLoading || !hlAmount || !poolAmount}
+            style={{
+              padding: "8px 14px",
+              background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,
+              border: `1px solid ${btnColor}66`,
+              borderRadius: 5,
+              color: (isLoading || !hlAmount || !poolAmount) ? `${btnColor}44` : btnColor,
+              fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700,
+              cursor: (isLoading || !hlAmount || !poolAmount) ? "default" : "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            {btnLabel}
+          </button>
+
+          {log.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {log.map((line, i) => (
+                <div key={i} style={{
+                  fontFamily: "monospace", fontSize: "0.68rem",
+                  color: line.startsWith("⚠") ? "#c97070" : line.endsWith("✓") ? "#00e5a0" : "#9988cc",
+                }}>
+                  {line}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
