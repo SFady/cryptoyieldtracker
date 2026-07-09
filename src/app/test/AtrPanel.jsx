@@ -1650,9 +1650,9 @@ function StartItem({ isOpen, onToggle }) {
       const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice);
       setLog(l => [...l, `Short @ $${avgPx} · ${short.sizeEth} ETH · levier ×${short.leverage}`]);
 
-      // 3. Position pool centrée sur avgPx, 50/50
-      const minPrice = avgPx / (1 + halfFrac);
-      const maxPrice = avgPx * (1 + halfFrac);
+      // 3. Position pool — mêmes bornes que le short HL
+      const minPrice = tpPrice;
+      const maxPrice = slPrice;
       setLog(l => [...l, `Pool range $${minPrice.toFixed(2)} – $${maxPrice.toFixed(2)} · 50/50`]);
 
       const poolRes = await fetch("/api/createPosition", {
