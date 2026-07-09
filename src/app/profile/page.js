@@ -25,6 +25,7 @@ export default function ProfilePage() {
   const [cronWeth2, setCronWeth2] = useState([]);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
+  const [hlData2, setHlData2]     = useState(null);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -43,11 +44,17 @@ export default function ProfilePage() {
   const SHOW_POOL2 = true;
 
   useEffect(() => {
-    if (SHOW_POOL2) fetch("/api/positions2")
-      .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setRebalanceBlock2(d.rebalanceBlock ?? null); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
-      .catch((e) => setError2(e.message))
-      .finally(() => setLoading2(false));
+    if (SHOW_POOL2) {
+      fetch("/api/positions2")
+        .then((r) => r.json())
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setRebalanceBlock2(d.rebalanceBlock ?? null); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
+        .catch((e) => setError2(e.message))
+        .finally(() => setLoading2(false));
+      fetch("/api/hyperliquid-status")
+        .then((r) => r.json())
+        .then((d) => { if (!d.error) setHlData2(d); })
+        .catch(() => {});
+    }
 
     fetch("/api/positions3")
       .then((r) => r.json())
@@ -60,6 +67,25 @@ export default function ProfilePage() {
     <>
       {/* ── Wallet 2 : WETH/USDC ── */}
       {SHOW_POOL2 && (() => {
+        const hlCloseFees2 = (() => {
+          if (!hlData2) return 0;
+          const ethShort = hlData2.positions?.find(p => p.coin === "ETH" && p.side === "short");
+          if (!ethShort) return 0;
+          const orders = hlData2.openOrders ?? [];
+          const coinOrders = orders.filter(o => o.coin === "ETH");
+          const tp = coinOrders.find(o => o.tpsl === "tp");
+          const sl = coinOrders.find(o => o.tpsl === "sl");
+          const tpPx = tp?.triggerPx ?? null;
+          const slPx = sl?.triggerPx ?? null;
+          let exitPx = ethShort.markPx;
+          if (tpPx !== null && slPx !== null)
+            exitPx = Math.abs(ethShort.markPx - tpPx) <= Math.abs(ethShort.markPx - slPx) ? tpPx : slPx;
+          else if (tpPx !== null) exitPx = tpPx;
+          else if (slPx !== null) exitPx = slPx;
+          return exitPx * ethShort.szi * 0.0005;
+        })();
+        const hlTotal2 = hlData2 ? hlData2.accountValue - hlCloseFees2 : 0;
+
         const total2 = pos2
           ? pos2.reduce((s, p) => {
               const aeroFees = parseFloat(p.aeroRevenueUSD ?? "0");
@@ -67,6 +93,7 @@ export default function ProfilePage() {
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
+            + hlTotal2
           : null;
         return (
           <>
@@ -119,7 +146,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} hlData={hlData2} />)}
           </>
         );
       })()}
@@ -269,7 +296,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [] }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], hlData = null }) {
   const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const totalRevUSD = aeroUSD;
 
@@ -288,24 +315,6 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const [confirming, setConfirming] = React.useState(false);
   const confirmTimer = React.useRef(null);
 
-  const [hlData,    setHlData]    = React.useState(null);
-  const [hlLoading, setHlLoading] = React.useState(false);
-  const [hlError,   setHlError]   = React.useState(null);
-
-  async function loadHl() {
-    setHlLoading(true); setHlError(null);
-    try {
-      const res  = await fetch("/api/hyperliquid-status");
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-      setHlData(json);
-    } catch (e) { setHlError(e.message); }
-    finally { setHlLoading(false); }
-  }
-
-  React.useEffect(() => {
-    if (poolNum === 2) loadHl();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleCollectClick() {
     if (collecting) return;
@@ -401,57 +410,49 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           }}>
             Hyperliquid
           </div>
-          {hlLoading && (
-            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#445566" }}>…</div>
-          )}
-          {hlError && (
-            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#c97070" }}>⚠ {hlError}</div>
-          )}
           {hlData && (() => {
             const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
-            if (!ethShort) return null;
 
-            // Prix de sortie le plus proche (TP ou SL)
-            const orders   = hlData.openOrders ?? [];
-            const coinOrders = orders.filter(o => o.coin === "ETH");
-            const tp = coinOrders.find(o => o.tpsl === "tp");
-            const sl = coinOrders.find(o => o.tpsl === "sl");
-            const tpPx = tp?.triggerPx ?? null;
-            const slPx = sl?.triggerPx ?? null;
-            let exitPx = ethShort.markPx;
-            if (tpPx !== null && slPx !== null)
-              exitPx = Math.abs(ethShort.markPx - tpPx) <= Math.abs(ethShort.markPx - slPx) ? tpPx : slPx;
-            else if (tpPx !== null) exitPx = tpPx;
-            else if (slPx !== null) exitPx = slPx;
+            let closeFees = 0;
+            let pnlNode   = null;
+            if (ethShort) {
+              const orders     = hlData.openOrders ?? [];
+              const coinOrders = orders.filter(o => o.coin === "ETH");
+              const tp   = coinOrders.find(o => o.tpsl === "tp");
+              const sl   = coinOrders.find(o => o.tpsl === "sl");
+              const tpPx = tp?.triggerPx ?? null;
+              const slPx = sl?.triggerPx ?? null;
+              let exitPx = ethShort.markPx;
+              if (tpPx !== null && slPx !== null)
+                exitPx = Math.abs(ethShort.markPx - tpPx) <= Math.abs(ethShort.markPx - slPx) ? tpPx : slPx;
+              else if (tpPx !== null) exitPx = tpPx;
+              else if (slPx !== null) exitPx = slPx;
 
-            const fees = exitPx * ethShort.szi * 0.0005;
-            const pnl  = ethShort.pnl + (ethShort.funding ?? 0) - fees;
+              closeFees      = exitPx * ethShort.szi * 0.0005;
+              const pnl      = ethShort.pnl + (ethShort.funding ?? 0) - closeFees;
+              const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
+              const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
+              pnlNode = (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>PnL short</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: pnlColor }}>{pnlStr} $</span>
+                  </div>
+                </>
+              );
+            }
 
-            const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
-            const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
+            const totalHl = hlData.accountValue - closeFees;
             return (
               <>
-                <div style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)",
-                }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>
-                    Entry Price
-                  </span>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>
-                    ${ethShort.entryPx.toFixed(1)}
-                  </span>
-                </div>
-                <div style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "9px 18px",
-                }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>
-                    PnL short
-                  </span>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: pnlColor }}>
-                    {pnlStr} $
-                  </span>
+                {pnlNode}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px" }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Total Hyperliquid</span>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#a78bfa" }}>${totalHl.toFixed(2)}</span>
                 </div>
               </>
             );
