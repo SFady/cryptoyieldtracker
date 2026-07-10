@@ -108,6 +108,13 @@ export async function POST() {
       closeResults.push({ coin, error: "asset ou prix introuvable" });
       continue;
     }
+
+    // updateLeverage avant le close (même pattern que hyperliquid-short)
+    const posLev = position.leverage?.value ?? 1;
+    await signAndSend(wallet, {
+      type: "updateLeverage", asset: coinToIdx[coin], isCross: false, leverage: posLev,
+    }, Date.now());
+
     const closePrice = normPx(isBuy ? mid * 1.05 : mid * 0.95);
 
     const result = await signAndSend(wallet, {
