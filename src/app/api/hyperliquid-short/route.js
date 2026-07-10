@@ -89,7 +89,7 @@ export async function POST(req) {
   const lev         = Math.max(1, Math.min(50, Math.round(leverage)));
   const notionalUsd = sizeUsd * lev;
   const sizeEth     = Math.ceil((notionalUsd / ethPrice) * 10000) / 10000;
-  const sizeStr     = sizeEth.toFixed(4);
+  const sizeStr     = parseFloat(sizeEth.toFixed(4)).toString();
   const priceStr    = normPx(ethPrice * 0.98);
 
   // 1. Set isolated leverage

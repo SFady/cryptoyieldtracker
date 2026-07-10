@@ -67,7 +67,7 @@ export async function POST(req) {
 
   const wallet   = new ethers.Wallet(privateKey.trim());
   const assetIdx = await getAssetIndex(coin);
-  const sizeStr  = parseFloat(size).toFixed(4);
+  const sizeStr  = parseFloat(parseFloat(size).toFixed(4)).toString();
 
   const slTrigger = normPx(slPrice);
   const slLimit   = normPx(slPrice * 1.02);

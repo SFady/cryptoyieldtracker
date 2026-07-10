@@ -99,7 +99,7 @@ export async function POST() {
     const coin  = position.coin;
     const szi   = parseFloat(position.szi);
     const isBuy = szi < 0;
-    const size  = Math.abs(szi).toFixed(coinToDecimals[coin] ?? 4);
+    const size  = parseFloat(Math.abs(szi).toFixed(coinToDecimals[coin] ?? 4)).toString();
     const mid   = parseFloat(mids[coin]);
     if (!mid || coinToIdx[coin] === undefined) {
       closeResults.push({ coin, error: "asset ou prix introuvable" });
