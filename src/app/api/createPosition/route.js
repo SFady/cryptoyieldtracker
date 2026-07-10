@@ -754,8 +754,10 @@ export async function POST(req) {
     const rangePct = ((tickUpperPrice / tickLowerPrice - 1) * 100).toFixed(2);
 
     const payload = {
-      message:    `Position #${tokenId} créée — LP ${Math.round(swapRatio*100)}% WETH / ${Math.round((1-swapRatio)*100)}% USDC · range $${tickLowerPrice.toFixed(0)}→$${tickUpperPrice.toFixed(0)}`,
-      tokenId:    tokenId.toString(),
+      message:         `Position #${tokenId} créée — LP ${Math.round(swapRatio*100)}% WETH / ${Math.round((1-swapRatio)*100)}% USDC · range $${tickLowerPrice.toFixed(0)}→$${tickUpperPrice.toFixed(0)}`,
+      tokenId:         tokenId.toString(),
+      tickLowerPrice:  parseFloat(tickLowerPrice.toFixed(2)),
+      tickUpperPrice:  parseFloat(tickUpperPrice.toFixed(2)),
       txSwap:     txSwapHash,
       txMint:     mintTxHash,
       txGauge:    txGaugeHash,

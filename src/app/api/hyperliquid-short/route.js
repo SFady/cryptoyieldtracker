@@ -75,7 +75,7 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const { sizeUsd, leverage = 2, slPriceTrigger, tpPriceTrigger } = await req.json().catch(() => ({}));
+  const { sizeUsd, leverage = 2, slPriceTrigger, tpPriceTrigger, noTpsl = false } = await req.json().catch(() => ({}));
 
   if (!sizeUsd || sizeUsd <= 0)
     return Response.json({ error: "sizeUsd requis et > 0" }, { status: 400 });
@@ -90,7 +90,7 @@ export async function POST(req) {
   const notionalUsd = sizeUsd * lev;
   const sizeEth     = Math.ceil((notionalUsd / ethPrice) * 10000) / 10000;
   const sizeStr     = sizeEth.toFixed(4);
-  const priceStr = normPx(ethPrice * 0.98);
+  const priceStr    = normPx(ethPrice * 0.98);
 
   // 1. Set isolated leverage
   const levResult = await signAndSend(wallet, {
@@ -100,7 +100,30 @@ export async function POST(req) {
   if (levResult.status !== "ok")
     return Response.json({ error: `updateLeverage échoué : ${JSON.stringify(levResult)}` }, { status: 500 });
 
-  // 2. Short IoC + SL + TP en un seul appel atomique
+  // 2a. Short IoC sans TP/SL
+  if (noTpsl) {
+    const result = await signAndSend(wallet, {
+      type: "order",
+      orders: [{ a: assetIdx, b: false, p: priceStr, s: sizeStr, r: false, t: { limit: { tif: "Ioc" } } }],
+      grouping: "na",
+    }, Date.now());
+
+    if (result.status !== "ok")
+      return Response.json({ error: `order échoué : ${JSON.stringify(result)}` }, { status: 500 });
+
+    const ioStatus = result?.response?.data?.statuses?.[0];
+    if (ioStatus?.error)
+      return Response.json({ error: `IoC rejeté : ${ioStatus.error}`, result }, { status: 500 });
+
+    return Response.json({
+      ok: true, ethPrice, sizeEth: parseFloat(sizeStr),
+      marginUsd: sizeUsd, notionalUsd, sizeUsd: notionalUsd,
+      leverage: lev, priceIoC: parseFloat(priceStr),
+      ioStatus, combinedResult: result,
+    });
+  }
+
+  // 2b. Short IoC + SL + TP en un seul appel atomique
   const slBase    = slPriceTrigger ?? ethPrice * 1.05;
   const slTrigger = normPx(slBase);
   const slLimit   = normPx(slBase * 1.02);
@@ -124,30 +147,20 @@ export async function POST(req) {
   if (combinedResult.status !== "ok")
     return Response.json({ error: `order échoué : ${JSON.stringify(combinedResult)}` }, { status: 500 });
 
-  const statuses  = combinedResult?.response?.data?.statuses ?? [];
-  const ioStatus  = statuses[0];
-  const slStatus  = statuses[1];
-  const tpStatus  = statuses[2];
+  const statuses = combinedResult?.response?.data?.statuses ?? [];
+  const ioStatus = statuses[0];
+  const slStatus = statuses[1];
+  const tpStatus = statuses[2];
 
   if (ioStatus?.error)
     return Response.json({ error: `IoC rejeté : ${ioStatus.error}`, combinedResult }, { status: 500 });
 
   return Response.json({
-    ok:          true,
-    ethPrice,
-    sizeEth:     parseFloat(sizeStr),
-    marginUsd:   sizeUsd,
-    notionalUsd,
-    sizeUsd:     notionalUsd,
-    leverage:    lev,
-    priceIoC:    parseFloat(priceStr),
-    slTrigger:   parseFloat(slTrigger),
-    slLimit:     parseFloat(slLimit),
-    tpTrigger:   parseFloat(tpTrigger),
-    tpLimit:     parseFloat(tpLimit),
-    ioStatus,
-    slStatus,
-    tpStatus,
-    combinedResult,
+    ok: true, ethPrice, sizeEth: parseFloat(sizeStr),
+    marginUsd: sizeUsd, notionalUsd, sizeUsd: notionalUsd,
+    leverage: lev, priceIoC: parseFloat(priceStr),
+    slTrigger: parseFloat(slTrigger), slLimit: parseFloat(slLimit),
+    tpTrigger: parseFloat(tpTrigger), tpLimit: parseFloat(tpLimit),
+    ioStatus, slStatus, tpStatus, combinedResult,
   });
 }

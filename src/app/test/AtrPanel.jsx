@@ -1633,35 +1633,33 @@ function StartItem({ isOpen, onToggle }) {
 
       setLog(l => [...l, `ATR ${atr.atrPct}% × 2 → ${rangePct.toFixed(2)}% · SL $${slPrice.toFixed(1)} · TP $${tpPrice.toFixed(1)}`]);
 
-      // 2. Short HL
+      // 2. Short HL sans TP/SL
       const shortRes = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          sizeUsd:          parseFloat(hlAmount),
-          leverage:         parseFloat(leverage) || 4,
-          slPriceTrigger:   slPrice,
-          tpPriceTrigger:   tpPrice,
+          sizeUsd:  parseFloat(hlAmount),
+          leverage: parseFloat(leverage) || 4,
+          noTpsl:   true,
         }),
       });
       const short = await shortRes.json();
       if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
 
-      const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice);
-      setLog(l => [...l, `Short @ $${avgPx} · ${short.sizeEth} ETH · levier ×${short.leverage}`]);
+      const avgPx   = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice);
+      const sizeEth = short.sizeEth ?? parseFloat(short.ioStatus?.filled?.totalSz ?? "0");
+      setLog(l => [...l, `Short @ $${avgPx} · ${sizeEth} ETH · levier ×${short.leverage}`]);
 
-      // 3. Position pool — mêmes bornes que le short HL
-      const minPrice = tpPrice;
-      const maxPrice = slPrice;
-      setLog(l => [...l, `Pool range $${minPrice.toFixed(2)} – $${maxPrice.toFixed(2)} · 50/50`]);
+      // 3. Position pool — bornes ATR
+      setLog(l => [...l, `Pool range $${tpPrice.toFixed(2)} – $${slPrice.toFixed(2)} · 50/50`]);
 
       const poolRes = await fetch("/api/createPosition", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
           amountUSDC:   parseFloat(poolAmount),
-          minPrice:     parseFloat(minPrice.toFixed(2)),
-          maxPrice:     parseFloat(maxPrice.toFixed(2)),
+          minPrice:     parseFloat(tpPrice.toFixed(2)),
+          maxPrice:     parseFloat(slPrice.toFixed(2)),
           currentPrice: avgPx,
           rangePercent: rangePct,
           targetRatio:  0.5,
@@ -1672,7 +1670,21 @@ function StartItem({ isOpen, onToggle }) {
       const pool = await poolRes.json();
       if (pool.error) throw new Error(pool.error);
 
-      setLog(l => [...l, `Pool ouverte ✓`]);
+      const poolLow  = pool.tickLowerPrice;
+      const poolHigh = pool.tickUpperPrice;
+      setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${poolLow} – $${poolHigh}`]);
+
+      // 4. TP et SL HL = bornes réelles de la pool
+      setLog(l => [...l, `Placement TP=$${poolLow} SL=$${poolHigh}`]);
+      const tpslRes = await fetch("/api/hyperliquid-tpsl", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ tpPrice: poolLow, slPrice: poolHigh, size: sizeEth }),
+      });
+      const tpsl = await tpslRes.json();
+      if (!tpsl.ok) throw new Error(tpsl.error ?? JSON.stringify(tpsl));
+
+      setLog(l => [...l, `TP/SL posés ✓`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);
