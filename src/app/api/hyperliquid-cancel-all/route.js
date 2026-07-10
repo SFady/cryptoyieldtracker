@@ -106,22 +106,17 @@ export async function POST() {
       continue;
     }
     const closePrice = normPx(isBuy ? mid * 1.05 : mid * 0.95);
-    const fakeSLPx   = normPx(isBuy ? mid * 0.5  : mid * 2.0);
 
     const result = await signAndSend(wallet, {
       type:   "order",
-      orders: [
-        { a: coinToIdx[coin], b: isBuy,  p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } },
-        { a: coinToIdx[coin], b: !isBuy, p: fakeSLPx,   s: size, r: true,
-          t: { trigger: { isMarket: true, triggerPx: fakeSLPx, tpsl: "sl" } } },
-      ],
-      grouping: "normalTpsl",
+      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
+      grouping: "na",
     }, Date.now());
 
     closeResults.push({ coin, szi, size, closePrice, result });
   }
 
-  // 3. Cancel residual orders (fake SL brackets left by close orders)
+  // 3. Cancel residual orders après fermeture
   let cleanupResult = null;
   if (closeResults.length > 0) {
     await new Promise(r => setTimeout(r, 500));
