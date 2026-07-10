@@ -74,12 +74,13 @@ async function getPositionState(poolNum) {
 }
 
 async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(forceCase))
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
-  // Cases de recovery — bypass des checks lock/erreur
+  // Cases de recovery / fermeture — bypass des checks lock/erreur
   if (forceCase === 7) return handleCase7(poolNum, overrideTokenId);
   if (forceCase === 8) return handleCase8(poolNum);
+  if (forceCase === 9) return handleCase9(poolNum);
 
   // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
   if (await checkRedisLock())
