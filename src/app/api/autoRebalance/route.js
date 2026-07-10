@@ -1037,3 +1037,43 @@ async function handleCase4(poolNum = 2) {
     return Response.json({ error: msg }, { status: 500 });
   }
 }
+
+// Case 9 — fermeture strategy start pool 2 (hors range ou TP/SL HL exécuté), sans réouverture
+async function handleCase9(poolNum = 2) {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  const release = await acquireRedisLock();
+  if (!release) return Response.json({ error: "Exécution déjà en cours — réessayer dans 5 min" }, { status: 409 });
+
+  try {
+    // 1. Fermer la position LP
+    const closeRes  = await fetch(`${base}/api/closePositions`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ keepWeth: false, poolNum, caseNum: 9 }),
+      signal:  AbortSignal.timeout(200000),
+    });
+    const closeData = await closeRes.json();
+    if (!closeRes.ok) throw new Error(closeData?.error ?? "closePositions failed");
+
+    // 2. Annuler ordres + fermer position HL (tolérant si déjà fermé via TP/SL)
+    let hlCloseData = null;
+    try {
+      const hlRes = await fetch(`${base}/api/hyperliquid-cancel-all`, {
+        method: "POST",
+        signal: AbortSignal.timeout(30000),
+      });
+      hlCloseData = await hlRes.json();
+    } catch (_) {}
+
+    await release();
+    return Response.json({ ok: true, case: 9, closeData, hlCloseData });
+  } catch (e) {
+    await release();
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 9 (close start pool2)", `Erreur : ${msg}`);
+    await writeErrorState(poolNum, true, msg);
+    return Response.json({ case: 9, error: msg }, { status: 500 });
+  }
+}

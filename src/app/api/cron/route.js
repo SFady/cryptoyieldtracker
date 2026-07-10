@@ -102,8 +102,33 @@ async function handle(req) {
   }
 
   if (base) {
-    // Pool 2 désactivé temporairement
-    rebalanceResults["p2"] = { skipped: true, reason: "pool2 désactivé" };
+    // Pool 2 (strategy start) — ferme si hors range OU TP/SL HL exécuté
+    if (process.env.PRIVATE_KEY) {
+      const caseNum2 = await pickCase(2);
+      let trigger = null;
+
+      if (caseNum2 === 1 || caseNum2 === 2) {
+        trigger = `hors range (cas ${caseNum2})`;
+      } else if (caseNum2 === 3) {
+        try {
+          const hlRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(10000) });
+          const hlJson = await hlRes.json();
+          const hasShort = (hlJson.positions ?? []).some(p => p.coin === "ETH" && p.side === "short");
+          if (!hasShort) trigger = "TP/SL HL exécuté";
+        } catch (_) {}
+      }
+
+      if (trigger) {
+        try {
+          const res = await fetch(`${base}/api/autoRebalance?case=9&poolNum=2`, { signal: AbortSignal.timeout(280000) });
+          rebalanceResults["p2"] = { trigger, ...(await res.json()) };
+        } catch (e) {
+          rebalanceResults["p2"] = { error: e.message };
+        }
+      } else {
+        rebalanceResults["p2"] = { skipped: true, reason: caseNum2 === null ? "pas de position active" : `en range (cas ${caseNum2}), HL actif` };
+      }
+    }
 
     // Pool 3 (si PRIVATE_KEY_3 configuré)
     console.log("[cron] pool2 results:", JSON.stringify(rebalanceResults));
