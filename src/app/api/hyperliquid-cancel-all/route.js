@@ -111,7 +111,7 @@ export async function POST() {
 
     // updateLeverage avant le close (même pattern que hyperliquid-short)
     const posLev = position.leverage?.value ?? 1;
-    await signAndSend(wallet, {
+    const levResult = await signAndSend(wallet, {
       type: "updateLeverage", asset: coinToIdx[coin], isCross: false, leverage: posLev,
     }, Date.now());
 
@@ -123,7 +123,7 @@ export async function POST() {
       grouping: "na",
     }, Date.now());
 
-    closeResults.push({ coin, szi, size, closePrice, result });
+    closeResults.push({ coin, szi, size, closePrice, levResult, result });
   }
 
   // 3. Cancel residual orders après fermeture
