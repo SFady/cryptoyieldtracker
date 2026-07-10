@@ -20,31 +20,46 @@ export async function GET() {
   const wallet = new ethers.Wallet(privateKey.trim());
   const address = wallet.address;
 
-  // Test minimal : cancel liste vide (no-op, ne touche rien)
-  const action = { type: "cancel", cancels: [] };
-  const nonce  = Date.now();
+  async function testSign(action) {
+    const nonce = Date.now();
+    const connectionId = buildConnectionId(action, nonce);
+    const sig = await wallet.signTypedData(
+      { chainId: 1337, name: "Exchange", verifyingContract: "0x0000000000000000000000000000000000000000", version: "1" },
+      { Agent: [{ name: "source", type: "string" }, { name: "connectionId", type: "bytes32" }] },
+      { source: "a", connectionId }
+    );
+    const { r, s, v } = ethers.Signature.from(sig);
+    const res = await fetch("https://api.hyperliquid.xyz/exchange", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
+      signal:  AbortSignal.timeout(10000),
+    });
+    return { connectionId, hlResult: await res.json() };
+  }
 
-  const connectionId = buildConnectionId(action, nonce);
-  const sig = await wallet.signTypedData(
-    { chainId: 1337, name: "Exchange", verifyingContract: "0x0000000000000000000000000000000000000000", version: "1" },
-    { Agent: [{ name: "source", type: "string" }, { name: "connectionId", type: "bytes32" }] },
-    { source: "a", connectionId }
-  );
-  const { r, s, v } = ethers.Signature.from(sig);
-  const body = { action, nonce, signature: { r, s, v }, vaultAddress: null };
+  // Test 1 : cancel vide (no-op, ne touche rien)
+  const cancelResult = await testSign({ type: "cancel", cancels: [] });
 
-  const res = await fetch("https://api.hyperliquid.xyz/exchange", {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body),
-    signal:  AbortSignal.timeout(10000),
+  // Test 2 : order IoC très loin du marché (annulé immédiatement, aucun risque)
+  // Ordre A : orders AVANT grouping (notre code actuel)
+  const orderA = await testSign({
+    type: "order",
+    orders: [{ a: 1, b: false, p: "100000", s: "0.001", r: false, t: { limit: { tif: "Ioc" } } }],
+    grouping: "na",
   });
-  const hlResult = await res.json();
+
+  // Ordre B : grouping AVANT orders (ordre Python SDK)
+  const orderB = await testSign({
+    type: "order",
+    grouping: "na",
+    orders: [{ a: 1, b: false, p: "100000", s: "0.001", r: false, t: { limit: { tif: "Ioc" } } }],
+  });
 
   return Response.json({
     walletAddress: address,
-    keyLength:     privateKey.length,
-    connectionId,
-    hlResult,
+    cancelResult,
+    orderA_ordersFirst:   orderA,
+    orderB_groupingFirst: orderB,
   });
 }
