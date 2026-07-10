@@ -33,9 +33,10 @@ async function getEthMidPrice() {
 
 function buildConnectionId(action, nonce) {
   const msgPackBytes = encode(action);
-  const data = new Uint8Array(msgPackBytes.length + 28);
+  const data = new Uint8Array(msgPackBytes.length + 9);
   data.set(msgPackBytes, 0);
   new DataView(data.buffer).setBigUint64(msgPackBytes.length, BigInt(nonce), false);
+  data[msgPackBytes.length + 8] = 0;
   return ethers.keccak256(data);
 }
 
@@ -50,7 +51,7 @@ async function signAndSend(wallet, action, nonce) {
   const res = await fetch(HL_EXCHANGE, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
+    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null, expiresAfter: null }),
     signal:  AbortSignal.timeout(15000),
   });
   return res.json();
