@@ -15,7 +15,6 @@ export default function ProfilePage() {
 
 
   const [walletShort2, setWalletShort2] = useState("");
-  const [rebalanceBlock2, setRebalanceBlock2] = useState(null);
   const [pos2, setPos2]           = useState(null);
   const [usdcWallet2, setUsdcWallet2] = useState(null);
   const [wethWallet2, setWethWallet2] = useState(null);
@@ -47,7 +46,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setRebalanceBlock2(d.rebalanceBlock ?? null); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
       fetch("/api/hyperliquid-status")
@@ -115,15 +114,6 @@ export default function ProfilePage() {
                   background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#86efac",
                 }}>
                   Prochain cron : {new Date(nextCronAt2).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              )}
-              {rebalanceBlock2?.blocked && (
-                <span style={{
-                  fontSize: "0.65rem", fontFamily: "monospace",
-                  padding: "2px 8px", borderRadius: 4,
-                  background: "rgba(240,180,41,0.10)", border: "1px solid rgba(240,180,41,0.4)", color: "#f0b429",
-                }}>
-                  ⏳ Rebalance bloqué — déblocage à {new Date(rebalanceBlock2.unlockAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
                 </span>
               )}
             </div>
