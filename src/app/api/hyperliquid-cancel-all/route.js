@@ -24,10 +24,9 @@ function normPx(n) {
 
 function buildConnectionId(action, nonce) {
   const msgPackBytes = encode(action);
-  const data = new Uint8Array(msgPackBytes.length + 9);
+  const data = new Uint8Array(msgPackBytes.length + 28);
   data.set(msgPackBytes, 0);
   new DataView(data.buffer).setBigUint64(msgPackBytes.length, BigInt(nonce), false);
-  data[msgPackBytes.length + 8] = 0;
   return ethers.keccak256(data);
 }
 
