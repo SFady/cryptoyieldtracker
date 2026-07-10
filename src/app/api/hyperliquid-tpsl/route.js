@@ -44,7 +44,7 @@ async function signAndSend(wallet, action, nonce) {
   const res = await fetch(HL_EXCHANGE, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null, expiresAfter: null }),
+    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
     signal:  AbortSignal.timeout(15000),
   });
   return res.json();

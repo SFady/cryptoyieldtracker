@@ -42,7 +42,7 @@ async function signAndSend(wallet, action, nonce) {
   const res = await fetch(HL_EXCHANGE, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null, expiresAfter: null }),
+    body:    JSON.stringify({ action, nonce, signature: { r, s, v }, vaultAddress: null }),
     signal:  AbortSignal.timeout(15000),
   });
   return res.json();
@@ -106,21 +106,13 @@ export async function POST() {
       continue;
     }
 
-    // updateLeverage avant le close (même pattern que hyperliquid-short)
-    const posLev = position.leverage?.value ?? 1;
-    const levResult = await signAndSend(wallet, {
-      type: "updateLeverage", asset: coinToIdx[coin], isCross: false, leverage: posLev,
-    }, Date.now());
-
     const closePrice = normPx(isBuy ? mid * 1.05 : mid * 0.95);
-
     const result = await signAndSend(wallet, {
       type:   "order",
-      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: false, t: { limit: { tif: "Ioc" } } }],
+      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
       grouping: "na",
     }, Date.now());
-
-    closeResults.push({ coin, szi, size, closePrice, levResult, result });
+    closeResults.push({ coin, szi, size, closePrice, result });
   }
 
   // 3. Cancel residual orders après fermeture
