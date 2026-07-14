@@ -207,15 +207,21 @@ export async function POST(req) {
 
   const priceStr = normPx(ethPrice * 0.98);
 
-  // 2a. Si TP/SL existants : placer normalTpsl (IoC delta + nouveaux TP/SL sur taille totale)
-  //     → si l'IoC rate, les anciens TP/SL restent actifs (ils n'ont pas été touchés)
-  //     → si l'IoC remplit, on annule ensuite les anciens TP/SL
+  // 2a. Si TP/SL existants : annuler anciens EN PREMIER, puis normalTpsl (IoC delta + nouveaux TP/SL)
+  //     → annuler avant évite que Hyperliquid rejette les nouveaux (total reduce-only > position)
+  //     → si l'IoC rate après cancel, erreur explicite (position inchangée, TP/SL à recréer)
   if (tpOrder && slOrder) {
     const slTrigger = normPx(parseFloat(slOrder.triggerPx));
     const slLimit   = normPx(parseFloat(slOrder.triggerPx) * 1.02);
     const tpTrigger = normPx(parseFloat(tpOrder.triggerPx));
     const tpLimit   = normPx(parseFloat(tpOrder.triggerPx) * 1.02);
 
+    // 1. Annuler anciens TP/SL
+    const toCancel = [{ a: assetIdx, o: slOrder.oid }, { a: assetIdx, o: tpOrder.oid }];
+    await signAndSend(wallet, { type: "cancel", cancels: toCancel }, Date.now());
+    await new Promise(r => setTimeout(r, 300));
+
+    // 2. normalTpsl : IoC short (delta) + nouveaux TP/SL pour la taille totale
     const result = await signAndSend(wallet, {
       type: "order",
       orders: [
@@ -227,28 +233,20 @@ export async function POST(req) {
     }, Date.now());
 
     if (result.status !== "ok")
-      return Response.json({ error: `order échoué : ${JSON.stringify(result)}` }, { status: 500 });
+      return Response.json({ error: `order échoué : ${JSON.stringify(result)} — anciens TP/SL annulés, à recréer manuellement` }, { status: 500 });
 
     const statuses = result?.response?.data?.statuses ?? [];
     const ioStatus = statuses[0];
 
     if (ioStatus?.error)
-      return Response.json({ error: `IoC rejeté : ${ioStatus.error} — anciens TP/SL inchangés`, result }, { status: 500 });
-
-    // IoC rempli → annuler les anciens TP/SL
-    const toCancel = [
-      { a: assetIdx, o: slOrder.oid },
-      { a: assetIdx, o: tpOrder.oid },
-    ];
-    await new Promise(r => setTimeout(r, 300));
-    const cancelResult = await signAndSend(wallet, { type: "cancel", cancels: toCancel }, Date.now());
+      return Response.json({ error: `IoC rejeté : ${ioStatus.error} — anciens TP/SL annulés, à recréer manuellement`, result }, { status: 500 });
 
     return Response.json({
       ok: true, action: "increase",
       currentEth, targetEth, deltaEth: absDelta, sizeEth: absDelta, ethPrice,
       slTrigger, tpTrigger, newSize: targetStr,
-      note: "Nouveaux TP/SL créés sur la taille totale, anciens annulés",
-      ioStatus, slStatus: statuses[1], tpStatus: statuses[2], cancelResult,
+      note: "Anciens TP/SL annulés, nouveaux créés sur la taille totale",
+      ioStatus, slStatus: statuses[1], tpStatus: statuses[2],
     });
   }
 
