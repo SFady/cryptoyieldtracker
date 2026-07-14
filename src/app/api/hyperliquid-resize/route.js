@@ -109,10 +109,76 @@ export async function POST(req) {
 
   // ── RÉDUCTION ────────────────────────────────────────────────────────────
   if (needBuy) {
-    const priceStr = normPx(ethPrice * 1.02);
-    const result   = await signAndSend(wallet, {
+    const buyPrice = normPx(ethPrice * 1.02);
+
+    // Avec TP/SL existants : annuler → réduire → recréer via micro-short normalTpsl
+    if (tpOrder && slOrder) {
+      const slTrigger = normPx(parseFloat(slOrder.triggerPx));
+      const slLimit   = normPx(parseFloat(slOrder.triggerPx) * 1.02);
+      const tpTrigger = normPx(parseFloat(tpOrder.triggerPx));
+      const tpLimit   = normPx(parseFloat(tpOrder.triggerPx) * 1.02);
+
+      // 1. Annuler anciens TP/SL
+      const toCancel = [{ a: assetIdx, o: slOrder.oid }, { a: assetIdx, o: tpOrder.oid }];
+      await signAndSend(wallet, { type: "cancel", cancels: toCancel }, Date.now());
+      await new Promise(r => setTimeout(r, 300));
+
+      // 2. IoC reduce-only buy pour le delta
+      const buyResult = await signAndSend(wallet, {
+        type:   "order",
+        orders: [{ a: assetIdx, b: true, p: buyPrice, s: deltaStr, r: true, t: { limit: { tif: "Ioc" } } }],
+        grouping: "na",
+      }, Date.now());
+
+      if (buyResult.status !== "ok")
+        return Response.json({ error: `order échoué : ${JSON.stringify(buyResult)} — anciens TP/SL annulés, à recréer manuellement` }, { status: 500 });
+
+      const ioStatus = buyResult?.response?.data?.statuses?.[0];
+      if (ioStatus?.error)
+        return Response.json({ error: `IoC rejeté : ${ioStatus.error} — anciens TP/SL annulés, à recréer manuellement`, buyResult }, { status: 500 });
+
+      // 3. Recréer TP/SL pour la nouvelle taille via normalTpsl + micro-short 0.0001 ETH
+      //    Le micro-short sert d'ancre pour attacher les ordres trigger (contrainte Hyperliquid)
+      await new Promise(r => setTimeout(r, 300));
+      const newSzF     = targetEth + 0.0001;
+      const newSzStr   = newSzF.toFixed(4);
+      const shortPrice = normPx(ethPrice * 0.98);
+
+      const tpslResult = await signAndSend(wallet, {
+        type: "order",
+        orders: [
+          { a: assetIdx, b: false, p: shortPrice, s: "0.0001", r: false, t: { limit: { tif: "Ioc" } } },
+          { a: assetIdx, b: true,  p: slLimit,    s: newSzStr, r: true,  t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
+          { a: assetIdx, b: true,  p: tpLimit,    s: newSzStr, r: true,  t: { trigger: { isMarket: true, triggerPx: tpTrigger, tpsl: "tp" } } },
+        ],
+        grouping: "normalTpsl",
+      }, Date.now());
+
+      const tpslStatuses = tpslResult?.response?.data?.statuses ?? [];
+      const tpslIoStatus = tpslStatuses[0];
+
+      if (tpslResult.status !== "ok" || tpslIoStatus?.error) {
+        return Response.json({
+          ok: true, action: "decrease", partial: true,
+          currentEth, targetEth, deltaEth: -absDelta, ethPrice,
+          warning: `TP/SL recréation échouée : ${tpslIoStatus?.error ?? JSON.stringify(tpslResult)} — position réduite mais sans TP/SL actifs`,
+          ioStatus, tpslResult,
+        });
+      }
+
+      return Response.json({
+        ok: true, action: "decrease",
+        currentEth, targetEth: newSzF, deltaEth: -absDelta, ethPrice,
+        slTrigger, tpTrigger, newSize: newSzStr,
+        note: "TP/SL recréés pour la nouvelle taille réduite (ancre micro-short 0.0001 ETH incluse)",
+        ioStatus, slStatus: tpslStatuses[1], tpStatus: tpslStatuses[2],
+      });
+    }
+
+    // Sans TP/SL : simple IoC reduce-only
+    const result = await signAndSend(wallet, {
       type:   "order",
-      orders: [{ a: assetIdx, b: true, p: priceStr, s: deltaStr, r: true, t: { limit: { tif: "Ioc" } } }],
+      orders: [{ a: assetIdx, b: true, p: buyPrice, s: deltaStr, r: true, t: { limit: { tif: "Ioc" } } }],
       grouping: "na",
     }, Date.now());
 
@@ -126,7 +192,7 @@ export async function POST(req) {
     return Response.json({
       ok: true, action: "decrease",
       currentEth, targetEth, deltaEth: -absDelta, sizeEth: absDelta, ethPrice,
-      note: "TP/SL ajustés automatiquement par Hyperliquid",
+      note: "Aucun TP/SL existant trouvé — position réduite sans recréation",
       ioStatus,
     });
   }
