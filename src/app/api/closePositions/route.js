@@ -1,6 +1,6 @@
 ﻿import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { writeLpState, writeErrorState } from "../../lib/cronKv";
+import { readLpState, writeLpState, writeErrorState } from "../../lib/cronKv";
 import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 const sql = neon(process.env.DATABASE_URL);
@@ -734,7 +734,8 @@ export async function POST(req) {
                         closed_at     = NOW()
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
-        await writeLpState(poolNum, { action1: "CREATE_OK", action2: "CLOSE_OK" });
+        const prevState = await readLpState(poolNum) ?? {};
+        await writeLpState(poolNum, { ...prevState, action1: "CREATE_OK", action2: "CLOSE_OK" });
         await writeErrorState(poolNum, false);
       } catch (_) {}
     }
