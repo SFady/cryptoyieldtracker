@@ -1659,14 +1659,15 @@ function StartItem({ isOpen, onToggle }) {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          amountUSDC:   parseFloat(poolAmount),
-          minPrice:     parseFloat(tpPrice.toFixed(2)),
-          maxPrice:     parseFloat(slPrice.toFixed(2)),
-          currentPrice: avgPx,
-          rangePercent: rangePct,
-          targetRatio:  0.5,
-          poolNum:      2,
-          exactBounds:  true,
+          amountUSDC:     parseFloat(poolAmount),
+          minPrice:       parseFloat(tpPrice.toFixed(2)),
+          maxPrice:       parseFloat(slPrice.toFixed(2)),
+          currentPrice:   avgPx,
+          rangePercent:   rangePct,
+          targetRatio:    0.5,
+          poolNum:        2,
+          exactBounds:    true,
+          weth_placed_hl: sizeEth,
         }),
       });
       const pool = await poolRes.json();

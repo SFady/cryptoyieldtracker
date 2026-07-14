@@ -11,13 +11,13 @@ const sql = neon(process.env.DATABASE_URL);
 async function logEvent(fields) {
   try {
     await sql`INSERT INTO lp_events
-      (action1, action2, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg, usdc_on_close, pool_num, weth, usdc, type, weth_price)
+      (action1, action2, usdc_placed, range_min, range_max, range_pct, usdc_remaining, token_id, error_msg, usdc_on_close, pool_num, weth, usdc, type, weth_price, weth_placed_hl)
       VALUES (${fields.action1}, ${fields.action2 ?? null}, ${fields.usdc_placed ?? null}, ${fields.range_min ?? null},
               ${fields.range_max ?? null}, ${fields.range_pct ?? null},
               ${fields.usdc_remaining ?? null}, ${fields.token_id ?? null}, ${fields.error_msg ?? null},
               ${fields.usdc_on_close ?? null}, ${fields.pool_num ?? null},
               ${fields.weth ?? null}, ${fields.usdc ?? null}, ${fields.type ?? null},
-              ${fields.weth_price ?? null})`;
+              ${fields.weth_price ?? null}, ${fields.weth_placed_hl ?? null})`;
   } catch (_) {}
 }
 
@@ -215,7 +215,7 @@ async function pickRpc() {
 }
 
 export async function POST(req) {
-  const { amountUSDC, minPrice, maxPrice, currentPrice, targetRatio, poolNum, caseNum, exactBounds } = await req.json();
+  const { amountUSDC, minPrice, maxPrice, currentPrice, targetRatio, poolNum, caseNum, exactBounds, weth_placed_hl } = await req.json();
   if (!amountUSDC || !minPrice || !maxPrice || !currentPrice)
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });
 
@@ -792,6 +792,7 @@ export async function POST(req) {
         usdc:           Number(ethers.formatUnits(usdcToKeep, 6)).toFixed(2),
         type:           caseNum ?? null,
         weth_price:     parseFloat(poolPrice.toFixed(2)),
+        weth_placed_hl: weth_placed_hl ?? null,
       });
       await writeLpState(poolNum ?? 2, {
         action1:        "CREATE_OK",
@@ -803,6 +804,7 @@ export async function POST(req) {
         usdc_remaining: usdcRestant.toFixed(2),
         created_at:     new Date().toISOString(),
         token_id:       tokenId.toString(),
+        weth_placed_hl: weth_placed_hl ?? null,
       });
       await writeErrorState(poolNum ?? 2, false);
     } catch (_) {}
