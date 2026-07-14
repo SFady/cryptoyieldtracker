@@ -75,10 +75,10 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const { sizeUsd, leverage = 2, slPriceTrigger, tpPriceTrigger, noTpsl = false } = await req.json().catch(() => ({}));
+  const { sizeUsd, sizeEth: sizeEthDirect, leverage = 2, slPriceTrigger, tpPriceTrigger, noTpsl = false } = await req.json().catch(() => ({}));
 
-  if (!sizeUsd || sizeUsd <= 0)
-    return Response.json({ error: "sizeUsd requis et > 0" }, { status: 400 });
+  if (!sizeUsd && !sizeEthDirect)
+    return Response.json({ error: "sizeUsd ou sizeEth requis" }, { status: 400 });
 
   const privateKey = process.env.PRIVATE_KEY_HL1;
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
@@ -87,8 +87,10 @@ export async function POST(req) {
   const [ethPrice, assetIdx] = await Promise.all([getEthMidPrice(), getEthAssetIndex()]);
 
   const lev         = Math.max(1, Math.min(50, Math.round(leverage)));
-  const notionalUsd = sizeUsd * lev;
-  const sizeEth     = Math.ceil((notionalUsd / ethPrice) * 10000) / 10000;
+  const sizeEth     = sizeEthDirect
+    ? Math.ceil(sizeEthDirect * 10000) / 10000
+    : Math.ceil((sizeUsd * lev / ethPrice) * 10000) / 10000;
+  const notionalUsd = sizeEth * ethPrice;
   const sizeStr     = parseFloat(sizeEth.toFixed(4)).toString();
   const priceStr    = normPx(ethPrice * 0.98);
 

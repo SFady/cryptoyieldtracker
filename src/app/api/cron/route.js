@@ -105,23 +105,50 @@ async function handle(req) {
     // Pool 2 (strategy start) — ferme si hors range OU TP/SL HL exécuté
     if (process.env.PRIVATE_KEY) {
       const caseNum2 = await pickCase(2);
-      let trigger = null;
+      let trigger     = null;
+      let triggerCase = 9;
 
       if (caseNum2 === 1 || caseNum2 === 2) {
         trigger = `hors range (cas ${caseNum2})`;
       } else if (caseNum2 === 3) {
         try {
-          const hlRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(10000) });
-          const hlJson = await hlRes.json();
-          const hasShort = (hlJson.positions ?? []).some(p => p.coin === "ETH" && p.side === "short");
-          if (!hasShort) trigger = "TP/SL HL exécuté";
+          const hlRes    = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(10000) });
+          const hlJson   = await hlRes.json();
+          const hlShort  = (hlJson.positions ?? []).find(p => p.coin === "ETH" && p.side === "short");
+          const hasShort = !!hlShort;
+
+          if (!hasShort) {
+            trigger = "TP/SL HL exécuté";
+          } else {
+            // WETH sync : comparer WETH en pool vs weth_placed_hl (Redis) et vs taille réelle du short HL
+            try {
+              const state2       = await readLpState(2);
+              const wethPlacedHl = state2?.weth_placed_hl ?? null;
+              if (wethPlacedHl != null) {
+                const wethRes    = await fetch(`${base}/api/pool-weth?poolNum=2`, { signal: AbortSignal.timeout(10000) });
+                const wethData   = await wethRes.json();
+                const wethInPool = wethData.wethInPool ?? null;
+
+                if (wethInPool != null && wethInPool < wethPlacedHl) {
+                  const hlSize = Math.abs(parseFloat(hlShort.szi ?? "0"));
+                  if (hlSize > 0) {
+                    const diff = Math.abs(wethInPool - hlSize) / hlSize;
+                    if (diff > 0.10) {
+                      trigger     = `weth_sync (pool ${wethInPool.toFixed(4)} ETH vs HL ${hlSize.toFixed(4)} ETH, écart ${(diff * 100).toFixed(1)}%)`;
+                      triggerCase = 10;
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+          }
         } catch (_) {}
       }
 
       if (trigger) {
         try {
-          const res = await fetch(`${base}/api/autoRebalance?case=9&poolNum=2`, { signal: AbortSignal.timeout(280000) });
-          rebalanceResults["p2"] = { trigger, ...(await res.json()) };
+          const res = await fetch(`${base}/api/autoRebalance?case=${triggerCase}&poolNum=2`, { signal: AbortSignal.timeout(280000) });
+          rebalanceResults["p2"] = { trigger, triggerCase, ...(await res.json()) };
         } catch (e) {
           rebalanceResults["p2"] = { error: e.message };
         }
