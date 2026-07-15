@@ -122,8 +122,23 @@ async function handle(req) {
       if (caseNum2 === 3) {
         try {
           const state2  = await readLpState(2);
-          const slPrice = parseFloat(state2?.range_max);
-          const tpPrice = parseFloat(state2?.range_min);
+          let slPrice = parseFloat(state2?.range_max);
+          let tpPrice = parseFloat(state2?.range_min);
+
+          // Fallback DB si Redis vide ou valeurs manquantes
+          if (!slPrice || isNaN(slPrice) || !tpPrice || isNaN(tpPrice)) {
+            try {
+              const rows = await sql`
+                SELECT range_min, range_max FROM lp_events
+                WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = 2
+                ORDER BY id DESC LIMIT 1
+              `;
+              if (rows[0]) {
+                slPrice = parseFloat(rows[0].range_max);
+                tpPrice = parseFloat(rows[0].range_min);
+              }
+            } catch (_) {}
+          }
 
           const [wethRes, hlRes] = await Promise.all([
             fetch(`${base}/api/pool-weth?poolNum=2`, { signal: AbortSignal.timeout(10000) }),
