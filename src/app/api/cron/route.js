@@ -102,58 +102,79 @@ async function handle(req) {
   }
 
   if (base) {
-    // Pool 2 (strategy start) — ferme si hors range OU TP/SL HL exécuté
+    // Pool 2 — LP management + delta-hedge short indépendant
     if (process.env.PRIVATE_KEY) {
       const caseNum2 = await pickCase(2);
-      let trigger     = null;
-      let triggerCase = 9;
 
+      // 1. Gestion LP : ferme et repositionne si hors range
       if (caseNum2 === 1 || caseNum2 === 2) {
-        trigger = `hors range (cas ${caseNum2})`;
-      } else if (caseNum2 === 3) {
         try {
-          const hlRes    = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(10000) });
-          const hlJson   = await hlRes.json();
-          const hlShort  = (hlJson.positions ?? []).find(p => p.coin === "ETH" && p.side === "short");
-          const hasShort = !!hlShort;
-
-          if (!hasShort) {
-            trigger = "TP/SL HL exécuté";
-          } else {
-            // WETH sync : comparer WETH en pool vs weth_placed_hl (Redis) et vs taille réelle du short HL
-            try {
-              const state2       = await readLpState(2);
-              const wethPlacedHl = state2?.weth_placed_hl ?? null;
-              if (wethPlacedHl != null) {
-                const wethRes    = await fetch(`${base}/api/pool-weth?poolNum=2`, { signal: AbortSignal.timeout(10000) });
-                const wethData   = await wethRes.json();
-                const wethInPool = wethData.wethInPool ?? null;
-
-                if (wethInPool != null && wethInPool < wethPlacedHl) {
-                  const hlSize = Math.abs(parseFloat(hlShort.szi ?? "0"));
-                  if (hlSize > 0) {
-                    const diff = Math.abs(wethInPool - hlSize) / hlSize;
-                    if (diff > 0.20) {
-                      trigger     = `weth_sync (pool ${wethInPool.toFixed(4)} ETH vs HL ${hlSize.toFixed(4)} ETH, écart ${(diff * 100).toFixed(1)}%)`;
-                      triggerCase = 10;
-                    }
-                  }
-                }
-              }
-            } catch (_) {}
-          }
-        } catch (_) {}
-      }
-
-      if (trigger) {
-        try {
-          const res = await fetch(`${base}/api/autoRebalance?case=${triggerCase}&poolNum=2`, { signal: AbortSignal.timeout(280000) });
-          rebalanceResults["p2"] = { trigger, triggerCase, ...(await res.json()) };
+          const res = await fetch(`${base}/api/autoRebalance?case=9&poolNum=2`, { signal: AbortSignal.timeout(280000) });
+          rebalanceResults["p2_lp"] = { trigger: `hors range (cas ${caseNum2})`, ...(await res.json()) };
         } catch (e) {
-          rebalanceResults["p2"] = { error: e.message };
+          rebalanceResults["p2_lp"] = { error: e.message };
         }
       } else {
-        rebalanceResults["p2"] = { skipped: true, reason: caseNum2 === null ? "pas de position active" : `en range (cas ${caseNum2}), HL actif` };
+        rebalanceResults["p2_lp"] = { skipped: true, reason: caseNum2 === null ? "pas de position active" : "en range" };
+      }
+
+      // 2. Delta-hedge short : cible WETH réel en pool, ajuste si écart > 20%
+      if (caseNum2 === 3) {
+        try {
+          const state2  = await readLpState(2);
+          const slPrice = parseFloat(state2?.range_max);
+          const tpPrice = parseFloat(state2?.range_min);
+
+          const [wethRes, hlRes] = await Promise.all([
+            fetch(`${base}/api/pool-weth?poolNum=2`, { signal: AbortSignal.timeout(10000) }),
+            fetch(`${base}/api/hyperliquid-status`,  { signal: AbortSignal.timeout(10000) }),
+          ]);
+          const wethData   = await wethRes.json();
+          const hlJson     = await hlRes.json();
+          const wethInPool = wethData.wethInPool ?? 0;
+          const hlShort    = (hlJson.positions ?? []).find(p => p.coin === "ETH" && p.side === "short");
+          const shortEth   = hlShort ? Math.abs(parseFloat(hlShort.szi ?? "0")) : 0;
+
+          if (wethInPool < 0.001) {
+            // WETH quasi nul en pool → fermer le short résiduel si existant
+            if (shortEth > 0.001) {
+              await fetch(`${base}/api/hyperliquid-cancel-all`, { method: "POST", signal: AbortSignal.timeout(30000) });
+              rebalanceResults["p2_short"] = { action: "closed", reason: "wethInPool < 0.001", wethInPool, shortEth };
+            } else {
+              rebalanceResults["p2_short"] = { skipped: true, reason: "wethInPool < 0.001, pas de short", wethInPool };
+            }
+          } else {
+            const drift = shortEth > 0 ? Math.abs(shortEth - wethInPool) / wethInPool : 1;
+            if (drift <= 0.20 && shortEth > 0) {
+              rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 20%`, wethInPool, shortEth };
+            } else {
+              // Ajustement : cancel-all puis nouveau short calibré sur WETH en pool
+              if (shortEth > 0) {
+                await fetch(`${base}/api/hyperliquid-cancel-all`, { method: "POST", signal: AbortSignal.timeout(30000) });
+                await new Promise(r => setTimeout(r, 1000));
+              }
+              const body = { sizeEth: wethInPool, leverage: 4 };
+              if (slPrice && !isNaN(slPrice)) body.slPriceTrigger = slPrice;
+              if (tpPrice && !isNaN(tpPrice)) body.tpPriceTrigger = tpPrice;
+              const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+              });
+              const shortData = await shortRes.json();
+              rebalanceResults["p2_short"] = {
+                action: "adjusted", wethInPool, shortEth,
+                drift: parseFloat((drift * 100).toFixed(1)),
+                slPrice: isNaN(slPrice) ? null : slPrice,
+                tpPrice: isNaN(tpPrice) ? null : tpPrice,
+                shortData,
+              };
+            }
+          }
+        } catch (e) {
+          rebalanceResults["p2_short"] = { error: e.message };
+        }
+      } else {
+        rebalanceResults["p2_short"] = { skipped: true, reason: `LP caseNum=${caseNum2}, pas en range actif` };
       }
     }
 
