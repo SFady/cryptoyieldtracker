@@ -163,25 +163,22 @@ async function handle(req) {
             if (drift <= 0.30 && shortEth > 0) {
               rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 30%`, wethInPool, shortEth };
             } else {
-              // Ajustement : cancel-all puis nouveau short calibré sur WETH en pool
-              if (shortEth > 0) {
-                await fetch(`${base}/api/hyperliquid-cancel-all`, { method: "POST", signal: AbortSignal.timeout(30000) });
-                await new Promise(r => setTimeout(r, 1000));
-              }
-              const body = { sizeEth: wethInPool, leverage: 4 };
+              // Ajustement delta : trade uniquement la différence, repose TP/SL
+              const body = { targetEth: wethInPool, leverage: 4 };
               if (slPrice && !isNaN(slPrice)) body.slPriceTrigger = slPrice;
               if (tpPrice && !isNaN(tpPrice)) body.tpPriceTrigger = tpPrice;
-              const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
+              const adjustRes  = await fetch(`${base}/api/hyperliquid-adjust-short`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+                body: JSON.stringify(body), signal: AbortSignal.timeout(45000),
               });
-              const shortData = await shortRes.json();
+              const adjustData = await adjustRes.json();
               rebalanceResults["p2_short"] = {
                 action: "adjusted", wethInPool, shortEth,
                 drift: parseFloat((drift * 100).toFixed(1)),
+                delta: adjustData.delta,
                 slPrice: isNaN(slPrice) ? null : slPrice,
                 tpPrice: isNaN(tpPrice) ? null : tpPrice,
-                shortData,
+                adjustData,
               };
             }
           }
