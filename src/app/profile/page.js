@@ -422,11 +422,18 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
               const pnl      = ethShort.pnl + (ethShort.funding ?? 0) - closeFees;
               const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
               const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
+              const funding      = ethShort.funding ?? 0;
+              const fundingColor = funding >= 0 ? "#00e5a0" : "#c97070";
+              const fundingStr   = (funding >= 0 ? "+" : "") + funding.toFixed(2);
               pnlNode = (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                     <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Funding</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: fundingColor }}>{fundingStr} $</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                     <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>PnL short</span>
