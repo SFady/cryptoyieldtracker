@@ -133,7 +133,7 @@ async function handle(req) {
                   const hlSize = Math.abs(parseFloat(hlShort.szi ?? "0"));
                   if (hlSize > 0) {
                     const diff = Math.abs(wethInPool - hlSize) / hlSize;
-                    if (diff > 0.10) {
+                    if (diff > 0.20) {
                       trigger     = `weth_sync (pool ${wethInPool.toFixed(4)} ETH vs HL ${hlSize.toFixed(4)} ETH, écart ${(diff * 100).toFixed(1)}%)`;
                       triggerCase = 10;
                     }
