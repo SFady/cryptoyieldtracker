@@ -1597,7 +1597,6 @@ function BaseToHlItem({ isOpen, onToggle }) {
 }
 
 function StartItem({ isOpen, onToggle }) {
-  const [hlAmount,   setHlAmount]   = useState("");
   const [poolAmount, setPoolAmount] = useState("");
   const [leverage,   setLeverage]   = useState("4");
   const [confirming, setConfirming] = useState(false);
@@ -1607,7 +1606,7 @@ function StartItem({ isOpen, onToggle }) {
   const color = "#00e5a0";
 
   function handleValidate() {
-    if (!hlAmount || !poolAmount || parseFloat(hlAmount) <= 0 || parseFloat(poolAmount) <= 0) return;
+    if (!poolAmount || parseFloat(poolAmount) <= 0) return;
     if (!confirming) {
       setConfirming(true);
       timerRef.current = setTimeout(() => setConfirming(false), 3000);
@@ -1633,47 +1632,28 @@ function StartItem({ isOpen, onToggle }) {
       if (pctData.error) throw new Error(`percentile-range : ${pctData.error}`);
       if (priceData.error) throw new Error(`livePrice : ${priceData.error}`);
 
-      const rangePct   = pctData.rangePct;
-      const livePrice  = priceData.price;
-      const halfFrac   = rangePct / 200;
-      const slPrice    = livePrice * (1 + halfFrac);
-      const tpPrice    = livePrice / (1 + halfFrac);
+      const rangePct  = pctData.rangePct;
+      const livePrice = priceData.price;
+      const halfFrac  = rangePct / 200;
+      const slPrice   = livePrice * (1 + halfFrac);
+      const tpPrice   = livePrice / (1 + halfFrac);
 
-      setLog(l => [...l, `Percentile 24h → ${rangePct}% · prix $${livePrice} · SL $${slPrice.toFixed(1)} · TP $${tpPrice.toFixed(1)}`]);
+      setLog(l => [...l, `Percentile 24h → ${rangePct}% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
 
-      // 2. Short HL sans TP/SL
-      const shortRes = await fetch("/api/hyperliquid-short", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          sizeUsd:  parseFloat(hlAmount),
-          leverage: parseFloat(leverage) || 4,
-          noTpsl:   true,
-        }),
-      });
-      const short = await shortRes.json();
-      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
-
-      const avgPx   = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
-      const sizeEth = short.sizeEth ?? parseFloat(short.ioStatus?.filled?.totalSz ?? "0");
-      setLog(l => [...l, `Short @ $${avgPx} · ${sizeEth} ETH · levier ×${short.leverage}`]);
-
-      // 3. Position pool — bornes percentile
-      setLog(l => [...l, `Pool range $${tpPrice.toFixed(2)} – $${slPrice.toFixed(2)} · 50/50`]);
-
+      // 2. Pool en premier — bornes basées sur le prix live
+      setLog(l => [...l, `Ouverture pool $${tpPrice.toFixed(2)} – $${slPrice.toFixed(2)} · 50/50`]);
       const poolRes = await fetch("/api/createPosition", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          amountUSDC:     parseFloat(poolAmount),
-          minPrice:       parseFloat(tpPrice.toFixed(2)),
-          maxPrice:       parseFloat(slPrice.toFixed(2)),
-          currentPrice:   avgPx,
-          rangePercent:   rangePct,
-          targetRatio:    0.5,
-          poolNum:        2,
-          exactBounds:    true,
-          weth_placed_hl: sizeEth,
+          amountUSDC:   parseFloat(poolAmount),
+          minPrice:     parseFloat(tpPrice.toFixed(2)),
+          maxPrice:     parseFloat(slPrice.toFixed(2)),
+          currentPrice: livePrice,
+          rangePercent: rangePct,
+          targetRatio:  0.5,
+          poolNum:      2,
+          exactBounds:  true,
         }),
       });
       const pool = await poolRes.json();
@@ -1683,17 +1663,30 @@ function StartItem({ isOpen, onToggle }) {
       const poolHigh = pool.tickUpperPrice;
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${poolLow} – $${poolHigh}`]);
 
-      // 4. TP et SL HL = bornes réelles de la pool
-      setLog(l => [...l, `Placement TP=$${poolLow} SL=$${poolHigh}`]);
-      const tpslRes = await fetch("/api/hyperliquid-tpsl", {
+      // 3. Lire le WETH réel en pool
+      const wethRes  = await fetch("/api/pool-weth?poolNum=2");
+      const wethData = await wethRes.json();
+      if (wethData.error) throw new Error(`pool-weth : ${wethData.error}`);
+      const wethInPool = wethData.wethInPool;
+      setLog(l => [...l, `WETH en pool : ${wethInPool.toFixed(4)} ETH → taille short`]);
+
+      // 4. Short calé sur le WETH réel, SL/TP = bornes réelles des ticks
+      setLog(l => [...l, `Short ${wethInPool.toFixed(4)} ETH · SL $${poolHigh} · TP $${poolLow}`]);
+      const shortRes = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ tpPrice: poolLow, slPrice: poolHigh, size: sizeEth }),
+        body:    JSON.stringify({
+          sizeEth:        wethInPool,
+          leverage:       parseFloat(leverage) || 4,
+          slPriceTrigger: poolHigh,
+          tpPriceTrigger: poolLow,
+        }),
       });
-      const tpsl = await tpslRes.json();
-      if (!tpsl.ok) throw new Error(tpsl.error ?? JSON.stringify(tpsl));
+      const short = await shortRes.json();
+      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
 
-      setLog(l => [...l, `TP/SL posés ✓`]);
+      const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
+      setLog(l => [...l, `Short @ $${avgPx} · levier ×${short.leverage} ✓`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);
@@ -1728,14 +1721,13 @@ function StartItem({ isOpen, onToggle }) {
       {isOpen && (
         <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
-            Short HL (SL=borne haute, TP=borne basse) + pool 50/50 centré sur avgPx
+            Pool 50/50 d'abord → WETH en pool → short HL calé dessus (SL=borne haute, TP=borne basse)
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {[
-              { label: "Marge HL (USDC)", val: hlAmount,   set: setHlAmount   },
-              { label: "Pool (USDC)",     val: poolAmount, set: setPoolAmount  },
-              { label: "Levier",          val: leverage,   set: setLeverage    },
+              { label: "Pool (USDC)", val: poolAmount, set: setPoolAmount },
+              { label: "Levier",      val: leverage,   set: setLeverage   },
             ].map(({ label, val, set }) => (
               <div key={label}>
                 <div style={{ fontFamily: "monospace", fontSize: "0.58rem", color: "#6666aa", marginBottom: 3 }}>{label}</div>
@@ -1759,15 +1751,15 @@ function StartItem({ isOpen, onToggle }) {
 
           <button
             onClick={handleValidate}
-            disabled={isLoading || !hlAmount || !poolAmount}
+            disabled={isLoading || !poolAmount}
             style={{
               padding: "8px 14px",
               background: confirming ? "rgba(240,180,41,0.15)" : `${color}15`,
               border: `1px solid ${btnColor}66`,
               borderRadius: 5,
-              color: (isLoading || !hlAmount || !poolAmount) ? `${btnColor}44` : btnColor,
+              color: (isLoading || !poolAmount) ? `${btnColor}44` : btnColor,
               fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700,
-              cursor: (isLoading || !hlAmount || !poolAmount) ? "default" : "pointer",
+              cursor: (isLoading || !poolAmount) ? "default" : "pointer",
               transition: "all 0.15s",
             }}
           >
