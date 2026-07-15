@@ -145,8 +145,8 @@ async function handle(req) {
             }
           } else {
             const drift = shortEth > 0 ? Math.abs(shortEth - wethInPool) / wethInPool : 1;
-            if (drift <= 0.20 && shortEth > 0) {
-              rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 20%`, wethInPool, shortEth };
+            if (drift <= 0.30 && shortEth > 0) {
+              rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 30%`, wethInPool, shortEth };
             } else {
               // Ajustement : cancel-all puis nouveau short calibré sur WETH en pool
               if (shortEth > 0) {

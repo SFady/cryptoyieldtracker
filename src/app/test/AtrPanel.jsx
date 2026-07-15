@@ -1623,17 +1623,23 @@ function StartItem({ isOpen, onToggle }) {
     setLog([]);
 
     try {
-      // 1. ATR data
-      const atrRes = await fetch("/api/atr");
-      const atr    = await atrRes.json();
-      if (atr.error) throw new Error(atr.error);
+      // 1. Range percentile 24h + prix live
+      const [pctRes, priceRes] = await Promise.all([
+        fetch("/api/percentile-range"),
+        fetch("/api/livePrice"),
+      ]);
+      const pctData   = await pctRes.json();
+      const priceData = await priceRes.json();
+      if (pctData.error) throw new Error(`percentile-range : ${pctData.error}`);
+      if (priceData.error) throw new Error(`livePrice : ${priceData.error}`);
 
-      const rangePct = atr.atrPct * 2.0;
-      const halfFrac = rangePct / 200;
-      const slPrice  = atr.price * (1 + halfFrac);
-      const tpPrice  = atr.price / (1 + halfFrac);
+      const rangePct   = pctData.rangePct;
+      const livePrice  = priceData.price;
+      const halfFrac   = rangePct / 200;
+      const slPrice    = livePrice * (1 + halfFrac);
+      const tpPrice    = livePrice / (1 + halfFrac);
 
-      setLog(l => [...l, `ATR ${atr.atrPct}% × 2 → ${rangePct.toFixed(2)}% · SL $${slPrice.toFixed(1)} · TP $${tpPrice.toFixed(1)}`]);
+      setLog(l => [...l, `Percentile 24h → ${rangePct}% · prix $${livePrice} · SL $${slPrice.toFixed(1)} · TP $${tpPrice.toFixed(1)}`]);
 
       // 2. Short HL sans TP/SL
       const shortRes = await fetch("/api/hyperliquid-short", {
@@ -1648,11 +1654,11 @@ function StartItem({ isOpen, onToggle }) {
       const short = await shortRes.json();
       if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
 
-      const avgPx   = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice);
+      const avgPx   = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
       const sizeEth = short.sizeEth ?? parseFloat(short.ioStatus?.filled?.totalSz ?? "0");
       setLog(l => [...l, `Short @ $${avgPx} · ${sizeEth} ETH · levier ×${short.leverage}`]);
 
-      // 3. Position pool — bornes ATR
+      // 3. Position pool — bornes percentile
       setLog(l => [...l, `Pool range $${tpPrice.toFixed(2)} – $${slPrice.toFixed(2)} · 50/50`]);
 
       const poolRes = await fetch("/api/createPosition", {
