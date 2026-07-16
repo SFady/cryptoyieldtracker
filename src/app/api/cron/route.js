@@ -106,15 +106,24 @@ async function handle(req) {
     if (process.env.PRIVATE_KEY) {
       const caseNum2 = await pickCase(2);
 
-      // 1. Gestion LP : ferme et repositionne si hors range
+      // 1. Gestion LP : ferme seulement après 2 crons consécutifs hors range
+      const OOR_KEY = "p2_oor_count";
       if (caseNum2 === 1 || caseNum2 === 2) {
-        try {
-          const res = await fetch(`${base}/api/autoRebalance?case=9&poolNum=2`, { signal: AbortSignal.timeout(280000) });
-          rebalanceResults["p2_lp"] = { trigger: `hors range (cas ${caseNum2})`, ...(await res.json()) };
-        } catch (e) {
-          rebalanceResults["p2_lp"] = { error: e.message };
+        const oorCount = ((await kv.get(OOR_KEY)) ?? 0) + 1;
+        await kv.set(OOR_KEY, oorCount, { ex: 7200 });
+        if (oorCount >= 2) {
+          await kv.del(OOR_KEY);
+          try {
+            const res = await fetch(`${base}/api/autoRebalance?case=9&poolNum=2&noTransfer=true`, { signal: AbortSignal.timeout(280000) });
+            rebalanceResults["p2_lp"] = { trigger: `hors range confirmé (cas ${caseNum2}, ${oorCount} crons)`, ...(await res.json()) };
+          } catch (e) {
+            rebalanceResults["p2_lp"] = { error: e.message };
+          }
+        } else {
+          rebalanceResults["p2_lp"] = { skipped: true, reason: `hors range mais attente confirmation (${oorCount}/2)`, caseNum: caseNum2 };
         }
       } else {
+        await kv.del(OOR_KEY);
         rebalanceResults["p2_lp"] = { skipped: true, reason: caseNum2 === null ? "pas de position active" : "en range" };
       }
 

@@ -73,14 +73,14 @@ async function getPositionState(poolNum) {
   return state;
 }
 
-async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null) {
+async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noTransfer = false) {
   if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
   // Cases de recovery / fermeture — bypass des checks lock/erreur
   if (forceCase === 7)  return handleCase7(poolNum, overrideTokenId);
   if (forceCase === 8)  return handleCase8(poolNum);
-  if (forceCase === 9)  return handleCase9(poolNum);
+  if (forceCase === 9)  return handleCase9(poolNum, noTransfer);
   if (forceCase === 10) return handleCase10(poolNum);
 
   // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
@@ -125,9 +125,10 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null) {
 
 export async function GET(req) {
   const p = new URL(req.url).searchParams;
-  const forceCase = parseInt(p.get("case")    ?? "0");
-  const poolNum   = parseInt(p.get("poolNum") ?? "2");
-  return handleRequest(forceCase, poolNum);
+  const forceCase   = parseInt(p.get("case")    ?? "0");
+  const poolNum     = parseInt(p.get("poolNum") ?? "2");
+  const noTransfer  = p.get("noTransfer") === "true";
+  return handleRequest(forceCase, poolNum, null, noTransfer);
 }
 
 export async function POST(req) {
@@ -973,7 +974,7 @@ async function handleCase4(poolNum = 2) {
 }
 
 // Case 9 — fermeture strategy start pool 2 (hors range ou TP/SL HL exécuté), sans réouverture
-async function handleCase9(poolNum = 2) {
+async function handleCase9(poolNum = 2, noTransfer = false) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
@@ -985,7 +986,7 @@ async function handleCase9(poolNum = 2) {
     const closeRes  = await fetch(`${base}/api/closePositions`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ keepWeth: false, poolNum, caseNum: 9 }),
+      body:    JSON.stringify({ keepWeth: false, poolNum, caseNum: 9, noTransfer }),
       signal:  AbortSignal.timeout(200000),
     });
     const closeData = await closeRes.json();
