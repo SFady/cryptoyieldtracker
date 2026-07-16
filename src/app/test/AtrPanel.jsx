@@ -1670,8 +1670,8 @@ function StartItem({ isOpen, onToggle }) {
       const wethInPool = wethData.wethInPool;
       setLog(l => [...l, `WETH en pool : ${wethInPool.toFixed(4)} ETH → taille short`]);
 
-      // 4. Short calé sur le WETH réel, SL/TP = bornes réelles des ticks
-      setLog(l => [...l, `Short ${wethInPool.toFixed(4)} ETH · SL $${poolHigh} · TP $${poolLow}`]);
+      // 4. Short calé sur le WETH réel, SL = borne haute uniquement (pas de TP)
+      setLog(l => [...l, `Short ${wethInPool.toFixed(4)} ETH · SL $${poolHigh}`]);
       const shortRes = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -1679,7 +1679,6 @@ function StartItem({ isOpen, onToggle }) {
           sizeEth:        wethInPool,
           leverage:       parseFloat(leverage) || 4,
           slPriceTrigger: poolHigh,
-          tpPriceTrigger: poolLow,
         }),
       });
       const short = await shortRes.json();

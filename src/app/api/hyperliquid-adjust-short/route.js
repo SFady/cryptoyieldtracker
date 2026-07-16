@@ -123,21 +123,17 @@ export async function POST(req) {
       return Response.json({ error: `IoC delta rejeté : ${ioStatus.error}`, deltaResult }, { status: 500 });
   }
 
-  // 4. Reposer TP/SL sur la nouvelle taille cible
+  // 4. Reposer SL uniquement (pas de TP — le cron gère la fermeture quand LP hors range bas)
   let tpslResult = null;
-  if (slPriceTrigger && tpPriceTrigger) {
+  if (slPriceTrigger) {
     const slTrigger = normPx(slPriceTrigger);
     const slLimit   = normPx(slPriceTrigger * 1.02);
-    const tpTrigger = normPx(tpPriceTrigger);
-    const tpLimit   = normPx(tpPriceTrigger * 1.02);
 
     tpslResult = await signAndSend(wallet, {
       type: "order",
       orders: [
         { a: assetIdx, b: true, p: slLimit, s: targetStr, r: true,
           t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
-        { a: assetIdx, b: true, p: tpLimit, s: targetStr, r: true,
-          t: { trigger: { isMarket: true, triggerPx: tpTrigger, tpsl: "tp" } } },
       ],
       grouping: "positionTpsl",
     }, Date.now());
