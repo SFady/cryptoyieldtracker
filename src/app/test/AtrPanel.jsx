@@ -1622,7 +1622,12 @@ function StartItem({ isOpen, onToggle }) {
     setLog([]);
 
     try {
-      // 1. Range percentile 24h + prix live
+      // 0. Cancel tous les ordres HL existants (état propre)
+      setLog(l => [...l, "Cancel ordres HL existants…"]);
+      await fetch("/api/hyperliquid-cancel-all", { method: "POST" });
+      setLog(l => [...l, "Cancel ✓"]);
+
+      // 1. Percentile 24h + prix live (en parallèle)
       const [pctRes, priceRes] = await Promise.all([
         fetch("/api/percentile-range"),
         fetch("/api/livePrice"),
@@ -1640,52 +1645,60 @@ function StartItem({ isOpen, onToggle }) {
 
       setLog(l => [...l, `Percentile 24h → ${rangePct}% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
 
-      // 2. Pool en premier — bornes basées sur le prix live
-      setLog(l => [...l, `Ouverture pool $${tpPrice.toFixed(2)} – $${slPrice.toFixed(2)} · 50/50`]);
+      // 2. Short IoC seul (pas de SL/TP encore) — récupère le prix de fill réel
+      const sizeEthEst = parseFloat(poolAmount) / 2 / livePrice;
+      setLog(l => [...l, `Short IoC ${sizeEthEst.toFixed(4)} ETH…`]);
+      const shortRes = await fetch("/api/hyperliquid-short", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          sizeEth:  sizeEthEst,
+          leverage: parseFloat(leverage) || 4,
+          noTpsl:   true,
+        }),
+      });
+      const short = await shortRes.json();
+      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
+      const avgPx    = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
+      const filledSz = parseFloat(short.ioStatus?.filled?.totalSz ?? sizeEthEst.toFixed(4));
+      setLog(l => [...l, `Short @ $${avgPx} · ${filledSz} ETH · levier ×${short.leverage} ✓`]);
+
+      // 3. Calcul des bornes exactes centrées sur avgPx
+      const slPriceExact = avgPx * (1 + halfFrac);
+      const tpPriceExact = avgPx / (1 + halfFrac);
+      setLog(l => [...l, `Bornes exactes $${tpPriceExact.toFixed(1)} – $${slPriceExact.toFixed(1)} · SL…`]);
+
+      // 4. Pose du SL seul (positionTpsl)
+      const slRes = await fetch("/api/hyperliquid-tpsl", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ slPrice: slPriceExact, size: filledSz }),
+      });
+      const sl = await slRes.json();
+      if (!sl.ok) throw new Error(sl.error ?? JSON.stringify(sl));
+      setLog(l => [...l, `SL @ $${sl.slTrigger} ✓`]);
+
+      // 5. Création de la pool centrée sur avgPx
+      setLog(l => [...l, `Ouverture pool $${tpPriceExact.toFixed(2)} – $${slPriceExact.toFixed(2)} · 50/50`]);
       const poolRes = await fetch("/api/createPosition", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          amountUSDC:   parseFloat(poolAmount),
-          minPrice:     parseFloat(tpPrice.toFixed(2)),
-          maxPrice:     parseFloat(slPrice.toFixed(2)),
-          currentPrice: livePrice,
-          rangePercent: rangePct,
-          targetRatio:  0.5,
-          poolNum:      2,
-          exactBounds:  true,
+          amountUSDC:     parseFloat(poolAmount),
+          minPrice:       parseFloat(tpPriceExact.toFixed(2)),
+          maxPrice:       parseFloat(slPriceExact.toFixed(2)),
+          currentPrice:   avgPx,
+          rangePercent:   rangePct,
+          targetRatio:    0.5,
+          poolNum:        2,
+          exactBounds:    true,
+          weth_placed_hl: filledSz,
         }),
       });
       const pool = await poolRes.json();
       if (pool.error) throw new Error(pool.error);
 
-      const poolLow  = pool.tickLowerPrice;
-      const poolHigh = pool.tickUpperPrice;
-      setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${poolLow} – $${poolHigh}`]);
-
-      // 3. Lire le WETH réel en pool
-      const wethRes  = await fetch("/api/pool-weth?poolNum=2");
-      const wethData = await wethRes.json();
-      if (wethData.error) throw new Error(`pool-weth : ${wethData.error}`);
-      const wethInPool = wethData.wethInPool;
-      setLog(l => [...l, `WETH en pool : ${wethInPool.toFixed(4)} ETH → taille short`]);
-
-      // 4. Short calé sur le WETH réel, SL = borne haute uniquement (pas de TP)
-      setLog(l => [...l, `Short ${wethInPool.toFixed(4)} ETH · SL $${poolHigh}`]);
-      const shortRes = await fetch("/api/hyperliquid-short", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          sizeEth:        wethInPool,
-          leverage:       parseFloat(leverage) || 4,
-          slPriceTrigger: poolHigh,
-        }),
-      });
-      const short = await shortRes.json();
-      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
-
-      const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
-      setLog(l => [...l, `Short @ $${avgPx} · levier ×${short.leverage} ✓`]);
+      setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);

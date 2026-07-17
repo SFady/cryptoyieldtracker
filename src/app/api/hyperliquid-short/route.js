@@ -75,7 +75,7 @@ export async function GET() {
 }
 
 export async function POST(req) {
-  const { sizeUsd, sizeEth: sizeEthDirect, leverage = 2, slPriceTrigger, tpPriceTrigger, noTpsl = false } = await req.json().catch(() => ({}));
+  const { sizeUsd, sizeEth: sizeEthDirect, leverage = 2, slPriceTrigger, tpPriceTrigger, noTpsl = false, noTp = false } = await req.json().catch(() => ({}));
 
   if (!sizeUsd && !sizeEthDirect)
     return Response.json({ error: "sizeUsd ou sizeEth requis" }, { status: 400 });

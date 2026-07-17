@@ -55,12 +55,12 @@ function normPx(n) {
   return s.endsWith(".0") ? s.slice(0, -2) : s;
 }
 
-// Place TP et SL sur une position existante
+// Place SL (et optionnellement TP) sur une position existante
 export async function POST(req) {
   const { tpPrice, slPrice, size, coin = "ETH" } = await req.json().catch(() => ({}));
 
-  if (!tpPrice || !slPrice || !size)
-    return Response.json({ error: "tpPrice, slPrice et size requis" }, { status: 400 });
+  if (!slPrice || !size)
+    return Response.json({ error: "slPrice et size requis" }, { status: 400 });
 
   const privateKey = process.env.PRIVATE_KEY_HL1;
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
@@ -71,17 +71,23 @@ export async function POST(req) {
 
   const slTrigger = normPx(slPrice);
   const slLimit   = normPx(slPrice * 1.02);
-  const tpTrigger = normPx(tpPrice);
-  const tpLimit   = normPx(tpPrice * 1.02);
+
+  const orders = [
+    { a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
+      t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
+  ];
+
+  let tpTrigger = null;
+  if (tpPrice) {
+    tpTrigger        = normPx(tpPrice);
+    const tpLimit    = normPx(tpPrice * 1.02);
+    orders.push({ a: assetIdx, b: true, p: tpLimit, s: sizeStr, r: true,
+      t: { trigger: { isMarket: true, triggerPx: tpTrigger, tpsl: "tp" } } });
+  }
 
   const result = await signAndSend(wallet, {
     type: "order",
-    orders: [
-      { a: assetIdx, b: true, p: slLimit, s: sizeStr, r: true,
-        t: { trigger: { isMarket: true, triggerPx: slTrigger, tpsl: "sl" } } },
-      { a: assetIdx, b: true, p: tpLimit, s: sizeStr, r: true,
-        t: { trigger: { isMarket: true, triggerPx: tpTrigger, tpsl: "tp" } } },
-    ],
+    orders,
     grouping: "positionTpsl",
   }, Date.now());
 
@@ -90,7 +96,7 @@ export async function POST(req) {
 
   const statuses = result?.response?.data?.statuses ?? [];
   const slStatus = statuses[0];
-  const tpStatus = statuses[1];
+  const tpStatus = tpPrice ? statuses[1] : null;
 
   if (slStatus?.error || tpStatus?.error)
     return Response.json({ error: `ordre rejeté : SL=${slStatus?.error} TP=${tpStatus?.error}`, result }, { status: 500 });
@@ -98,8 +104,7 @@ export async function POST(req) {
   return Response.json({
     ok: true,
     slTrigger: parseFloat(slTrigger),
-    tpTrigger: parseFloat(tpTrigger),
+    ...(tpTrigger ? { tpTrigger: parseFloat(tpTrigger), tpStatus } : {}),
     slStatus,
-    tpStatus,
   });
 }
