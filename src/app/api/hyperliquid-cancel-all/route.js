@@ -67,7 +67,7 @@ export async function POST() {
   const address = wallet.address;
 
   const [openOrders, state, meta, mids] = await Promise.all([
-    hlInfo({ type: "openOrders",         user: address }),
+    hlInfo({ type: "frontendOpenOrders", user: address }),
     hlInfo({ type: "clearinghouseState", user: address }),
     hlInfo({ type: "meta" }),
     hlInfo({ type: "allMids" }),

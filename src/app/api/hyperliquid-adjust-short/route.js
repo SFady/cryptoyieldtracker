@@ -70,7 +70,7 @@ export async function POST(req) {
     hlInfo({ type: "meta" }),
     hlInfo({ type: "allMids" }),
     hlInfo({ type: "clearinghouseState", user: wallet.address }),
-    hlInfo({ type: "openOrders", user: wallet.address }),
+    hlInfo({ type: "frontendOpenOrders", user: wallet.address }),
   ]);
 
   const assetIdx = meta.universe.findIndex(a => a.name === "ETH");
