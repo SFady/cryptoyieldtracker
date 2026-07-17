@@ -74,14 +74,13 @@ async function getPositionState(poolNum) {
 }
 
 async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noTransfer = false) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(forceCase))
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
   // Cases de recovery / fermeture — bypass des checks lock/erreur
   if (forceCase === 7)  return handleCase7(poolNum, overrideTokenId);
   if (forceCase === 8)  return handleCase8(poolNum);
   if (forceCase === 9)  return handleCase9(poolNum, noTransfer);
-  if (forceCase === 10) return handleCase10(poolNum);
 
   // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
   if (await checkRedisLock())
@@ -1010,63 +1009,5 @@ async function handleCase9(poolNum = 2, noTransfer = false) {
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 9 (close start pool2)", `Erreur : ${msg}`);
     await writeErrorState(poolNum, true, msg);
     return Response.json({ case: 9, error: msg }, { status: 500 });
-  }
-}
-
-async function handleCase10(poolNum = 2) {
-  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
-  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
-
-  const release = await acquireRedisLock();
-  if (!release) return Response.json({ error: "Exécution déjà en cours — réessayer dans 5 min" }, { status: 409 });
-
-  try {
-    // Lire range bounds et WETH pool en parallèle
-    const [state, wethRes] = await Promise.all([
-      readLpState(poolNum),
-      fetch(`${base}/api/pool-weth?poolNum=${poolNum}`, { signal: AbortSignal.timeout(15000) }),
-    ]);
-
-    const slPrice    = parseFloat(state?.range_max);
-    const tpPrice    = parseFloat(state?.range_min);
-    if (!slPrice || !tpPrice) throw new Error("range_min/range_max manquants dans l'état Redis");
-
-    const wethData   = await wethRes.json();
-    if (wethData.error) throw new Error(`pool-weth : ${wethData.error}`);
-    const wethInPool = wethData.wethInPool;
-    if (!wethInPool || wethInPool < 0.0001) throw new Error(`WETH pool insuffisant : ${wethInPool}`);
-
-    // 1. Fermer la position HL + annuler les ordres
-    const hlRes  = await fetch(`${base}/api/hyperliquid-cancel-all`, {
-      method: "POST",
-      signal: AbortSignal.timeout(30000),
-    });
-    const hlData = await hlRes.json();
-
-    await new Promise(r => setTimeout(r, 1000));
-
-    // 2. Ouvrir un nouveau short pour la taille actuelle de WETH en pool, TP/SL sur les bornes
-    const shortRes  = await fetch(`${base}/api/hyperliquid-short`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        sizeEth:         wethInPool,
-        leverage:        4,
-        slPriceTrigger:  slPrice,
-        tpPriceTrigger:  tpPrice,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-    const shortData = await shortRes.json();
-    if (!shortData.ok) throw new Error(shortData.error ?? "hyperliquid-short échoué");
-
-    await release();
-    return Response.json({ ok: true, case: 10, wethInPool, slPrice, tpPrice, hlData, shortData });
-  } catch (e) {
-    await release();
-    const msg = e?.message ?? String(e);
-    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 10 (WETH sync HL pool2)", `Erreur : ${msg}`);
-    await writeErrorState(poolNum, true, msg);
-    return Response.json({ case: 10, error: msg }, { status: 500 });
   }
 }
