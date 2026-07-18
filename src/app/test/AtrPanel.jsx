@@ -1666,19 +1666,9 @@ function StartItem({ isOpen, onToggle }) {
       // 3. Calcul des bornes exactes centrées sur avgPx
       const slPriceExact = avgPx * (1 + halfFrac);
       const tpPriceExact = avgPx / (1 + halfFrac);
-      setLog(l => [...l, `Bornes exactes $${tpPriceExact.toFixed(1)} – $${slPriceExact.toFixed(1)} · SL…`]);
+      setLog(l => [...l, `Bornes exactes $${tpPriceExact.toFixed(1)} – $${slPriceExact.toFixed(1)}`]);
 
-      // 4. Pose du SL seul (positionTpsl)
-      const slRes = await fetch("/api/hyperliquid-tpsl", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ slPrice: slPriceExact, size: filledSz }),
-      });
-      const sl = await slRes.json();
-      if (!sl.ok) throw new Error(sl.error ?? JSON.stringify(sl));
-      setLog(l => [...l, `SL @ $${sl.slTrigger} ✓`]);
-
-      // 5. Création de la pool centrée sur avgPx
+      // 4. Création de la pool centrée sur avgPx (avant SL pour récupérer tickUpperPrice réel)
       setLog(l => [...l, `Ouverture pool $${tpPriceExact.toFixed(2)} – $${slPriceExact.toFixed(2)} · 50/50`]);
       const poolRes = await fetch("/api/createPosition", {
         method:  "POST",
@@ -1697,8 +1687,19 @@ function StartItem({ isOpen, onToggle }) {
       });
       const pool = await poolRes.json();
       if (pool.error) throw new Error(pool.error);
-
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
+
+      // 5. Pose du SL au prix exact du tick haut (aligné avec la borne réelle du LP)
+      const slTickPrice = pool.tickUpperPrice;
+      setLog(l => [...l, `SL @ $${slTickPrice.toFixed(1)} (tick exact)…`]);
+      const slRes = await fetch("/api/hyperliquid-tpsl", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ slPrice: slTickPrice, size: filledSz }),
+      });
+      const sl = await slRes.json();
+      if (!sl.ok) throw new Error(sl.error ?? JSON.stringify(sl));
+      setLog(l => [...l, `SL @ $${sl.slTrigger} ✓`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);
