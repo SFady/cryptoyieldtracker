@@ -1645,6 +1645,19 @@ function StartItem({ isOpen, onToggle }) {
 
       setLog(l => [...l, `Percentile 24h → ${rangePct}% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
 
+      // Guard : si une position LP existante a un SL proche du prix actuel, bloquer
+      try {
+        const stateRes  = await fetch("/api/lpStatus");
+        const stateData = await stateRes.json();
+        const rangeMax  = parseFloat(stateData?.lastRow?.range_max);
+        if (rangeMax && livePrice > rangeMax * 0.97) {
+          throw new Error(`Prix actuel $${livePrice} trop proche du SL existant $${rangeMax.toFixed(1)} (< 3% de marge) — ferme d'abord la position`);
+        }
+      } catch (e) {
+        if (e.message.includes("trop proche")) throw e;
+        // si lpStatus échoue, on continue quand même
+      }
+
       // 2. Short IoC seul (pas de SL/TP encore) — récupère le prix de fill réel
       const sizeEthEst = parseFloat(poolAmount) / 2 / livePrice;
       setLog(l => [...l, `Short IoC ${sizeEthEst.toFixed(4)} ETH…`]);

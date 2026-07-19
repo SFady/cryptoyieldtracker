@@ -169,8 +169,8 @@ async function handle(req) {
             }
           } else {
             const drift = shortEth > 0 ? Math.abs(shortEth - wethInPool) / wethInPool : 1;
-            if (drift <= 0.30 && shortEth > 0) {
-              rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 30%`, wethInPool, shortEth };
+            if (drift <= 0.60 && shortEth > 0) {
+              rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 60%`, wethInPool, shortEth };
             } else {
               // Ajustement delta : trade uniquement la différence, repose SL (pas de TP)
               const body = { targetEth: wethInPool, leverage: 4 };
