@@ -1658,66 +1658,48 @@ function StartItem({ isOpen, onToggle }) {
         // si lpStatus échoue, on continue quand même
       }
 
-      // 2. Short IoC seul (pas de SL/TP encore) — récupère le prix de fill réel
-      const sizeEthEst = parseFloat(poolAmount) / 2 / livePrice;
-      setLog(l => [...l, `Short IoC ${sizeEthEst.toFixed(4)} ETH…`]);
-      const shortRes = await fetch("/api/hyperliquid-short", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          sizeEth:  sizeEthEst,
-          leverage: parseFloat(leverage) || 4,
-          noTpsl:   true,
-        }),
-      });
-      const short = await shortRes.json();
-      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
-      const avgPx    = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
-      const filledSz = parseFloat(short.ioStatus?.filled?.totalSz ?? sizeEthEst.toFixed(4));
-      setLog(l => [...l, `Short @ $${avgPx} · ${filledSz} ETH · levier ×${short.leverage} ✓`]);
-
-      // 3. Calcul des bornes exactes centrées sur avgPx
-      const slPriceExact = avgPx * (1 + halfFrac);
-      const tpPriceExact = avgPx / (1 + halfFrac);
-      setLog(l => [...l, `Bornes exactes $${tpPriceExact.toFixed(1)} – $${slPriceExact.toFixed(1)}`]);
-
-      // 4. Création de la pool centrée sur avgPx
-      setLog(l => [...l, `Ouverture pool $${tpPriceExact.toFixed(2)} – $${slPriceExact.toFixed(2)} · 50/50`]);
+      // 2. Création de la pool centrée sur livePrice (50/50)
+      setLog(l => [...l, `Ouverture pool $${tpPrice.toFixed(2)} – $${slPrice.toFixed(2)} · 50/50`]);
       const poolRes = await fetch("/api/createPosition", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          amountUSDC:     parseFloat(poolAmount),
-          minPrice:       parseFloat(tpPriceExact.toFixed(2)),
-          maxPrice:       parseFloat(slPriceExact.toFixed(2)),
-          currentPrice:   avgPx,
-          rangePercent:   rangePct,
-          targetRatio:    0.5,
-          poolNum:        2,
-          exactBounds:    true,
-          weth_placed_hl: filledSz,
+          amountUSDC:   parseFloat(poolAmount),
+          minPrice:     parseFloat(tpPrice.toFixed(2)),
+          maxPrice:     parseFloat(slPrice.toFixed(2)),
+          currentPrice: livePrice,
+          rangePercent: rangePct,
+          targetRatio:  0.5,
+          poolNum:      2,
+          exactBounds:  true,
         }),
       });
       const pool = await poolRes.json();
       if (pool.error) throw new Error(pool.error);
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
 
-      // 5. Initialiser le bot CLM (short déjà ouvert → bot gérera les ajustements via neutral zone)
-      setLog(l => [...l, `Init bot CLM · levier ×${leverage} · short ref ${filledSz} ETH`]);
+      // 3. Lire le WETH réel en pool (référence taille short)
+      const wethRes  = await fetch("/api/pool-weth?poolNum=2");
+      const wethData = await wethRes.json();
+      if (wethData.error) throw new Error(`pool-weth : ${wethData.error}`);
+      const wethInPool = wethData.wethInPool;
+      setLog(l => [...l, `WETH en pool : ${wethInPool.toFixed(4)} ETH`]);
+
+      // 4. Initialiser le bot CLM (pas de short au Start — le cron l'ouvrira si prix < neutral zone)
+      setLog(l => [...l, `Init bot CLM · capital $${parseFloat(poolAmount).toFixed(0)} · levier ×${leverage} · short ref ${wethInPool.toFixed(4)} ETH`]);
       const initRes = await fetch("/api/algo-init", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          capital:          parseFloat(poolAmount),
-          leverage:         parseFloat(leverage) || 4,
-          shortSizeEth:     filledSz,
-          shortEntryPrice:  avgPx,
-          shortStateInit:   "ON",
+          capital:        parseFloat(poolAmount),
+          leverage:       parseFloat(leverage) || 4,
+          shortSizeEth:   wethInPool,
+          shortStateInit: "OFF",
         }),
       });
       const initData = await initRes.json();
       if (!initData.ok) throw new Error(initData.error ?? JSON.stringify(initData));
-      setLog(l => [...l, `Bot initialisé ✓ · short ON @ $${avgPx} · cron gérera via neutral zone`]);
+      setLog(l => [...l, `Bot initialisé ✓ · short OFF · cron ouvrira le short si prix < neutral zone`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);
@@ -1752,7 +1734,7 @@ function StartItem({ isOpen, onToggle }) {
       {isOpen && (
         <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
-            Pool 50/50 d'abord → WETH en pool → short HL calé dessus (SL=borne haute, TP=borne basse)
+            Pool 50/50 · bot CLM gère le short via neutral zone ±0.3% (cron 30min)
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
