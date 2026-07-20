@@ -2,7 +2,7 @@
 export const ALGO_CONFIG = {
   RANGE_PCT:               0.01,   // ±1% autour du midpoint (range totale 2%)
   TICK_SPACING:            100,    // CL100 sur Aerodrome
-  NEUTRAL_ZONE_PCT:        0.003,  // ±0.3% autour du midpoint
+  NEUTRAL_ZONE_RATIO:      0.30,   // neutral zone = 30% de chaque côté du half-range
   REBALANCE_DELAY_MIN:     30,     // attendre 30 min hors range avant rebalance
   REBALANCE_THRESHOLD_PCT: 0.005,  // 0.5% hors range → rebalance immédiat
   POOL_NUM:                2,

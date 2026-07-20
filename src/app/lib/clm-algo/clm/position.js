@@ -21,8 +21,10 @@ export async function getPositionState(kv) {
   if (isNaN(lowerPrice) || isNaN(upperPrice)) return null;
 
   const midPrice       = Math.sqrt(lowerPrice * upperPrice);
-  const neutralZoneLow  = midPrice * (1 - ALGO_CONFIG.NEUTRAL_ZONE_PCT);
-  const neutralZoneHigh = midPrice * (1 + ALGO_CONFIG.NEUTRAL_ZONE_PCT);
+  const halfRange      = Math.sqrt(upperPrice / lowerPrice) - 1;
+  const nzPct          = halfRange * ALGO_CONFIG.NEUTRAL_ZONE_RATIO;
+  const neutralZoneLow  = midPrice * (1 - nzPct);
+  const neutralZoneHigh = midPrice * (1 + nzPct);
 
   state = { lowerPrice, upperPrice, midPrice, neutralZoneLow, neutralZoneHigh };
   await kv.set(REDIS_KEYS.POSITION_STATE, state, { ex: 86400 });
@@ -34,8 +36,10 @@ export async function getPositionState(kv) {
  */
 export async function savePositionState(kv, { lowerPrice, upperPrice }) {
   const midPrice        = Math.sqrt(lowerPrice * upperPrice);
-  const neutralZoneLow  = midPrice * (1 - ALGO_CONFIG.NEUTRAL_ZONE_PCT);
-  const neutralZoneHigh = midPrice * (1 + ALGO_CONFIG.NEUTRAL_ZONE_PCT);
+  const halfRange       = Math.sqrt(upperPrice / lowerPrice) - 1;
+  const nzPct           = halfRange * ALGO_CONFIG.NEUTRAL_ZONE_RATIO;
+  const neutralZoneLow  = midPrice * (1 - nzPct);
+  const neutralZoneHigh = midPrice * (1 + nzPct);
   const state = { lowerPrice, upperPrice, midPrice, neutralZoneLow, neutralZoneHigh };
   await kv.set(REDIS_KEYS.POSITION_STATE, state, { ex: 86400 });
   return state;
