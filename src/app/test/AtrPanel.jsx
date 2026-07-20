@@ -1678,29 +1678,47 @@ function StartItem({ isOpen, onToggle }) {
       if (pool.error) throw new Error(pool.error);
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
 
-      // 3. Lire le WETH réel en pool (référence taille short)
+      // 3. Lire le WETH réel en pool
       const wethRes  = await fetch("/api/pool-weth?poolNum=2");
       const wethData = await wethRes.json();
       if (wethData.error) throw new Error(`pool-weth : ${wethData.error}`);
       const wethInPool = wethData.wethInPool;
       setLog(l => [...l, `WETH en pool : ${wethInPool.toFixed(4)} ETH`]);
 
-      // 4. Initialiser le bot CLM (pas de short au Start — le cron l'ouvrira si prix < neutral zone)
-      setLog(l => [...l, `Init bot CLM · capital $${parseFloat(poolAmount).toFixed(0)} · levier ×${leverage} · short ref ${wethInPool.toFixed(4)} ETH`]);
+      // 4. Short calé sur le WETH réel (SL = borne haute tick)
+      const slTickPrice = pool.tickUpperPrice;
+      setLog(l => [...l, `Short ${wethInPool.toFixed(4)} ETH · SL $${slTickPrice.toFixed(1)}`]);
+      const shortRes = await fetch("/api/hyperliquid-short", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          sizeEth:        wethInPool,
+          leverage:       parseFloat(leverage) || 4,
+          slPriceTrigger: slTickPrice,
+        }),
+      });
+      const short = await shortRes.json();
+      if (!short.ok) throw new Error(short.error ?? JSON.stringify(short));
+      const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
+      setLog(l => [...l, `Short @ $${avgPx} · levier ×${short.leverage} ✓`]);
+
+      // 5. Initialiser le bot CLM (short déjà ON)
+      setLog(l => [...l, `Init bot CLM · capital $${parseFloat(poolAmount).toFixed(0)} · levier ×${leverage}`]);
       const initRes = await fetch("/api/algo-init", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          capital:        parseFloat(poolAmount),
-          leverage:       parseFloat(leverage) || 4,
-          shortSizeEth:   wethInPool,
-          rangePct:       rangePct,
-          shortStateInit: "OFF",
+          capital:         parseFloat(poolAmount),
+          leverage:        parseFloat(leverage) || 4,
+          shortSizeEth:    wethInPool,
+          rangePct:        rangePct,
+          shortEntryPrice: avgPx,
+          shortStateInit:  "ON",
         }),
       });
       const initData = await initRes.json();
       if (!initData.ok) throw new Error(initData.error ?? JSON.stringify(initData));
-      setLog(l => [...l, `Bot initialisé ✓ · short OFF · cron ouvrira le short si prix < neutral zone`]);
+      setLog(l => [...l, `Bot initialisé ✓ · short ON @ $${avgPx}`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);
@@ -1735,7 +1753,7 @@ function StartItem({ isOpen, onToggle }) {
       {isOpen && (
         <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#44446a" }}>
-            Pool 50/50 · bot CLM gère le short via neutral zone ±0.3% (cron 30min)
+            Pool 50/50 → short calé sur WETH en pool · bot CLM gère ON/OFF via neutral zone
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
