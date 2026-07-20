@@ -1694,6 +1694,7 @@ function StartItem({ isOpen, onToggle }) {
           capital:        parseFloat(poolAmount),
           leverage:       parseFloat(leverage) || 4,
           shortSizeEth:   wethInPool,
+          rangePct:       rangePct,
           shortStateInit: "OFF",
         }),
       });

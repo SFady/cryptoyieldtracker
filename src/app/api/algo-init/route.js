@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
  * Body: { capital, leverage, shortSizeEth }
  */
 export async function POST(req) {
-  const { capital, leverage = 4, shortSizeEth, shortEntryPrice = null, shortStateInit = 'OFF' } =
+  const { capital, leverage = 4, shortSizeEth, rangePct = null, shortEntryPrice = null, shortStateInit = 'OFF' } =
     await req.json().catch(() => ({}));
 
   if (!capital || !shortSizeEth) {
@@ -26,7 +26,7 @@ export async function POST(req) {
   ]);
 
   // Sauvegarder la config runtime
-  const runtimeConfig = { capital, leverage, shortSizeEth, startedAt: new Date().toISOString() };
+  const runtimeConfig = { capital, leverage, shortSizeEth, rangePct, startedAt: new Date().toISOString() };
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, runtimeConfig, { ex: 30 * 86400 });
 
   // Sauvegarder l'état initial du hedge (si le short est déjà ouvert au Start)

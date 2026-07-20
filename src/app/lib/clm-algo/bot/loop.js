@@ -68,7 +68,7 @@ export async function botLoop({ base, price }) {
     if (shouldRebalance) {
       // Rebalance complet : ferme tout + réouvre avec biais
       result.action = 'rebalance';
-      const rebResult = await rebalanceCLMPosition({ base, currentPrice: price, bias, runtimeConfig, kv });
+      const rebResult = await rebalanceCLMPosition({ base, currentPrice: price, bias, runtimeConfig, positionState, kv });
       result.rebalance = rebResult;
 
       if (rebResult.ok) {

@@ -19,10 +19,19 @@ const RATIO_BY_BIAS = { lower: 0.8, upper: 0.2, neutral: 0.5 };
  * @param {Object} p.runtimeConfig  { capital, leverage, shortSizeEth }
  * @param {Object} p.kv          Vercel KV instance
  */
-export async function rebalanceCLMPosition({ base, currentPrice, bias, runtimeConfig, kv }) {
-  const { capital, leverage, shortSizeEth } = runtimeConfig;
+export async function rebalanceCLMPosition({ base, currentPrice, bias, runtimeConfig, positionState, kv }) {
+  const { capital, leverage, shortSizeEth, rangePct } = runtimeConfig;
   const targetRatio = RATIO_BY_BIAS[bias] ?? 0.5;
-  const halfRange   = ALGO_CONFIG.RANGE_PCT; // 1% de chaque côté
+
+  // Préserver le range original (stocké au Start). Fallback sur les bornes actuelles de la LP.
+  let halfRange;
+  if (rangePct) {
+    halfRange = rangePct / 200; // rangePct est en %, divisé par 2 pour chaque côté, puis /100
+  } else if (positionState) {
+    halfRange = Math.sqrt(positionState.upperPrice / positionState.lowerPrice) - 1;
+  } else {
+    halfRange = ALGO_CONFIG.RANGE_PCT;
+  }
 
   // Bornes symétriques passées à createPosition (il recalcule selon targetRatio)
   const minPrice = currentPrice * (1 - halfRange);
