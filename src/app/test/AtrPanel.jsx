@@ -1681,7 +1681,7 @@ function StartItem({ isOpen, onToggle }) {
       const tpPriceExact = avgPx / (1 + halfFrac);
       setLog(l => [...l, `Bornes exactes $${tpPriceExact.toFixed(1)} – $${slPriceExact.toFixed(1)}`]);
 
-      // 4. Création de la pool centrée sur avgPx (avant SL pour récupérer tickUpperPrice réel)
+      // 4. Création de la pool centrée sur avgPx
       setLog(l => [...l, `Ouverture pool $${tpPriceExact.toFixed(2)} – $${slPriceExact.toFixed(2)} · 50/50`]);
       const poolRes = await fetch("/api/createPosition", {
         method:  "POST",
@@ -1702,17 +1702,22 @@ function StartItem({ isOpen, onToggle }) {
       if (pool.error) throw new Error(pool.error);
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
 
-      // 5. Pose du SL au prix exact du tick haut (aligné avec la borne réelle du LP)
-      const slTickPrice = pool.tickUpperPrice;
-      setLog(l => [...l, `SL @ $${slTickPrice.toFixed(1)} (tick exact)…`]);
-      const slRes = await fetch("/api/hyperliquid-tpsl", {
+      // 5. Initialiser le bot CLM (short déjà ouvert → bot gérera les ajustements via neutral zone)
+      setLog(l => [...l, `Init bot CLM · levier ×${leverage} · short ref ${filledSz} ETH`]);
+      const initRes = await fetch("/api/algo-init", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ slPrice: slTickPrice, size: filledSz }),
+        body:    JSON.stringify({
+          capital:          parseFloat(poolAmount),
+          leverage:         parseFloat(leverage) || 4,
+          shortSizeEth:     filledSz,
+          shortEntryPrice:  avgPx,
+          shortStateInit:   "ON",
+        }),
       });
-      const sl = await slRes.json();
-      if (!sl.ok) throw new Error(sl.error ?? JSON.stringify(sl));
-      setLog(l => [...l, `SL @ $${sl.slTrigger} ✓`]);
+      const initData = await initRes.json();
+      if (!initData.ok) throw new Error(initData.error ?? JSON.stringify(initData));
+      setLog(l => [...l, `Bot initialisé ✓ · short ON @ $${avgPx} · cron gérera via neutral zone`]);
       setStatus("ok");
     } catch (e) {
       setLog(l => [...l, `⚠ ${e.message}`]);

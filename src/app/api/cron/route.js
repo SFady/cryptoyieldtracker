@@ -102,98 +102,13 @@ async function handle(req) {
   }
 
   if (base) {
-    // Pool 2 — LP management + delta-hedge short indépendant
+    // Pool 2 — CLM Neutral Zone Hedge bot
     if (process.env.PRIVATE_KEY) {
-      const caseNum2 = await pickCase(2);
-
-      // 1. Gestion LP : ferme seulement après 2 crons consécutifs hors range
-      const OOR_KEY = "p2_oor_count";
-      if (caseNum2 === 1 || caseNum2 === 2) {
-        const oorCount = ((await kv.get(OOR_KEY)) ?? 0) + 1;
-        await kv.set(OOR_KEY, oorCount, { ex: 7200 });
-        if (oorCount >= 2) {
-          await kv.del(OOR_KEY);
-          try {
-            const res = await fetch(`${base}/api/autoRebalance?case=9&poolNum=2&noTransfer=true`, { signal: AbortSignal.timeout(280000) });
-            rebalanceResults["p2_lp"] = { trigger: `hors range confirmé (cas ${caseNum2}, ${oorCount} crons)`, ...(await res.json()) };
-          } catch (e) {
-            rebalanceResults["p2_lp"] = { error: e.message };
-          }
-        } else {
-          rebalanceResults["p2_lp"] = { skipped: true, reason: `hors range mais attente confirmation (${oorCount}/2)`, caseNum: caseNum2 };
-        }
-      } else {
-        await kv.del(OOR_KEY);
-        rebalanceResults["p2_lp"] = { skipped: true, reason: caseNum2 === null ? "pas de position active" : "en range" };
-      }
-
-      // 2. Delta-hedge short : cible WETH réel en pool, ajuste si écart > 20%
-      if (caseNum2 === 3) {
-        try {
-          const state2  = await readLpState(2);
-          let slPrice = parseFloat(state2?.range_max);
-          let tpPrice = parseFloat(state2?.range_min);
-
-          // Fallback DB si Redis vide ou valeurs manquantes
-          if (!slPrice || isNaN(slPrice) || !tpPrice || isNaN(tpPrice)) {
-            try {
-              const rows = await sql`
-                SELECT range_min, range_max FROM lp_events
-                WHERE action1 = 'CREATE_OK' AND COALESCE(pool_num, 2) = 2
-                ORDER BY id DESC LIMIT 1
-              `;
-              if (rows[0]) {
-                slPrice = parseFloat(rows[0].range_max);
-                tpPrice = parseFloat(rows[0].range_min);
-              }
-            } catch (_) {}
-          }
-
-          const [wethRes, hlRes] = await Promise.all([
-            fetch(`${base}/api/pool-weth?poolNum=2`, { signal: AbortSignal.timeout(10000) }),
-            fetch(`${base}/api/hyperliquid-status`,  { signal: AbortSignal.timeout(10000) }),
-          ]);
-          const wethData   = await wethRes.json();
-          const hlJson     = await hlRes.json();
-          const wethInPool = wethData.wethInPool ?? 0;
-          const hlShort    = (hlJson.positions ?? []).find(p => p.coin === "ETH" && p.side === "short");
-          const shortEth   = hlShort ? Math.abs(parseFloat(hlShort.szi ?? "0")) : 0;
-
-          if (wethInPool < 0.001) {
-            // WETH quasi nul en pool → fermer le short résiduel si existant
-            if (shortEth > 0.001) {
-              await fetch(`${base}/api/hyperliquid-cancel-all`, { method: "POST", signal: AbortSignal.timeout(30000) });
-              rebalanceResults["p2_short"] = { action: "closed", reason: "wethInPool < 0.001", wethInPool, shortEth };
-            } else {
-              rebalanceResults["p2_short"] = { skipped: true, reason: "wethInPool < 0.001, pas de short", wethInPool };
-            }
-          } else {
-            const drift = shortEth > 0 ? Math.abs(shortEth - wethInPool) / wethInPool : 1;
-            if (drift <= 0.60 && shortEth > 0) {
-              rebalanceResults["p2_short"] = { skipped: true, reason: `drift ${(drift * 100).toFixed(1)}% ≤ 60%`, wethInPool, shortEth };
-            } else {
-              // Ajustement delta : trade uniquement la différence, repose SL (pas de TP)
-              const body = { targetEth: wethInPool, leverage: 4 };
-              if (slPrice && !isNaN(slPrice)) body.slPriceTrigger = slPrice;
-              const adjustRes  = await fetch(`${base}/api/hyperliquid-adjust-short`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body), signal: AbortSignal.timeout(45000),
-              });
-              const adjustData = await adjustRes.json();
-              rebalanceResults["p2_short"] = {
-                action: "adjusted", wethInPool, shortEth,
-                drift: parseFloat((drift * 100).toFixed(1)),
-                delta: adjustData.delta,
-                slPrice: isNaN(slPrice) ? null : slPrice,
-                adjustData,
-              };
-            }
-          }
-        } catch (e) {
-          rebalanceResults["p2_short"] = { error: e.message };
-        }
-      } else {
-        rebalanceResults["p2_short"] = { skipped: true, reason: `LP caseNum=${caseNum2}, pas en range actif` };
+      try {
+        const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
+        rebalanceResults["p2"] = await botLoop({ base, price });
+      } catch (e) {
+        rebalanceResults["p2"] = { error: e.message };
       }
     }
 
