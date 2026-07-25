@@ -1678,23 +1678,31 @@ function StartItem({ isOpen, onToggle }) {
       if (pool.error) throw new Error(pool.error);
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
 
-      // 3. Lire le WETH réel en pool
-      const wethRes  = await fetch("/api/pool-weth?poolNum=2");
-      const wethData = await wethRes.json();
-      if (wethData.error) throw new Error(`pool-weth : ${wethData.error}`);
-      const wethInPool = wethData.wethInPool;
-      setLog(l => [...l, `WETH en pool : ${wethInPool.toFixed(4)} ETH`]);
+      // 3. Calcul ETH in LP via formule Uniswap V3 (même logique que short_LP_CLM.xlsx)
+      //    L = Capital / (2√P0 − P0/√Pb − √Pa)
+      //    ETH = L × (1/√P0 − 1/√Pb)
+      const Pa      = pool.tickLowerPrice;
+      const Pb      = pool.tickUpperPrice;
+      const P0      = livePrice;
+      const sqrtP0  = Math.sqrt(P0);
+      const sqrtPa  = Math.sqrt(Pa);
+      const sqrtPb  = Math.sqrt(Pb);
+      const L       = parseFloat(poolAmount) / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+      const ethInLP = L * (1 / sqrtP0 - 1 / sqrtPb);
+      const lev     = parseFloat(leverage) || 4;
+      const notional = ethInLP * P0;
+      const margin   = notional / lev;
+      setLog(l => [...l, `ETH in LP : ${ethInLP.toFixed(4)} ETH · notionnel $${notional.toFixed(1)} · marge $${margin.toFixed(1)}`]);
 
-      // 4. Short calé sur le WETH réel (SL = borne haute tick)
-      const slTickPrice = pool.tickUpperPrice;
-      setLog(l => [...l, `Short ${wethInPool.toFixed(4)} ETH · SL $${slTickPrice.toFixed(1)}`]);
+      // 4. Short delta-neutre (SL = borne haute tick)
+      setLog(l => [...l, `Short ${ethInLP.toFixed(4)} ETH · levier ×${lev} · SL $${Pb.toFixed(1)}`]);
       const shortRes = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          sizeEth:        wethInPool,
-          leverage:       parseFloat(leverage) || 4,
-          slPriceTrigger: slTickPrice,
+          sizeEth:        parseFloat(ethInLP.toFixed(4)),
+          leverage:       lev,
+          slPriceTrigger: Pb,
         }),
       });
       const short = await shortRes.json();
@@ -1703,14 +1711,14 @@ function StartItem({ isOpen, onToggle }) {
       setLog(l => [...l, `Short @ $${avgPx} · levier ×${short.leverage} ✓`]);
 
       // 5. Initialiser le bot CLM (short déjà ON)
-      setLog(l => [...l, `Init bot CLM · capital $${parseFloat(poolAmount).toFixed(0)} · levier ×${leverage}`]);
+      setLog(l => [...l, `Init bot CLM · capital $${parseFloat(poolAmount).toFixed(0)} · levier ×${lev}`]);
       const initRes = await fetch("/api/algo-init", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
           capital:         parseFloat(poolAmount),
-          leverage:        parseFloat(leverage) || 4,
-          shortSizeEth:    wethInPool,
+          leverage:        lev,
+          shortSizeEth:    parseFloat(ethInLP.toFixed(4)),
           rangePct:        rangePct,
           shortEntryPrice: avgPx,
           shortStateInit:  "ON",
