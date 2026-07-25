@@ -1,133 +1,207 @@
-import { kv as kvDefault }            from '@vercel/kv';
-import { ALGO_CONFIG, REDIS_KEYS }     from '../config.js';
-import { getPositionState, evaluateZone, evaluateRebalance } from '../clm/position.js';
-import { rebalanceCLMPosition }        from '../clm/rebalance.js';
-import { evaluateShortState, evaluateShortStateOOR, saveHedgeState } from '../hedge/neutralZone.js';
-import { openShort, closeShort, getShortState } from '../hedge/hyperliquid.js';
-import { logBotTick }                  from './metrics.js';
+import { ethers }           from 'ethers';
+import { kv }               from '@vercel/kv';
+import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
+import { readLpState }      from '../../cronKv.js';
+import { closeShort, getShortState } from '../hedge/hyperliquid.js';
+import { logBotTick }       from './metrics.js';
 
-// Module 7 — Orchestrateur principal, appelé depuis le cron (pool 2 uniquement)
+// Module 7 — Orchestrateur cron pool 2
+// Règles :
+//   1. Hors range          → fermer LP + HL short
+//   2. LP sans short       → fermer LP
+//   3. Aucune position     → auto-start (LP + short comme le bouton Start)
+//   4. En range + short    → rien (short géré par SL HL)
 
-/**
- * Charge ou dérive la configuration runtime (capital, leverage, shortSizeEth).
- * Définie au Start via /api/algo-init. Si absente, estime depuis le prix courant.
- */
-async function getRuntimeConfig(kv, currentPrice) {
-  const saved = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
-  if (saved) return saved;
-  // Fallback conservateur : short = 0.15 ETH, leverage 4
-  return { capital: 0, leverage: 4, shortSizeEth: 0.15 };
+const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const RPC_URLS = [
+  process.env.ALCHEMY_RPC_URL,
+  'https://base.drpc.org',
+  'https://base-rpc.publicnode.com',
+  'https://base.llamarpc.com',
+  'https://mainnet.base.org',
+].filter(Boolean);
+
+async function getWalletUsdc() {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) return 0;
+  const wallet = new ethers.Wallet(privateKey.trim());
+  const iface  = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
+  const data   = iface.encodeFunctionData('balanceOf', [wallet.address]);
+  for (const url of RPC_URLS) {
+    try {
+      const res  = await fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: USDC_ADDRESS, data }, 'latest'] }),
+        signal:  AbortSignal.timeout(6000),
+      });
+      const json = await res.json();
+      if (json.result && json.result !== '0x') {
+        const raw = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], json.result)[0];
+        return Number(raw) / 1e6; // USDC 6 décimales
+      }
+    } catch (_) {}
+  }
+  return 0;
+}
+
+async function closeLP(base) {
+  const res = await fetch(`${base}/api/closePositions`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ keepWeth: false, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true }),
+    signal:  AbortSignal.timeout(120000),
+  });
+  return res.json();
+}
+
+async function clearAlgoState() {
+  await Promise.all([
+    kv.del(REDIS_KEYS.POSITION_STATE),
+    kv.del(REDIS_KEYS.HEDGE_STATE),
+    kv.del(REDIS_KEYS.OOR_SINCE),
+    kv.del('p2_oor_count'),
+  ]);
 }
 
 /**
- * botLoop — appelé depuis cron/route.js à la place des blocs p2_lp + p2_short.
- *
- * @param {{ base: string, price: number }} params
- * @returns {Object} résumé de l'action pour rebalanceResults
+ * Recrée une position complète (LP + short) avec toute la liquidité disponible.
+ * Même logique que le bouton Start de l'UI.
+ */
+async function autoStart({ base, price }) {
+  const result = { action: 'auto_start' };
+
+  // 1. Capital disponible
+  const capital = await getWalletUsdc();
+  if (capital < 10) return { ...result, skipped: true, reason: `USDC insuffisant : $${capital.toFixed(2)}` };
+  result.capital = parseFloat(capital.toFixed(2));
+
+  // 2. Range percentile × 1.5
+  const pctRes = await fetch(`${base}/api/percentile-range`, { signal: AbortSignal.timeout(10000) });
+  const pctData = await pctRes.json();
+  if (pctData.error) return { ...result, error: `percentile-range : ${pctData.error}` };
+  const rangePct = pctData.rangePct * 1.5;
+  const halfFrac = rangePct / 200;
+  const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
+  const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
+  result.rangePct = parseFloat(rangePct.toFixed(2));
+
+  // 3. Créer la LP 50/50
+  const poolRes = await fetch(`${base}/api/createPosition`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      amountUSDC:   capital,
+      minPrice,
+      maxPrice,
+      currentPrice: price,
+      rangePercent: rangePct,
+      targetRatio:  0.5,
+      poolNum:      ALGO_CONFIG.POOL_NUM,
+      exactBounds:  true,
+    }),
+    signal: AbortSignal.timeout(180000),
+  });
+  const pool = await poolRes.json();
+  if (pool.error) return { ...result, error: `createPosition : ${pool.error}` };
+  result.pool = { tickLowerPrice: pool.tickLowerPrice, tickUpperPrice: pool.tickUpperPrice };
+
+  // 4. Taille short via formule Uniswap V3
+  //    L = Capital / (2√P0 − P0/√Pb − √Pa)
+  //    ETH = L × (1/√P0 − 1/√Pb)
+  const Pa     = pool.tickLowerPrice;
+  const Pb     = pool.tickUpperPrice;
+  const sqrtP0 = Math.sqrt(price);
+  const sqrtPa = Math.sqrt(Pa);
+  const sqrtPb = Math.sqrt(Pb);
+  const L      = capital / (2 * sqrtP0 - price / sqrtPb - sqrtPa);
+  const ethInLP = parseFloat((L * (1 / sqrtP0 - 1 / sqrtPb)).toFixed(4));
+  const leverage = 4;
+  result.ethInLP = ethInLP;
+
+  // 5. Ouvrir le short avec SL à la borne haute
+  const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ sizeEth: ethInLP, leverage, slPriceTrigger: Pb }),
+    signal:  AbortSignal.timeout(30000),
+  });
+  const short = await shortRes.json();
+  if (!short.ok) return { ...result, error: `hyperliquid-short : ${short.error}` };
+  result.shortEntry = short.ethPrice;
+
+  // 6. Sauvegarder la config runtime
+  await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
+    capital, leverage, shortSizeEth: ethInLP, rangePct,
+    startedAt: new Date().toISOString(),
+  }, { ex: 30 * 86400 });
+  await kv.del(REDIS_KEYS.POSITION_STATE);
+  await kv.del(REDIS_KEYS.HEDGE_STATE);
+  await kv.del(REDIS_KEYS.OOR_SINCE);
+
+  return result;
+}
+
+/**
+ * Point d'entrée principal, appelé depuis cron/route.js.
  */
 export async function botLoop({ base, price }) {
-  const kv = kvDefault;
   const result = { price, ts: new Date().toISOString() };
 
-  // 1. État de la position LP
-  const positionState = await getPositionState(kv);
-  if (!positionState) {
+  if (!price) {
     result.skipped = true;
-    result.reason  = 'pas de position LP active';
+    result.reason  = 'prix indisponible';
+    return result;
+  }
+
+  // 1. État LP
+  const lpState = await readLpState(ALGO_CONFIG.POOL_NUM);
+  const hasLP   = !!(lpState && lpState.action2 === null);
+  const rMin    = hasLP ? parseFloat(lpState.range_min) : null;
+  const rMax    = hasLP ? parseFloat(lpState.range_max) : null;
+  const isOOR   = hasLP && (price < rMin || price > rMax);
+
+  // 2. État short HL
+  const { hasShort } = await getShortState(base);
+
+  result.hasLP    = hasLP;
+  result.hasShort = hasShort;
+  result.isOOR    = isOOR;
+
+  // Règle 1 : hors range → fermer LP + short
+  if (isOOR) {
+    result.action = 'oor_close_all';
+    if (hasShort) {
+      try   { result.closeShort = await closeShort(base); }
+      catch (e) { result.closeShortError = e.message; }
+    }
+    try   { result.closeLP = await closeLP(base); }
+    catch (e) { result.closeLPError = e.message; }
+    await clearAlgoState();
     await logBotTick(kv, result);
     return result;
   }
 
-  // 2. Configuration runtime
-  const runtimeConfig = await getRuntimeConfig(kv, price);
-  const { leverage, shortSizeEth } = runtimeConfig;
-
-  // 3. Zone courante
-  const { zone, pctFromMid } = evaluateZone(price, positionState);
-  result.zone       = zone;
-  result.pctFromMid = parseFloat((pctFromMid * 100).toFixed(2));
-
-  // 4. État du hedge (Redis, puis synchro HL si inconnu)
-  let hedgeState = await kv.get(REDIS_KEYS.HEDGE_STATE);
-  if (!hedgeState || hedgeState.shortState === 'unknown') {
-    const hlState = await getShortState(base);
-    hedgeState = {
-      shortState:    hlState.hasShort ? 'ON' : 'OFF',
-      shortSizeEth:  hlState.sizeEth || shortSizeEth,
-      shortEntryPrice: hlState.entryPrice,
-    };
-    await saveHedgeState(kv, hedgeState);
-  }
-  result.hedgeStateBefore = hedgeState.shortState;
-
-  // 5a. Hors range — décider rebalance ou ajustement short
-  if (zone === 'oor_lower' || zone === 'oor_upper') {
-    const { shouldRebalance, bias, minSince } = await evaluateRebalance(kv, zone);
-    result.oor = { bias, minSince, shouldRebalance };
-
-    if (shouldRebalance) {
-      // Rebalance complet : ferme tout + réouvre avec biais
-      result.action = 'rebalance';
-      const rebResult = await rebalanceCLMPosition({ base, currentPrice: price, bias, runtimeConfig, positionState, kv });
-      result.rebalance = rebResult;
-
-      if (rebResult.ok) {
-        await saveHedgeState(kv, { shortState: 'OFF', shortSizeEth, shortEntryPrice: null });
-        result.hedgeStateAfter = 'OFF';
-      }
-
-      await logBotTick(kv, result);
-      return result;
-    }
-
-    // Pas encore assez longtemps OOR → ajuster le short sans fermer la LP
-    const { action, reason } = evaluateShortStateOOR({ zone, hedgeState });
-    result.action       = `oor_wait_${action}`;
-    result.hedgeReason  = reason;
-
-    if (action === 'open') {
-      const slPrice = positionState.upperPrice;
-      const openResult = await openShort({ base, sizeEth: shortSizeEth, leverage, slPrice });
-      result.openShort = openResult;
-      if (openResult.ok) {
-        await saveHedgeState(kv, { shortState: 'ON', shortSizeEth, shortEntryPrice: openResult.ethPrice });
-        result.hedgeStateAfter = 'ON';
-      }
-    } else if (action === 'close') {
-      const closeResult = await closeShort(base);
-      result.closeShort = closeResult;
-      await saveHedgeState(kv, { shortState: 'OFF', shortSizeEth, shortEntryPrice: null });
-      result.hedgeStateAfter = 'OFF';
-    } else {
-      result.hedgeStateAfter = hedgeState.shortState;
-    }
-
+  // Règle 2 : LP sans short → fermer LP (SL déclenché, on ne relance pas)
+  if (hasLP && !hasShort) {
+    result.action = 'no_short_close_lp';
+    try   { result.closeLP = await closeLP(base); }
+    catch (e) { result.closeLPError = e.message; }
+    await clearAlgoState();
     await logBotTick(kv, result);
     return result;
   }
 
-  // 5b. En range — évaluer la neutral zone
-  const { action, reason } = evaluateShortState({ currentPrice: price, positionState, hedgeState });
-  result.action      = `in_range_${action}`;
-  result.hedgeReason = reason;
-
-  if (action === 'open') {
-    const slPrice = positionState.upperPrice;
-    const openResult = await openShort({ base, sizeEth: shortSizeEth, leverage, slPrice });
-    result.openShort = openResult;
-    if (openResult.ok) {
-      await saveHedgeState(kv, { shortState: 'ON', shortSizeEth, shortEntryPrice: openResult.ethPrice });
-      result.hedgeStateAfter = 'ON';
-    }
-  } else if (action === 'close') {
-    const closeResult = await closeShort(base);
-    result.closeShort = closeResult;
-    await saveHedgeState(kv, { shortState: 'OFF', shortSizeEth, shortEntryPrice: null });
-    result.hedgeStateAfter = 'OFF';
-  } else {
-    result.hedgeStateAfter = hedgeState.shortState;
+  // Règle 3 : aucune position → auto-start
+  if (!hasLP && !hasShort) {
+    result.autoStart = await autoStart({ base, price });
+    result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
+    await logBotTick(kv, result);
+    return result;
   }
 
+  // Règle 4 : en range + short actif → rien (SL HL gère la sortie)
+  result.action = 'in_range_ok';
   await logBotTick(kv, result);
   return result;
 }
