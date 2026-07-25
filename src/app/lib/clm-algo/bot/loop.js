@@ -106,33 +106,42 @@ async function autoStart({ base, price }) {
   if (pool.error) return { ...result, error: `createPosition : ${pool.error}` };
   result.pool = { tickLowerPrice: pool.tickLowerPrice, tickUpperPrice: pool.tickUpperPrice };
 
-  // 4. Taille short via formule Uniswap V3
-  //    L = Capital / (2√P0 − P0/√Pb − √Pa)
-  //    ETH = L × (1/√P0 − 1/√Pb)
+  // 4. Prix HL live au moment du short (B8 Excel)
+  let P0 = price; // fallback = prix pool
+  try {
+    const hlPriceRes  = await fetch(`${base}/api/hyperliquid-short`, { signal: AbortSignal.timeout(8000) });
+    const hlPriceData = await hlPriceRes.json();
+    if (hlPriceData.ethPrice) P0 = hlPriceData.ethPrice;
+  } catch (_) {}
+  result.hlPrice = P0;
+
+  // 5. Hedge max = ETH en LP à la borne basse (100% WETH) — ligne 35 Excel
+  //    L = Capital / (2√P0 − P0/√Pb − √Pa)   avec P0 = prix HL
+  //    ETH_max = L × (1/√Pa − 1/√Pb)          ← borne basse
   const Pa     = pool.tickLowerPrice;
   const Pb     = pool.tickUpperPrice;
-  const sqrtP0 = Math.sqrt(price);
+  const sqrtP0 = Math.sqrt(P0);
   const sqrtPa = Math.sqrt(Pa);
   const sqrtPb = Math.sqrt(Pb);
-  const L      = capital / (2 * sqrtP0 - price / sqrtPb - sqrtPa);
-  const ethInLP = parseFloat((L * (1 / sqrtP0 - 1 / sqrtPb)).toFixed(4));
+  const L      = capital / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+  const ethMax = parseFloat((L * (1 / sqrtPa - 1 / sqrtPb)).toFixed(4));
   const leverage = 4;
-  result.ethInLP = ethInLP;
+  result.ethMax = ethMax;
 
-  // 5. Ouvrir le short avec SL à la borne haute
+  // 6. Ouvrir le short avec SL à la borne haute
   const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ sizeEth: ethInLP, leverage, slPriceTrigger: Pb }),
+    body:    JSON.stringify({ sizeEth: ethMax, leverage, slPriceTrigger: Pb }),
     signal:  AbortSignal.timeout(30000),
   });
   const short = await shortRes.json();
   if (!short.ok) return { ...result, error: `hyperliquid-short : ${short.error}` };
   result.shortEntry = short.ethPrice;
 
-  // 6. Sauvegarder la config runtime
+  // 7. Sauvegarder la config runtime
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
-    capital, leverage, shortSizeEth: ethInLP, rangePct,
+    capital, leverage, shortSizeEth: ethMax, rangePct,
     startedAt: new Date().toISOString(),
   }, { ex: 30 * 86400 });
   await kv.del(REDIS_KEYS.POSITION_STATE);

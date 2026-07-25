@@ -1679,29 +1679,35 @@ function StartItem({ isOpen, onToggle }) {
       if (pool.error) throw new Error(pool.error);
       setLog(l => [...l, `Pool ouverte ✓ · bornes tick $${pool.tickLowerPrice} – $${pool.tickUpperPrice}`]);
 
-      // 3. Calcul ETH in LP via formule Uniswap V3 (même logique que short_LP_CLM.xlsx)
-      //    L = Capital / (2√P0 − P0/√Pb − √Pa)
-      //    ETH = L × (1/√P0 − 1/√Pb)
-      const Pa      = pool.tickLowerPrice;
-      const Pb      = pool.tickUpperPrice;
-      const P0      = livePrice;
-      const sqrtP0  = Math.sqrt(P0);
-      const sqrtPa  = Math.sqrt(Pa);
-      const sqrtPb  = Math.sqrt(Pb);
-      const L       = parseFloat(poolAmount) / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
-      const ethInLP = L * (1 / sqrtP0 - 1 / sqrtPb);
-      const lev     = parseFloat(leverage) || 4;
-      const notional = ethInLP * P0;
-      const margin   = notional / lev;
-      setLog(l => [...l, `ETH in LP : ${ethInLP.toFixed(4)} ETH · notionnel $${notional.toFixed(1)} · marge $${margin.toFixed(1)}`]);
+      // 3. Prix HL live (B8 du fichier Excel) — fetché juste avant le short
+      const hlPriceRes = await fetch("/api/hyperliquid-short");
+      const hlPriceData = await hlPriceRes.json();
+      const hlPrice = hlPriceData.ethPrice ?? livePrice;
+      setLog(l => [...l, `Prix HL : $${hlPrice} (B8 Excel)`]);
 
-      // 4. Short delta-neutre (SL = borne haute tick)
-      setLog(l => [...l, `Short ${ethInLP.toFixed(4)} ETH · levier ×${lev} · SL $${Pb.toFixed(1)}`]);
+      // 4. Hedge max = ETH en LP à la borne basse (100% WETH) — ligne 35 Excel
+      //    L = Capital / (2√P0 − P0/√Pb − √Pa)   avec P0 = prix HL
+      //    ETH_max = L × (1/√Pa − 1/√Pb)          ← borne basse, pas prix courant
+      const Pa     = pool.tickLowerPrice;
+      const Pb     = pool.tickUpperPrice;
+      const P0     = hlPrice;
+      const sqrtP0 = Math.sqrt(P0);
+      const sqrtPa = Math.sqrt(Pa);
+      const sqrtPb = Math.sqrt(Pb);
+      const L      = parseFloat(poolAmount) / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+      const ethMax = L * (1 / sqrtPa - 1 / sqrtPb);
+      const lev    = parseFloat(leverage) || 4;
+      const notional = ethMax * P0;
+      const margin   = notional / lev;
+      setLog(l => [...l, `Hedge max (borne basse) : ${ethMax.toFixed(4)} ETH · notionnel $${notional.toFixed(1)} · marge $${margin.toFixed(1)}`]);
+
+      // 5. Short (SL = borne haute tick)
+      setLog(l => [...l, `Short ${ethMax.toFixed(4)} ETH · levier ×${lev} · SL $${Pb.toFixed(1)}`]);
       const shortRes = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          sizeEth:        parseFloat(ethInLP.toFixed(4)),
+          sizeEth:        parseFloat(ethMax.toFixed(4)),
           leverage:       lev,
           slPriceTrigger: Pb,
         }),
@@ -1711,7 +1717,7 @@ function StartItem({ isOpen, onToggle }) {
       const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? livePrice);
       setLog(l => [...l, `Short @ $${avgPx} · levier ×${short.leverage} ✓`]);
 
-      // 5. Initialiser le bot CLM (short déjà ON)
+      // 6. Initialiser le bot CLM (short déjà ON)
       setLog(l => [...l, `Init bot CLM · capital $${parseFloat(poolAmount).toFixed(0)} · levier ×${lev}`]);
       const initRes = await fetch("/api/algo-init", {
         method:  "POST",
@@ -1719,7 +1725,7 @@ function StartItem({ isOpen, onToggle }) {
         body:    JSON.stringify({
           capital:         parseFloat(poolAmount),
           leverage:        lev,
-          shortSizeEth:    parseFloat(ethInLP.toFixed(4)),
+          shortSizeEth:    parseFloat(ethMax.toFixed(4)),
           rangePct:        rangePct,
           shortEntryPrice: avgPx,
           shortStateInit:  "ON",

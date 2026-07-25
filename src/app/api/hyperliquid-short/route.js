@@ -67,8 +67,9 @@ export async function GET() {
   const privateKey = process.env.PRIVATE_KEY_HL1;
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
   try {
-    const wallet = new ethers.Wallet(privateKey.trim());
-    return Response.json({ address: wallet.address, keyLength: privateKey.length });
+    const wallet   = new ethers.Wallet(privateKey.trim());
+    const ethPrice = await getEthMidPrice();
+    return Response.json({ address: wallet.address, keyLength: privateKey.length, ethPrice });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
