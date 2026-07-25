@@ -1637,13 +1637,14 @@ function StartItem({ isOpen, onToggle }) {
       if (pctData.error) throw new Error(`percentile-range : ${pctData.error}`);
       if (priceData.error) throw new Error(`livePrice : ${priceData.error}`);
 
-      const rangePct  = pctData.rangePct;
-      const livePrice = priceData.price;
-      const halfFrac  = rangePct / 200;
-      const slPrice   = livePrice * (1 + halfFrac);
-      const tpPrice   = livePrice / (1 + halfFrac);
+      const rangePctRaw = pctData.rangePct;
+      const rangePct    = rangePctRaw * 1.5;          // ×1.5 pour élargir le range
+      const livePrice   = priceData.price;
+      const halfFrac    = rangePct / 200;
+      const slPrice     = livePrice * (1 + halfFrac);
+      const tpPrice     = livePrice / (1 + halfFrac);
 
-      setLog(l => [...l, `Percentile 24h → ${rangePct}% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
+      setLog(l => [...l, `Percentile 24h → ${rangePctRaw.toFixed(2)}% × 1.5 = ${rangePct.toFixed(2)}% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
 
       // Guard : si une position LP existante a un SL proche du prix actuel, bloquer
       try {
