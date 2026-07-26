@@ -80,7 +80,7 @@ async function autoStart({ base, price }) {
   const pctRes = await fetch(`${base}/api/percentile-range`, { signal: AbortSignal.timeout(10000) });
   const pctData = await pctRes.json();
   if (pctData.error) return { ...result, error: `percentile-range : ${pctData.error}` };
-  const rangePct = pctData.rangePct * 1.5;
+  const rangePct = pctData.rangePct * 2;
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
