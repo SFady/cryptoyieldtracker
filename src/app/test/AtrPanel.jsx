@@ -1694,20 +1694,20 @@ function StartItem({ isOpen, onToggle }) {
       const sqrtP0 = Math.sqrt(P0);
       const sqrtPa = Math.sqrt(Pa);
       const sqrtPb = Math.sqrt(Pb);
-      const L      = parseFloat(poolAmount) / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
-      const ethMax = L * (1 / sqrtPa - 1 / sqrtPb);
-      const lev    = parseFloat(leverage) || 4;
-      const notional = ethMax * P0;
-      const margin   = notional / lev;
-      setLog(l => [...l, `Hedge max (borne basse) : ${ethMax.toFixed(4)} ETH · notionnel $${notional.toFixed(1)} · marge $${margin.toFixed(1)}`]);
+      const L         = parseFloat(poolAmount) / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+      const ethAtOpen = L * (1 / sqrtP0 - 1 / sqrtPb); // delta-neutre à l'ouverture
+      const lev       = parseFloat(leverage) || 4;
+      const notional  = ethAtOpen * P0;
+      const margin    = notional / lev;
+      setLog(l => [...l, `Hedge delta-neutre : ${ethAtOpen.toFixed(4)} ETH · notionnel $${notional.toFixed(1)} · marge $${margin.toFixed(1)}`]);
 
       // 5. Short (SL = borne haute tick)
-      setLog(l => [...l, `Short ${ethMax.toFixed(4)} ETH · levier ×${lev} · SL $${Pb.toFixed(1)}`]);
+      setLog(l => [...l, `Short ${ethAtOpen.toFixed(4)} ETH · levier ×${lev} · SL $${Pb.toFixed(1)}`]);
       const shortRes = await fetch("/api/hyperliquid-short", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          sizeEth:        parseFloat(ethMax.toFixed(4)),
+          sizeEth:        parseFloat(ethAtOpen.toFixed(4)),
           leverage:       lev,
           slPriceTrigger: Pb,
         }),
@@ -1725,7 +1725,7 @@ function StartItem({ isOpen, onToggle }) {
         body:    JSON.stringify({
           capital:         parseFloat(poolAmount),
           leverage:        lev,
-          shortSizeEth:    parseFloat(ethMax.toFixed(4)),
+          shortSizeEth:    parseFloat(ethAtOpen.toFixed(4)),
           rangePct:        rangePct,
           shortEntryPrice: avgPx,
           shortStateInit:  "ON",

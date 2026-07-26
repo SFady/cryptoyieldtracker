@@ -115,24 +115,24 @@ async function autoStart({ base, price }) {
   } catch (_) {}
   result.hlPrice = P0;
 
-  // 5. Hedge max = ETH en LP à la borne basse (100% WETH) — ligne 35 Excel
-  //    L = Capital / (2√P0 − P0/√Pb − √Pa)   avec P0 = prix HL
-  //    ETH_max = L × (1/√Pa − 1/√Pb)          ← borne basse
-  const Pa     = pool.tickLowerPrice;
-  const Pb     = pool.tickUpperPrice;
-  const sqrtP0 = Math.sqrt(P0);
-  const sqrtPa = Math.sqrt(Pa);
-  const sqrtPb = Math.sqrt(Pb);
-  const L      = capital / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
-  const ethMax = parseFloat((L * (1 / sqrtPa - 1 / sqrtPb)).toFixed(4));
+  // 5. Hedge delta-neutre = ETH dans la LP à l'ouverture (prix P0)
+  //    L = Capital / (2√P0 − P0/√Pb − √Pa)
+  //    ETH_open = L × (1/√P0 − 1/√Pb)  ← delta-neutre à l'ouverture
+  const Pa       = pool.tickLowerPrice;
+  const Pb       = pool.tickUpperPrice;
+  const sqrtP0   = Math.sqrt(P0);
+  const sqrtPa   = Math.sqrt(Pa);
+  const sqrtPb   = Math.sqrt(Pb);
+  const L        = capital / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+  const ethAtOpen = parseFloat((L * (1 / sqrtP0 - 1 / sqrtPb)).toFixed(4));
   const leverage = 4;
-  result.ethMax = ethMax;
+  result.ethAtOpen = ethAtOpen;
 
   // 6. Ouvrir le short avec SL à la borne haute
   const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ sizeEth: ethMax, leverage, slPriceTrigger: Pb }),
+    body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: Pb }),
     signal:  AbortSignal.timeout(30000),
   });
   const short = await shortRes.json();
@@ -141,7 +141,7 @@ async function autoStart({ base, price }) {
 
   // 7. Sauvegarder la config runtime
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
-    capital, leverage, shortSizeEth: ethMax, rangePct,
+    capital, leverage, shortSizeEth: ethAtOpen, rangePct,
     startedAt: new Date().toISOString(),
   }, { ex: 30 * 86400 });
   await kv.del(REDIS_KEYS.POSITION_STATE);
