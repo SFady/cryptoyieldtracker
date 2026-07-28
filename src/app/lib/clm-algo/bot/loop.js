@@ -106,24 +106,25 @@ async function autoStart({ base, price }) {
   if (pool.error) return { ...result, error: `createPosition : ${pool.error}` };
   result.pool = { tickLowerPrice: pool.tickLowerPrice, tickUpperPrice: pool.tickUpperPrice };
 
-  // 4. Prix HL live au moment du short (B8 Excel)
-  let P0 = price; // fallback = prix pool
+  // 4. Prix HL live au moment du short (placement uniquement)
+  let P0_hl = price;
   try {
     const hlPriceRes  = await fetch(`${base}/api/hyperliquid-short`, { signal: AbortSignal.timeout(8000) });
     const hlPriceData = await hlPriceRes.json();
-    if (hlPriceData.ethPrice) P0 = hlPriceData.ethPrice;
+    if (hlPriceData.ethPrice) P0_hl = hlPriceData.ethPrice;
   } catch (_) {}
-  result.hlPrice = P0;
+  result.hlPrice = P0_hl;
 
-  // 5. Hedge delta-neutre = ETH dans la LP à l'ouverture (prix P0)
-  //    L = Capital / (2√P0 − P0/√Pb − √Pa)
-  //    ETH_open = L × (1/√P0 − 1/√Pb)  ← delta-neutre à l'ouverture
+  // 5. Hedge delta-neutre = ETH dans la LP à l'ouverture
+  //    L calculé au prix LP (price), pas au prix HL — correspond à la composition réelle de la LP
+  //    ETH_open = L × (1/√P0_lp − 1/√Pb)
   const Pa       = pool.tickLowerPrice;
   const Pb       = pool.tickUpperPrice;
-  const sqrtP0   = Math.sqrt(P0);
+  const P0_lp    = price; // prix au moment de la création de la LP
+  const sqrtP0   = Math.sqrt(P0_lp);
   const sqrtPa   = Math.sqrt(Pa);
   const sqrtPb   = Math.sqrt(Pb);
-  const L        = capital / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+  const L        = capital / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
   const ethAtOpen = parseFloat((L * (1 / sqrtP0 - 1 / sqrtPb)).toFixed(4));
   const leverage = 4;
   result.ethAtOpen = ethAtOpen;

@@ -1685,19 +1685,19 @@ function StartItem({ isOpen, onToggle }) {
       const hlPrice = hlPriceData.ethPrice ?? livePrice;
       setLog(l => [...l, `Prix HL : $${hlPrice} (B8 Excel)`]);
 
-      // 4. Hedge max = ETH en LP à la borne basse (100% WETH) — ligne 35 Excel
-      //    L = Capital / (2√P0 − P0/√Pb − √Pa)   avec P0 = prix HL
-      //    ETH_max = L × (1/√Pa − 1/√Pb)          ← borne basse, pas prix courant
+      // 4. Hedge delta-neutre
+      //    L = Capital / (2√P0_lp − P0_lp/√Pb − √Pa)   avec P0_lp = prix LP
+      //    ETH_open = L × (1/√P0_lp − 1/√Pb)           ← delta-neutre à l'ouverture
       const Pa     = pool.tickLowerPrice;
       const Pb     = pool.tickUpperPrice;
-      const P0     = hlPrice;
-      const sqrtP0 = Math.sqrt(P0);
+      const P0_lp  = livePrice; // prix LP — pour la formule L et ethAtOpen
+      const sqrtP0 = Math.sqrt(P0_lp);
       const sqrtPa = Math.sqrt(Pa);
       const sqrtPb = Math.sqrt(Pb);
-      const L         = parseFloat(poolAmount) / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+      const L         = parseFloat(poolAmount) / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
       const ethAtOpen = L * (1 / sqrtP0 - 1 / sqrtPb); // delta-neutre à l'ouverture
       const lev       = parseFloat(leverage) || 4;
-      const notional  = ethAtOpen * P0;
+      const notional  = ethAtOpen * P0_lp;
       const margin    = notional / lev;
       setLog(l => [...l, `Hedge delta-neutre : ${ethAtOpen.toFixed(4)} ETH · notionnel $${notional.toFixed(1)} · marge $${margin.toFixed(1)}`]);
 
