@@ -178,8 +178,17 @@ export async function botLoop({ base, price }) {
   result.hasShort = hasShort;
   result.isOOR    = isOOR;
 
-  // Règle 1 : hors range → fermer LP + short
+  // Règle 1 : hors range → fermer LP + short (confirmation 2 crons consécutifs)
+  const OOR_KEY = 'p2_oor_count';
   if (isOOR) {
+    const oorCount = ((await kv.get(OOR_KEY)) ?? 0) + 1;
+    await kv.set(OOR_KEY, oorCount, { ex: 7200 });
+    if (oorCount < 2) {
+      result.action   = 'oor_waiting';
+      result.oorCount = oorCount;
+      await logBotTick(kv, result);
+      return result;
+    }
     result.action = 'oor_close_all';
     if (hasShort) {
       try   { result.closeShort = await closeShort(base); }
@@ -191,6 +200,7 @@ export async function botLoop({ base, price }) {
     await logBotTick(kv, result);
     return result;
   }
+  await kv.del(OOR_KEY);
 
   // Règle 2 : LP sans short → fermer LP (SL déclenché, on ne relance pas)
   if (hasLP && !hasShort) {
