@@ -142,6 +142,11 @@ async function sendTx(wallet, params) {
         await new Promise(r => setTimeout(r, 1500));
         continue;
       }
+      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
+        params = { ...params, nonce: await wallet.provider.getTransactionCount(wallet.address, "pending") };
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
       if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
         await new Promise(r => setTimeout(r, 3000));
         continue;
