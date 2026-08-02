@@ -121,10 +121,22 @@ async function waitForTx(provider, tx) {
   } catch (_) {
     for (let i = 0; i < 30; i++) {
       await new Promise(res => setTimeout(res, 2000));
-      const r = await provider.getTransactionReceipt(tx.hash);
-      if (r) {
-        if (r.status === 0) throw new Error(`revert on-chain (hash=${tx.hash})`);
-        return r;
+      for (const url of RPC_URLS) {
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [tx.hash] }),
+            signal: AbortSignal.timeout(6000),
+          });
+          const json = await res.json();
+          if (json.result) {
+            if (json.result.status === "0x0") throw new Error(`revert on-chain (hash=${tx.hash})`);
+            return json.result;
+          }
+        } catch (e) {
+          if (e.message?.startsWith("revert on-chain")) throw e;
+        }
       }
     }
     throw new Error(`timeout confirmation tx ${tx.hash}`);

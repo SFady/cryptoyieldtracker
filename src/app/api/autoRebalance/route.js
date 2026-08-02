@@ -991,15 +991,17 @@ async function handleCase9(poolNum = 2, noTransfer = false) {
     const closeData = await closeRes.json();
     if (!closeRes.ok) throw new Error(closeData?.error ?? "closePositions failed");
 
-    // 2. Annuler ordres + fermer position HL (tolérant si déjà fermé via TP/SL)
+    // 2. Annuler ordres + fermer position HL (pool 2 uniquement)
     let hlCloseData = null;
-    try {
-      const hlRes = await fetch(`${base}/api/hyperliquid-cancel-all`, {
-        method: "POST",
-        signal: AbortSignal.timeout(30000),
-      });
-      hlCloseData = await hlRes.json();
-    } catch (_) {}
+    if (poolNum !== 3) {
+      try {
+        const hlRes = await fetch(`${base}/api/hyperliquid-cancel-all`, {
+          method: "POST",
+          signal: AbortSignal.timeout(30000),
+        });
+        hlCloseData = await hlRes.json();
+      } catch (_) {}
+    }
 
     await release();
     return Response.json({ ok: true, case: 9, closeData, hlCloseData });

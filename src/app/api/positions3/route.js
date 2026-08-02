@@ -412,6 +412,14 @@ export async function GET() {
         const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
         const wethAmt = Number(ethers.formatUnits(raw, 18));
         wethWallet = wethAmt.toFixed(6);
+        if (wethAmt > 0) {
+          try {
+            const s0Hex = await ethCall(POOL, "0x3850c7bd");
+            const sqrtP = toUint(word(s0Hex, 0));
+            const ethPrice = Number((sqrtP * sqrtP * 10n ** 12n) / (1n << 192n));
+            wethWalletUSD = (wethAmt * ethPrice).toFixed(2);
+          } catch (_) {}
+        }
       } catch (_) {}
       const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, walletShort };
       global._cytPos3Cache = { data };
