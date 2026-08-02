@@ -581,7 +581,8 @@ async function handleCase6(poolNum = 2) {
 
 async function handleCase8(poolNum = 2) {
   await writeCollectErr(poolNum, false);
-  return Response.json({ ok: true, msg: `Erreur COLLECT_ERR réinitialisée pour pool ${poolNum}` });
+  await writeErrorState(poolNum, false);
+  return Response.json({ ok: true, msg: `Erreurs réinitialisées (COLLECT_ERR + CREATE_ERR) pour pool ${poolNum}` });
 }
 
 async function enrichAndSaveLpState(provider, NFPM, NFPM_IFACE, tokenIdBig, rawId, poolNum) {
