@@ -190,10 +190,8 @@ export async function botLoop({ base, price }) {
       return result;
     }
     result.action = 'oor_close_all';
-    if (hasShort) {
-      try   { result.closeShort = await closeShort(base); }
-      catch (e) { result.closeShortError = e.message; }
-    }
+    try   { result.closeShort = await closeShort(base); }
+    catch (e) { result.closeShortError = e.message; }
     try   { result.closeLP = await closeLP(base); }
     catch (e) { result.closeLPError = e.message; }
     await clearAlgoState();
