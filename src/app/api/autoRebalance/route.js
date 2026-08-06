@@ -82,13 +82,17 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noT
   if (forceCase === 8)  return handleCase8(poolNum);
   if (forceCase === 9)  return handleCase9(poolNum, noTransfer);
 
-  // 1. Vérifier si une exécution est déjà active (lock Redis — TTL 5 min automatique)
-  if (await checkRedisLock())
+  // Helper timeout — si Redis pend, continuer avec la valeur par défaut
+  const withRedisTimeout = (p, ms, def) => Promise.race([p.catch(() => def), new Promise(r => setTimeout(() => r(def), ms))]);
+
+  // 1. Vérifier si une exécution est déjà active (lock Redis — timeout 4s, défaut = pas de lock)
+  const isLocked = await withRedisTimeout(checkRedisLock(), 4000, false);
+  if (isLocked)
     return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
 
-  // 2. Vérifier l'absence d'erreur (Redis → DB)
+  // 2. Vérifier l'absence d'erreur (Redis → DB, timeout 4s — si Redis mort on passe)
   try {
-    const cached = await readErrorState(poolNum);
+    const cached = await withRedisTimeout(readErrorState(poolNum), 4000, null);
     if (cached !== null) {
       if (cached.hasError)
         return Response.json({ error: `Bloqué — erreur détectée : ${cached.msg ?? "ERR"}` }, { status: 409 });
@@ -102,11 +106,11 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noT
       if (errRows.length > 0) {
         const { action1, action2, error_msg } = errRows[0];
         const hasError = action1 !== "FEE_COLLECT" && ((action1 && action1.includes("ERR")) || (action2 && action2.includes("ERR")));
-        await writeErrorState(poolNum, hasError, error_msg ?? null);
+        await withRedisTimeout(writeErrorState(poolNum, hasError, error_msg ?? null), 3000, null);
         if (hasError)
           return Response.json({ error: `Bloqué — erreur détectée en base : ${error_msg ?? action1}` }, { status: 409 });
       } else {
-        await writeErrorState(poolNum, false);
+        await withRedisTimeout(writeErrorState(poolNum, false), 3000, null);
       }
     }
   } catch (e) {
@@ -888,9 +892,12 @@ async function handleCase4(poolNum = 2) {
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
 
-  // 1. Vérifier que la dernière position est fermée (Redis → DB)
+  // Helper timeout Redis — si Upstash pend, on continue avec la valeur par défaut
+  const withTimeout = (p, ms, def) => Promise.race([p.catch(() => def), new Promise(r => setTimeout(() => r(def), ms))]);
+
+  // 1. Vérifier que la dernière position est fermée (Redis → DB, timeout 5s)
   try {
-    const state = await getPositionState(poolNum);
+    const state = await withTimeout(getPositionState(poolNum), 5000, null);
     if (state && state.action2 !== "CLOSE_OK")
       return Response.json({ skipped: true, reason: "Dernière position non fermée ou inexistante" });
   } catch (e) {
@@ -959,10 +966,15 @@ async function handleCase4(poolNum = 2) {
   const minPrice  = livePrice4 / sqrtRatio;
   const maxPrice  = livePrice4 * sqrtRatio;
 
-  // 3. Toutes les conditions sont remplies → acquérir le lock
+  // 3. Toutes les conditions sont remplies → acquérir le lock (timeout 5s si Redis pend)
   let release;
-  release = await acquireRedisLock();
-  if (!release) return Response.json({ error: `Exécution déjà en cours — réessayer dans 5 min` }, { status: 409 });
+  try {
+    const r = await withTimeout(acquireRedisLock(), 5000, null);
+    if (!r) return Response.json({ error: `Exécution déjà en cours ou Redis indisponible — réessayer dans 1 min` }, { status: 409 });
+    release = r;
+  } catch (e) {
+    return Response.json({ error: `Lock Redis échoué : ${e.message}` }, { status: 500 });
+  }
 
   try {
     // 4. Fermer toutes les positions Hyperliquid résiduelles (pool 2 uniquement)
