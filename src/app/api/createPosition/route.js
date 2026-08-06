@@ -40,6 +40,8 @@ async function sendErrorEmail(subject, body) {
 }
 
 const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
+const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // Aerodrome Slipstream v2 (nouvelle factory)
+const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef"; // factory des pools CL v2
 const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // Aerodrome Slipstream SwapRouter (Initial Deployment, même que NFPM)
 const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
@@ -254,6 +256,14 @@ export async function POST(req) {
     const wallet   = new ethers.Wallet(privateKey, provider);
     const POOL     = getPoolAddress(poolNum ?? 2);
 
+    // Sélectionner le bon NFPM selon la factory du pool (v1 vs v2 Aerodrome Slipstream)
+    let nfpm = NFPM;
+    try {
+      const factHex = await provider.call({ to: POOL, data: "0xc45a0155" });
+      const [poolFactory] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], factHex);
+      if (poolFactory.toLowerCase() === FACTORY_NEW) nfpm = NFPM_NEW;
+    } catch (_) {}
+
     // 1. tickSpacing + prix réel du pool (slot0)
     const tsRaw = await provider.call({ to: POOL, data: "0xd0c93a7c" });
     const tickSpacing = Number(ethers.toBigInt(tsRaw));
@@ -436,39 +446,30 @@ export async function POST(req) {
         )
       : 0n;
 
-    // 5. Approve USDC → SwapRouter ou WETH → SwapRouter selon le sens du swap
+    // 5. Approve token entrant → V2_ROUTER selon le sens du swap
     if (usdcToSwap > 0n) {
       try {
-        await ensureAllowance(wallet, provider, USDC, SWAP_ROUTER, usdcToSwap);
+        await ensureAllowance(wallet, provider, USDC, V2_ROUTER, usdcToSwap);
       } catch (e) { throw new Error(`[étape 5 – approve USDC→Router] ${e.shortMessage ?? e.message}`); }
     }
     if (wethToSell > 0n) {
       try {
-        await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethToSell);
+        await ensureAllowance(wallet, provider, WETH, V2_ROUTER, wethToSell);
       } catch (e) { throw new Error(`[étape 5b – approve WETH→Router] ${e.shortMessage ?? e.message}`); }
     }
 
-    // 6. Swap USDC → WETH (déficit WETH) ou WETH → USDC (excès WETH)
+    // 6. Swap via V2 router (factory-agnostique, compatible toutes versions de pool)
     let txSwapHash = null;
     if (usdcToSwap > 0n) {
-      const minWethOut   = usdcToSwap * (10n ** 12n) / BigInt(Math.round(poolPrice)) * 990n / 1000n;
-      const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-        tokenIn:            USDC,
-        tokenOut:           WETH,
-        tickSpacing,
-        recipient:          wallet.address,
-        deadline:           freshDeadline(),
-        amountIn:           usdcToSwap,
-        amountOutMinimum:   minWethOut,
-        sqrtPriceLimitX96:  0n,
-      }]);
-      let swapGas = 300000n;
-      try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
       for (const slipPct of [990n, 980n, 970n]) {
         const minOut = usdcToSwap * (10n ** 12n) / BigInt(Math.round(poolPrice)) * slipPct / 1000n;
-        const dataWithMin = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{ tokenIn: USDC, tokenOut: WETH, tickSpacing, recipient: wallet.address, deadline: freshDeadline(), amountIn: usdcToSwap, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n }]);
+        const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+          usdcToSwap, minOut,
+          [{ from: USDC, to: WETH, stable: false, factory: V2_FACTORY }],
+          wallet.address, freshDeadline(),
+        ]);
         try {
-          const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: dataWithMin, gasLimit: swapGas });
+          const txSwap = await sendTx(wallet, { to: V2_ROUTER, data });
           txSwapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 4000));
@@ -476,23 +477,15 @@ export async function POST(req) {
         } catch (_) {}
       }
     } else if (wethToSell > 0n) {
-      const swapCalldata = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-        tokenIn:            WETH,
-        tokenOut:           USDC,
-        tickSpacing,
-        recipient:          wallet.address,
-        deadline:           freshDeadline(),
-        amountIn:           wethToSell,
-        amountOutMinimum:   0n,
-        sqrtPriceLimitX96:  0n,
-      }]);
-      let swapGas = 300000n;
-      try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapCalldata }); swapGas = est * 3n / 2n; } catch (_) {}
       for (const slipPct of [990n, 980n, 970n]) {
         const minOut = wethToSell * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * slipPct / 1000n;
-        const dataWithMin = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{ tokenIn: WETH, tokenOut: USDC, tickSpacing, recipient: wallet.address, deadline: freshDeadline(), amountIn: wethToSell, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n }]);
+        const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+          wethToSell, minOut,
+          [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
+          wallet.address, freshDeadline(),
+        ]);
         try {
-          const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: dataWithMin, gasLimit: swapGas });
+          const txSwap = await sendTx(wallet, { to: V2_ROUTER, data });
           txSwapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 4000));
@@ -544,15 +537,14 @@ export async function POST(req) {
         );
         if (usdcNeeded > ethers.parseUnits("1", 6)) {
           try {
-            await ensureAllowance(wallet, provider, USDC, SWAP_ROUTER, usdcNeeded);
-            const cd2 = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-              tokenIn: USDC, tokenOut: WETH, tickSpacing,
-              recipient: wallet.address, deadline: freshDeadline(),
-              amountIn: usdcNeeded, amountOutMinimum: usdcNeeded * (10n ** 12n) / BigInt(Math.round(poolPrice)) * 970n / 1000n, sqrtPriceLimitX96: 0n,
-            }]);
-            let g2 = 300000n;
-            try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
-            const tx2 = await sendTx(wallet, { to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
+            await ensureAllowance(wallet, provider, USDC, V2_ROUTER, usdcNeeded);
+            const minOut2 = usdcNeeded * (10n ** 12n) / BigInt(Math.round(poolPrice)) * 970n / 1000n;
+            const cd2 = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+              usdcNeeded, minOut2,
+              [{ from: USDC, to: WETH, stable: false, factory: V2_FACTORY }],
+              wallet.address, freshDeadline(),
+            ]);
+            const tx2 = await sendTx(wallet, { to: V2_ROUTER, data: cd2 });
             await waitForTx(provider, tx2);
             await new Promise(r => setTimeout(r, 2000));
             didCorrect = true;
@@ -568,15 +560,14 @@ export async function POST(req) {
         );
         if (wethNeeded > ethers.parseUnits("0.0003", 18)) {
           try {
-            await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethNeeded);
-            const cd2 = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-              tokenIn: WETH, tokenOut: USDC, tickSpacing,
-              recipient: wallet.address, deadline: freshDeadline(),
-              amountIn: wethNeeded, amountOutMinimum: wethNeeded * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n, sqrtPriceLimitX96: 0n,
-            }]);
-            let g2 = 300000n;
-            try { const e2 = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: cd2 }); g2 = e2 * 3n / 2n; } catch (_) {}
-            const tx2 = await sendTx(wallet, { to: SWAP_ROUTER, data: cd2, gasLimit: g2 });
+            await ensureAllowance(wallet, provider, WETH, V2_ROUTER, wethNeeded);
+            const minOut2 = wethNeeded * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n;
+            const cd2 = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+              wethNeeded, minOut2,
+              [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
+              wallet.address, freshDeadline(),
+            ]);
+            const tx2 = await sendTx(wallet, { to: V2_ROUTER, data: cd2 });
             await waitForTx(provider, tx2);
             await new Promise(r => setTimeout(r, 2000));
             didCorrect = true;
@@ -601,13 +592,13 @@ export async function POST(req) {
       }
     }
 
-    // 8. Approve WETH + USDC → NFPM (seulement si insuffisant)
+    // 8. Approve WETH + USDC → nfpm (seulement si insuffisant)
     try {
-      await ensureAllowance(wallet, provider, WETH, NFPM, wethToUse);
+      await ensureAllowance(wallet, provider, WETH, nfpm, wethToUse);
     } catch (e) { throw new Error(`[étape 8a – approve WETH→NFPM] ${e.shortMessage ?? e.message}`); }
 
     try {
-      await ensureAllowance(wallet, provider, USDC, NFPM, usdcToKeep);
+      await ensureAllowance(wallet, provider, USDC, nfpm, usdcToKeep);
     } catch (e) { throw new Error(`[étape 8b – approve USDC→NFPM] ${e.shortMessage ?? e.message}`); }
 
     // 8c. Lecture finale du prix juste avant le mint — corrige le cas où le prix remonte
@@ -648,7 +639,7 @@ export async function POST(req) {
     // Simulation avant envoi — non-bloquante : certains RPCs Base ne retournent pas les revert data
     let simWarning = null;
     try {
-      await provider.call({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
+      await provider.call({ to: nfpm, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
     } catch (simErr) {
       simWarning = `${simErr.shortMessage ?? simErr.message} | ${mintDiag}`;
     }
@@ -659,19 +650,19 @@ export async function POST(req) {
       // Estimer le gas + marge ×1.5 pour éviter les out-of-gas sur NFPM Aerodrome
       let gasLimit = 600000n;
       try {
-        const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
+        const est = await provider.estimateGas({ to: nfpm, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]) });
         gasLimit = est * 3n / 2n;
       } catch (_) {}
 
       const mintTx = await sendTx(wallet, {
-        to: NFPM,
+        to: nfpm,
         data: NFPM_IFACE.encodeFunctionData("mint", [mintParams]),
         gasLimit,
       });
       mintTxHash = mintTx.hash;
       const receipt = await waitForTx(provider, mintTx);
       const log = receipt.logs.find(l =>
-        l.address.toLowerCase() === NFPM.toLowerCase() &&
+        l.address.toLowerCase() === nfpm.toLowerCase() &&
         l.topics.length === 4 &&
         l.topics[0] === TRANSFER_TOPIC &&
         l.topics[1] === "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -687,19 +678,15 @@ export async function POST(req) {
     try {
       const wethRem = await readBal(WETH);
       if (wethRem > 0n) {
-        await ensureAllowance(wallet, provider, WETH, SWAP_ROUTER, wethRem);
+        await ensureAllowance(wallet, provider, WETH, V2_ROUTER, wethRem);
+        const minSweep = wethRem * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n;
         const txSweep = await sendTx(wallet, {
-          to: SWAP_ROUTER,
-          data: SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-            tokenIn:           WETH,
-            tokenOut:          USDC,
-            tickSpacing,
-            recipient:         wallet.address,
-            deadline:          freshDeadline(),
-            amountIn:          wethRem,
-            amountOutMinimum:  wethRem * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n,
-            sqrtPriceLimitX96: 0n,
-          }]),
+          to: V2_ROUTER,
+          data: V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+            wethRem, minSweep,
+            [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
+            wallet.address, freshDeadline(),
+          ]),
         });
         await waitForTx(provider, txSweep);
       }
@@ -710,7 +697,7 @@ export async function POST(req) {
     // 11. Double approbation : approve(tokenId) + setApprovalForAll pour couvrir les deux cas
     try {
       const txApproveId = await sendTx(wallet, {
-        to: NFPM,
+        to: nfpm,
         data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
       });
       await waitForTx(provider, txApproveId);
@@ -723,7 +710,7 @@ export async function POST(req) {
       let needsApproval = true;
       try {
         const approvedHex = await provider.call({
-          to: NFPM,
+          to: nfpm,
           data: NFPM_IFACE.encodeFunctionData("isApprovedForAll", [wallet.address, gaugeAddr]),
         });
         const [alreadyAll] = ethers.AbiCoder.defaultAbiCoder().decode(["bool"], approvedHex);
@@ -732,7 +719,7 @@ export async function POST(req) {
 
       if (needsApproval) {
         const txAll = await sendTx(wallet, {
-          to: NFPM,
+          to: nfpm,
           data: NFPM_IFACE.encodeFunctionData("setApprovalForAll", [gaugeAddr, true]),
         });
         await waitForTx(provider, txAll);
