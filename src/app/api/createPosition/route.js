@@ -180,6 +180,7 @@ const NFPM_IFACE = new ethers.Interface([
 
 const GAUGE_IFACE = new ethers.Interface([
   "function deposit(uint256 tokenId)",
+  "function deposit(uint256 tokenId, uint256 tokenVeloPair)",
 ]);
 
 const VOTER_IFACE = new ethers.Interface([
