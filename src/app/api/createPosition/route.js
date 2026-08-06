@@ -729,23 +729,20 @@ export async function POST(req) {
       if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`);
     }
 
-    // 12. Dépôt dans le gauge
-    // Simulation pour capturer le vrai message de revert avant d'envoyer la tx
+    // 12. Dépôt dans le gauge (non-fatal : si le gauge revert, la position est créée sans staking)
+    let txGaugeHash = null;
+    let gaugeWarning = null;
     try {
       await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
-    } catch (simErr) {
-      throw new Error(`[simulation deposit] ${simErr.shortMessage ?? simErr.message} | tokenId=${tokenId} gauge=${gaugeAddr}`);
-    }
-
-    let txGaugeHash = null;
-    try {
       const depositData = GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]);
       let gaugeGas = 300000n;
       try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {}
       const txGauge = await sendTx(wallet, { to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
       txGaugeHash = txGauge.hash;
       await waitForTx(provider, txGauge);
-    } catch (e) { throw new Error(`[étape 12 – deposit gauge] tokenId=${tokenId} | ${e.message ?? e.shortMessage}`); }
+    } catch (e) {
+      gaugeWarning = `gauge deposit échoué (non-fatal) : ${e.shortMessage ?? e.message} | tokenId=${tokenId} gauge=${gaugeAddr}`;
+    }
 
     const budgetWarning = totalBudget < amountUSDC
       ? `⚠ Budget plafonné à $${totalBudget.toFixed(2)} (demandé $${amountUSDC}, disponible $${totalAvailable.toFixed(2)})`
@@ -775,6 +772,7 @@ export async function POST(req) {
       ...(budgetWarning  ? { warning: budgetWarning }   : {}),
       ...(sweepWarning   ? { sweepWarning }              : {}),
       ...(simWarning     ? { simWarning }                : {}),
+      ...(gaugeWarning   ? { gaugeWarning }              : {}),
     };
 
     try {

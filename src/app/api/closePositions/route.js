@@ -35,6 +35,8 @@ export const runtime     = "nodejs";
 export const maxDuration = 300;
 
 const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
+const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // Aerodrome Slipstream v2
+const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef";
 const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5";
 const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
@@ -245,6 +247,14 @@ export async function POST(req) {
     const tsRaw      = await ethCall(POOL, "0xd0c93a7c");
     const tickSpacing = Number(ethers.toBigInt(tsRaw));
 
+    // Détecter le NFPM selon la factory du pool (v1 vs v2 Aerodrome Slipstream)
+    let nfpm = NFPM;
+    try {
+      const factHex = await ethCall(POOL, "0xc45a0155");
+      const [poolFactory] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], factHex);
+      if (poolFactory.toLowerCase() === FACTORY_NEW) nfpm = NFPM_NEW;
+    } catch (_) {}
+
     // DÃ©tecter automatiquement le stablecoin du pool (token0 ou token1 selon lequel n'est pas WETH)
     const [poolToken0] = await view(POOL, POOL_IFACE, "token0");
     const [poolToken1] = await view(POOL, POOL_IFACE, "token1");
@@ -278,11 +288,12 @@ export async function POST(req) {
         }
       }
 
-      // Fallback DB : si stakedValues retourne vide, utiliser ownerOf pour trouver le vrai gauge
+      // Fallback DB : si stakedValues retourne vide, chercher le tokenId en base
+      // (CREATE_OK non-clôturé OU CREATE_ERR avec tokenId — cas d'un mint réussi suivi d'un gauge revert)
       if (stakedIds.length === 0) {
         const dbRows = await sql`
           SELECT token_id FROM lp_events
-          WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+          WHERE action1 IN ('CREATE_OK', 'CREATE_ERR') AND action2 IS NULL AND token_id IS NOT NULL
             AND COALESCE(pool_num, 2) = ${poolNum}
           ORDER BY id DESC LIMIT 1
         `;
@@ -292,41 +303,40 @@ export async function POST(req) {
           let ownerAddr    = null;
           let fbWithdrawErr = null;
           try {
-            const [owner] = await view(NFPM, NFPM_IFACE, 'ownerOf', [dbTokenId]);
+            const [owner] = await view(nfpm, NFPM_IFACE, 'ownerOf', [dbTokenId]);
             ownerAddr = owner;
-            console.log(`[fallback] tokenId=${dbTokenId} ownerOf=${owner} gaugeAddr(voter)=${gaugeAddr}`);
-            if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
+            console.log(`[fallback] tokenId=${dbTokenId} ownerOf=${owner} nfpm=${nfpm}`);
+            if (owner.toLowerCase() === wallet.address.toLowerCase()) {
+              // NFT déjà dans le wallet (non staké) → pas de withdraw nécessaire
+              console.log(`[fallback] NFT déjà dans wallet → ajout direct`);
+              unstakedList.push(dbTokenId.toString());
+            } else {
+              // NFT dans un contrat (gauge ou autre) → tenter le withdraw
               actualGauge = owner;
+              try {
+                const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
+                await waitForTx(provider, txReward);
+                console.log(`[fallback] getReward OK actualGauge=${actualGauge}`);
+              } catch (e) {
+                console.log(`[fallback] getReward error: ${e.message ?? e}`);
+              }
+              try {
+                const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);
+                let withdrawGas = 300000n;
+                try { const est = await provider.estimateGas({ to: actualGauge, from: wallet.address, data: withdrawData }); withdrawGas = est * 3n / 2n; } catch (e) { console.log(`[fallback] estimateGas: ${e.message}`); }
+                const txW = await sendTx(wallet, { to: actualGauge, data: withdrawData, gasLimit: withdrawGas });
+                await waitForTx(provider, txW);
+                console.log(`[fallback] withdraw OK tokenId=${dbTokenId} hash=${txW.hash}`);
+                unstakedList.push(dbTokenId.toString());
+              } catch (e) {
+                fbWithdrawErr = e.message ?? String(e);
+                console.log(`[fallback] withdraw FAILED: ${fbWithdrawErr}`);
+              }
             }
           } catch (e) {
-            console.log(`[fallback] ownerOf error: ${e.message ?? e}`);
+            console.log(`[fallback] ownerOf error (nfpm=${nfpm}): ${e.message ?? e}`);
           }
-          try {
-            try {
-              const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
-              await waitForTx(provider, txReward);
-              console.log(`[fallback] getReward OK actualGauge=${actualGauge}`);
-            } catch (e) {
-              console.log(`[fallback] getReward error: ${e.message ?? e}`);
-            }
-            const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);
-            let withdrawGas = 300000n;
-            try {
-              const est = await provider.estimateGas({ to: actualGauge, from: wallet.address, data: withdrawData });
-              withdrawGas = est * 3n / 2n;
-              console.log(`[fallback] estimateGas withdraw OK gas=${withdrawGas}`);
-            } catch (e) {
-              console.log(`[fallback] estimateGas withdraw error: ${e.message ?? e}`);
-            }
-            const txW = await sendTx(wallet, { to: actualGauge, data: withdrawData, gasLimit: withdrawGas });
-            await waitForTx(provider, txW);
-            console.log(`[fallback] withdraw OK tokenId=${dbTokenId} hash=${txW.hash}`);
-            unstakedList.push(dbTokenId.toString());
-          } catch (e) {
-            fbWithdrawErr = e.message ?? String(e);
-            console.log(`[fallback] withdraw FAILED: ${fbWithdrawErr}`);
-          }
-          fallbackDebug = { dbTokenId: dbTokenId.toString(), ownerAddr, gaugeAddr, actualGauge, fbWithdrawErr };
+          fallbackDebug = { dbTokenId: dbTokenId.toString(), ownerAddr, gaugeAddr, actualGauge: actualGauge ?? gaugeAddr, fbWithdrawErr, nfpm };
         }
       }
     } catch (e) {
@@ -358,10 +368,10 @@ export async function POST(req) {
       const tokenIdSet = new Set();
       for (const id of unstakedList) tokenIdSet.add(BigInt(id));
       try {
-        const [count] = await view(NFPM, NFPM_IFACE, "balanceOf", [wallet.address]);
+        const [count] = await view(nfpm, NFPM_IFACE, "balanceOf", [wallet.address]);
         for (let i = 0n; i < count; i++) {
           try {
-            const [tid] = await view(NFPM, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
+            const [tid] = await view(nfpm, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
             tokenIdSet.add(tid);
           } catch (_) { break; }
         }
@@ -371,8 +381,8 @@ export async function POST(req) {
       for (const tokenId of tokenIds) {
         let pos;
         try {
-          pos = await view(NFPM, NFPM_IFACE, "positions", [tokenId]);
-        } catch (_) { continue; } // position brÃ»lÃ©e ou tokenId invalide â†’ ignorer
+          pos = await view(nfpm, NFPM_IFACE, "positions", [tokenId]);
+        } catch (_) { continue; } // position brûlée ou tokenId invalide → ignorer
 
         // Filtrer : seulement les positions de ce pool
         if (
@@ -420,7 +430,7 @@ export async function POST(req) {
           // Simulation pour avoir le vrai revert + capturer le principal (amount0/amount1 sans fees)
           try {
             const dlSimHex = await provider.call({
-              to: NFPM, from: wallet.address,
+              to: nfpm, from: wallet.address,
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
             });
             try {
@@ -436,12 +446,12 @@ export async function POST(req) {
           }
           let gasLimit = 400000n;
           try {
-            const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]) });
+            const est = await provider.estimateGas({ to: nfpm, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]) });
             gasLimit = est * 3n / 2n;
           } catch (_) {}
           try {
             const tx = await sendTx(wallet, {
-              to: NFPM,
+              to: nfpm,
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
               gasLimit,
             });
@@ -455,7 +465,7 @@ export async function POST(req) {
 
           // Simulation pour obtenir le vrai revert avant d'envoyer la tx
           try {
-            await provider.call({ to: NFPM, from: wallet.address, data: collectData });
+            await provider.call({ to: nfpm, from: wallet.address, data: collectData });
           } catch (simErr) {
             const simMsg = simErr.shortMessage ?? simErr.message ?? "";
             if (simMsg && !simMsg.includes("missing revert data"))
@@ -463,8 +473,8 @@ export async function POST(req) {
           }
 
           let collectGas = 400000n;
-          try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
-          const tx = await sendTx(wallet, { to: NFPM, data: collectData, gasLimit: collectGas });
+          try { const est = await provider.estimateGas({ to: nfpm, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
+          const tx = await sendTx(wallet, { to: nfpm, data: collectData, gasLimit: collectGas });
 
           try {
             await waitForTx(provider, tx);
@@ -497,97 +507,79 @@ export async function POST(req) {
       ? usdcFromCollect - principalUsdc1Acc
       : totalFeesUsdc1;
     console.log(`[fees] totalFeesUsdc1=${totalFeesUsdc1} actualUsdcFeesFromLP=${actualUsdcFeesFromLP} principalUsdc1Acc=${principalUsdc1Acc}`);
+    // Helper : swap WETH → stablecoin via le router adapté à la version du pool
+    const swapWethToStable = async (wethAmount, wethPriceUsdc) => {
+      const wethPriceScaled = BigInt(Math.round(wethPriceUsdc * 1e6));
+      if (nfpm === NFPM_NEW) {
+        // V2 router (factory-agnostique) pour Aerodrome Slipstream v2
+        const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, V2_ROUTER])).catch(() => "0x");
+        const [cur] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h === "0x" ? ethers.zeroPadValue("0x00", 32) : h);
+        if (cur < wethAmount) {
+          const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
+          await waitForTx(provider, txApp);
+        }
+        let swapHash = null;
+        for (const pct of [990n, 980n, 970n]) {
+          try {
+            const minOut = wethAmount * wethPriceScaled / (10n ** 18n) * pct / 1000n;
+            const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+              wethAmount, minOut,
+              [{ from: WETH, to: stablecoin, stable: false, factory: V2_FACTORY }],
+              wallet.address, freshDeadline(),
+            ]);
+            let gas = 300000n;
+            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data }); gas = est * 3n / 2n; } catch (_) {}
+            const tx = await sendTx(wallet, { to: V2_ROUTER, data, gasLimit: gas });
+            swapHash = tx.hash;
+            await waitForTx(provider, tx);
+            break;
+          } catch (e) { if (pct === 970n) swapHash = `FAILED:${e.shortMessage ?? e.message}`; }
+        }
+        return swapHash;
+      } else {
+        // Ancien Aerodrome CL router (Slipstream v1, pool 3)
+        const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER])).catch(() => "0x");
+        const [cur] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h === "0x" ? ethers.zeroPadValue("0x00", 32) : h);
+        if (cur < wethAmount) {
+          const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
+          await waitForTx(provider, txApp);
+        }
+        let swapHash = null;
+        for (const pct of [990n, 980n, 970n]) {
+          try {
+            const minOut = wethAmount * wethPriceScaled / (10n ** 18n) * pct / 1000n;
+            const data = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+              tokenIn: WETH, tokenOut: stablecoin, tickSpacing,
+              recipient: wallet.address, deadline: freshDeadline(),
+              amountIn: wethAmount, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
+            }]);
+            let gas = 300000n;
+            try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data }); gas = est * 3n / 2n; } catch (_) {}
+            const tx = await sendTx(wallet, { to: SWAP_ROUTER, data, gasLimit: gas });
+            swapHash = tx.hash;
+            await waitForTx(provider, tx);
+            break;
+          } catch (e) { if (pct === 970n) swapHash = `FAILED:${e.shortMessage ?? e.message}`; }
+        }
+        return swapHash;
+      }
+    };
+
     let swapHash = null;
     // 4-fees. Si sellWethFees/halfFees/threeQuarterFees/allFees : vendre uniquement les fees WETH (pas le principal)
     if (keepWeth && (sellWethFees || halfFees || threeQuarterFees || allFees) && totalFeesWei0 > 0n) try {
       const wethBal = await readBal(WETH, wallet.address);
       const feeWethToSell = totalFeesWei0 < wethBal ? totalFeesWei0 : wethBal;
       if (feeWethToSell > 0n) {
-        try {
-          const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
-          const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
-          if (current < feeWethToSell) {
-            const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
-            await waitForTx(provider, txApp);
-          }
-        } catch (_) {}
-        const wethPriceScaled1 = BigInt(Math.round(wethPriceUsdc * 1e6));
-        let swapGas = 300000n;
-        for (const pct of [990n, 980n, 970n]) {
-          try {
-            const minFeeUsdc = feeWethToSell * wethPriceScaled1 / (10n ** 18n) * pct / 1000n;
-            const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-              tokenIn: WETH, tokenOut: stablecoin, tickSpacing,
-              recipient: wallet.address, deadline: freshDeadline(),
-              amountIn: feeWethToSell, amountOutMinimum: minFeeUsdc, sqrtPriceLimitX96: 0n,
-            }]);
-            try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
-            const txFeeSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
-            swapHash = txFeeSwap.hash;
-            await waitForTx(provider, txFeeSwap);
-            break;
-          } catch (_) {}
-        }
+        swapHash = await swapWethToStable(feeWethToSell, wethPriceUsdc);
         await new Promise(r => setTimeout(r, 2000));
       }
     } catch (e) { console.log(`[sellWethFees] ${e.message ?? e}`); }
     if (!keepWeth) try {
       const wethBal = await readBal(WETH, wallet.address);
-
       if (wethBal > 0n) {
-        try {
-          let allowanceOk = false;
-          try {
-            const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
-            const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
-            allowanceOk = current >= wethBal;
-          } catch (_) {}
-          if (!allowanceOk) {
-            let approved = false;
-            try {
-              const txApp = await sendTx(wallet, {
-                to: WETH,
-                data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]),
-              });
-              await waitForTx(provider, txApp);
-              approved = true;
-            } catch (approveErr) {
-              await new Promise(r => setTimeout(r, 5000));
-              try {
-                const h2 = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
-                const [cur2] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h2);
-                approved = cur2 >= wethBal;
-              } catch (_) {}
-              if (!approved) throw approveErr;
-            }
-          }
-        } catch (e) { throw new Error(`[approve WETH→Router] ${e.shortMessage ?? e.message}`); }
-
-        const wethPriceScaled2 = BigInt(Math.round(wethPriceUsdc * 1e6));
-        let swapGas = 300000n;
-        for (const pct of [990n, 980n, 970n]) {
-          try {
-            const minMainUsdc = wethBal * wethPriceScaled2 / (10n ** 18n) * pct / 1000n;
-            const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-              tokenIn:           WETH,
-              tokenOut:          stablecoin,
-              tickSpacing,
-              recipient:         wallet.address,
-              deadline:          freshDeadline(),
-              amountIn:          wethBal,
-              amountOutMinimum:  minMainUsdc,
-              sqrtPriceLimitX96: 0n,
-            }]);
-            try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
-            const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
-            swapHash = txSwap.hash;
-            await waitForTx(provider, txSwap);
-            await new Promise(r => setTimeout(r, 2000));
-            break;
-          } catch (e) {
-            if (pct === 970n) swapHash = `FAILED:${e.shortMessage ?? e.message}`;
-          }
-        }
+        swapHash = await swapWethToStable(wethBal, wethPriceUsdc);
+        await new Promise(r => setTimeout(r, 2000));
       }
     } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
     // end if (!keepWeth)
