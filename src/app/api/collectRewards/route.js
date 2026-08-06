@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { POOL_ADDRESS as POOL } from "../../lib/config";
+import { getPoolAddress } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -94,13 +94,16 @@ async function view(provider, to, iface, fn, args = []) {
 }
 
 export async function POST(req) {
-  const { tokenId: tokenIdStr } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const { tokenId: tokenIdStr, poolNum: poolNumRaw } = body;
   if (!tokenIdStr) return Response.json({ error: "tokenId manquant" }, { status: 400 });
   const tokenId = BigInt(tokenIdStr);
+  const poolNum = poolNumRaw ?? 2;
 
   try {
-    const privateKey = process.env.PRIVATE_KEY;
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+    const POOL = getPoolAddress(poolNum);
 
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);

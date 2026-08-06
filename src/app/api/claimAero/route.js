@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { POOL_ADDRESS as POOL } from "../../lib/config";
+import { getPoolAddress } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 120;
@@ -135,6 +135,7 @@ export async function POST(req) {
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
+    const POOL = getPoolAddress(poolNum);
 
     // 1. Récupérer le tokenId depuis la DB
     const rows = await sql`

@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
 import { getLastTwoPrices, getPercentileRange, readLpState, writeLpState, wasCollectedToday, readErrorState, writeErrorState, readCollectErr, writeCollectErr, checkRedisLock, acquireRedisLock } from "../../lib/cronKv";
-import { POOL_ADDRESS } from "../../lib/config";
+import { POOL_ADDRESS, getPoolAddress } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -753,7 +753,7 @@ async function handleCase7(poolNum = 2, overrideTokenId = null) {
   // 2. Gauge address
   let gaugeAddr;
   try {
-    const h = await provider.call({ to: VOTER, data: VOTER_IFACE.encodeFunctionData("gauges", [POOL_ADDRESS]) });
+    const h = await provider.call({ to: VOTER, data: VOTER_IFACE.encodeFunctionData("gauges", [getPoolAddress(poolNum)]) });
     [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", h);
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress) throw new Error("ZeroAddress");
   } catch (e) {

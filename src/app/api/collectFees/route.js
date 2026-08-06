@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { writeCollectedToday, writeCollectErr, writeErrorState } from "../../lib/cronKv";
-import { POOL_ADDRESS as POOL } from "../../lib/config";
+import { getPoolAddress } from "../../lib/config";
 
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
@@ -157,6 +157,7 @@ export async function POST(req) {
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
+    const POOL = getPoolAddress(poolNum);
 
     // 1. Récupérer le tokenId depuis la DB (retry sur erreur Neon transitoire)
     let rows = [];

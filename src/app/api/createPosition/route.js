@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { writeLpState, writeErrorState } from "../../lib/cronKv";
-import { POOL_ADDRESS as POOL } from "../../lib/config";
+import { getPoolAddress } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -252,6 +252,7 @@ export async function POST(req) {
       }
     };
     const wallet   = new ethers.Wallet(privateKey, provider);
+    const POOL     = getPoolAddress(poolNum ?? 2);
 
     // 1. tickSpacing + prix réel du pool (slot0)
     const tsRaw = await provider.call({ to: POOL, data: "0xd0c93a7c" });

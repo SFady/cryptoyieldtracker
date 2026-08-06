@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
-import { POOL_ADDRESS as POOL } from "../../lib/config";
+import { POOL_ADDRESS_2 as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;

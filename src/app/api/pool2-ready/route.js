@@ -40,7 +40,7 @@ async function checkNoPool() {
     "function stakedValues(address depositor) view returns (uint256[])",
   ]);
 
-  const POOL_ADDRESS = process.env.POOL_ADDRESS;
+  const POOL_ADDRESS = process.env.POOL_ADDRESS_2 ?? process.env.POOL_ADDRESS;
   if (!POOL_ADDRESS) return true; // pas de pool configuré → pas en pool
 
   const voter = new ethers.Contract(VOTER, voterIface, provider);
