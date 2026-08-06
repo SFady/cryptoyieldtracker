@@ -176,6 +176,7 @@ const NFPM_IFACE = new ethers.Interface([
   "function approve(address to, uint256 tokenId)",
   "function setApprovalForAll(address operator, bool approved)",
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
+  "function safeTransferFrom(address from, address to, uint256 tokenId)",
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
@@ -730,25 +731,45 @@ export async function POST(req) {
       if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`);
     }
 
-    // 12. Dépôt dans le gauge — essai avec deposit(tokenId, 0) d'abord (Aerodrome v2),
-    //     puis fallback deposit(tokenId) (v1). "execution reverted: ID" = gauge v2 qui
-    //     requiert le 2ème argument (veNFT id, 0 = pas de boost).
+    // 12. Dépôt dans le gauge — 3 tentatives :
+    //   A) deposit(tokenId, 0)  — signature Aerodrome v2
+    //   B) deposit(tokenId)     — signature v1
+    //   C) safeTransferFrom(wallet, gauge, tokenId) — bypass direct via ERC721
     let txGaugeHash = null;
     let gaugeWarning = null;
+    const tryDeposit = async (data, gas) => {
+      const tx = await sendTx(wallet, { to: gaugeAddr, data, gasLimit: gas });
+      txGaugeHash = tx.hash;
+      await waitForTx(provider, tx);
+    };
+    let gaugeOk = false;
+    // A) v2
     try {
-      // Tenter d'abord la signature v2 : deposit(uint256 tokenId, uint256 tokenVeloPair)
-      let depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
-      let gaugeGas = 500000n;
-      try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {
-        // estimateGas v2 échoué → tester la signature v1
-        const depositDataV1 = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
-        try { const est2 = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositDataV1 }); depositData = depositDataV1; gaugeGas = est2 * 3n / 2n; } catch (_2) {}
-      }
-      const txGauge = await sendTx(wallet, { to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
-      txGaugeHash = txGauge.hash;
-      await waitForTx(provider, txGauge);
+      const d = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
+      let g = 500000n;
+      try { const e = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: d }); g = e * 3n / 2n; } catch (_) {}
+      await tryDeposit(d, g);
+      gaugeOk = true;
+    } catch (_) {}
+    // B) v1
+    if (!gaugeOk) try {
+      const d = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
+      let g = 500000n;
+      try { const e = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: d }); g = e * 3n / 2n; } catch (_) {}
+      await tryDeposit(d, g);
+      gaugeOk = true;
+    } catch (_) {}
+    // C) safeTransferFrom — le gauge reçoit le NFT via onERC721Received
+    if (!gaugeOk) try {
+      const d = NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]);
+      let g = 500000n;
+      try { const e = await provider.estimateGas({ to: nfpm, from: wallet.address, data: d }); g = e * 3n / 2n; } catch (_) {}
+      const tx = await sendTx(wallet, { to: nfpm, data: d, gasLimit: g });
+      txGaugeHash = tx.hash;
+      await waitForTx(provider, tx);
+      gaugeOk = true;
     } catch (e) {
-      gaugeWarning = `gauge deposit échoué (non-fatal) : ${e.shortMessage ?? e.message} | tokenId=${tokenId} gauge=${gaugeAddr}`;
+      gaugeWarning = `gauge deposit échoué (3 méthodes tentées) : ${e.shortMessage ?? e.message} | tokenId=${tokenId} gauge=${gaugeAddr}`;
     }
 
     const budgetWarning = totalBudget < amountUSDC
