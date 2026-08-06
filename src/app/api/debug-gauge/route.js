@@ -1,8 +1,11 @@
 // Endpoint temporaire de diagnostic — supprimable après investigation
 import { ethers } from "ethers";
+import { neon }   from "@neondatabase/serverless";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
+
+const sql = neon(process.env.DATABASE_URL);
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -12,28 +15,38 @@ const RPC_URLS = [
   "https://mainnet.base.org",
 ].filter(Boolean);
 
-async function rpcCall(method, params) {
-  for (const url of RPC_URLS) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-        signal: AbortSignal.timeout(8000),
-      });
-      const json = await res.json();
-      if (json.result !== undefined && json.result !== null) return json.result;
-    } catch (_) {}
-  }
-  return null;
-}
-
 const VOTER_IFACE = new ethers.Interface([
   "function gauges(address pool) view returns (address)",
 ]);
-const NFPM_IFACE = new ethers.Interface([
-  "function factory() view returns (address)",
+const GAUGE_IFACE = new ethers.Interface([
+  "function deposit(uint256 tokenId)",
+  "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
 ]);
+const NFPM_IFACE = new ethers.Interface([
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function factory() view returns (address)",
+  "function getApproved(uint256 tokenId) view returns (address)",
+  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+]);
+
+async function pickRpc() {
+  return new Promise((resolve) => {
+    let done = false;
+    let pending = RPC_URLS.length;
+    for (const url of RPC_URLS) {
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+        signal: AbortSignal.timeout(5000),
+      })
+        .then(r => r.json())
+        .then(j => { if (!done && j.result) { done = true; resolve(url); } })
+        .catch(() => {})
+        .finally(() => { if (--pending === 0 && !done) resolve(RPC_URLS[0]); });
+    }
+  });
+}
 
 export async function GET() {
   const VOTER    = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
@@ -41,51 +54,93 @@ export async function GET() {
   const NFPM_OLD = "0x827922686190790b37229fd06084350E74485b72";
   const NFPM_NEW = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53";
 
-  // Pool factory (selector 0xc45a0155)
-  const factRaw = await rpcCall("eth_call", [{ to: POOL, data: "0xc45a0155" }, "latest"]);
-  const poolFactory = factRaw && factRaw.length >= 66 ? "0x" + factRaw.substring(26) : null;
+  const rpcUrl  = await pickRpc();
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
 
-  // Gauge via ethers-encoded selector (correct ABI encoding)
-  const gaugesCalldata = VOTER_IFACE.encodeFunctionData("gauges", [POOL]);
-  const gaugeRaw = await rpcCall("eth_call", [{ to: VOTER, data: gaugesCalldata }, "latest"]);
-  const gaugeAddr = gaugeRaw && gaugeRaw.length >= 66 ? "0x" + gaugeRaw.substring(26) : null;
-  const isZeroGauge = !gaugeAddr || gaugeAddr === "0x0000000000000000000000000000000000000000";
+  // 1. Récupérer le gauge depuis le VOTER (via ethers provider = Alchemy)
+  let gaugeAddr = null;
+  let gaugeErr  = null;
+  try {
+    const raw = await provider.call({ to: VOTER, data: VOTER_IFACE.encodeFunctionData("gauges", [POOL]) });
+    const [addr] = VOTER_IFACE.decodeFunctionResult("gauges", raw);
+    gaugeAddr = addr;
+  } catch (e) { gaugeErr = e.message; }
 
-  let nftRef = null;
-  let nftRefDecoded = null;
-  let gaugeFactoryRef = null;
+  const isZeroGauge = !gaugeAddr || gaugeAddr === ethers.ZeroAddress;
 
-  if (gaugeAddr && !isZeroGauge) {
-    // gauge.nft() = selector 0x47ccca02
-    const nftRaw = await rpcCall("eth_call", [{ to: gaugeAddr, data: "0x47ccca02" }, "latest"]);
-    nftRef = nftRaw;
-    if (nftRaw && nftRaw.length >= 66) nftRefDecoded = "0x" + nftRaw.substring(26);
+  // 2. Trouver le tokenId depuis la DB (dernier CREATE_ERR pool 2 avec token_id)
+  let dbTokenId = null;
+  let dbErrMsg  = null;
+  try {
+    const rows = await sql`
+      SELECT token_id, error_msg FROM lp_events
+      WHERE token_id IS NOT NULL AND COALESCE(pool_num, 2) = 2
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (rows[0]) { dbTokenId = rows[0].token_id; dbErrMsg = rows[0].error_msg; }
+  } catch (_) {}
 
-    // Also check gauge's factory() if it has one — selector 0xc45a0155
-    const gFactRaw = await rpcCall("eth_call", [{ to: gaugeAddr, data: "0xc45a0155" }, "latest"]);
-    if (gFactRaw && gFactRaw.length >= 66) gaugeFactoryRef = "0x" + gFactRaw.substring(26);
+  // 3. Si on a un gauge et un tokenId, diagnostic complet
+  let nftRef = null, nftRefFactory = null;
+  let ownerOnOld = null, ownerOnNew = null;
+  let approvedOnOld = null, approvedOnNew = null;
+  let depositSimError = null;
+  let isStaked = null;
 
-    // NFPM_NEW factory() — verify it matches the new pool factory
+  if (!isZeroGauge) {
+    // gauge.nft() via raw call (selector 0x47ccca02)
+    try {
+      const raw = await provider.call({ to: gaugeAddr, data: "0x47ccca02" });
+      if (raw && raw !== "0x" && raw.length >= 66) {
+        nftRef = "0x" + raw.substring(26);
+        // factory() du NFPM référencé par le gauge
+        const fRaw = await provider.call({ to: nftRef, data: NFPM_IFACE.encodeFunctionData("factory") });
+        const [fAddr] = NFPM_IFACE.decodeFunctionResult("factory", fRaw);
+        nftRefFactory = fAddr;
+      }
+    } catch (_) {}
+
+    if (dbTokenId) {
+      const tid = BigInt(dbTokenId);
+      // Qui possède ce tokenId sur NFPM_OLD et NFPM_NEW ?
+      try { const [o] = NFPM_IFACE.decodeFunctionResult("ownerOf", await provider.call({ to: NFPM_OLD, data: NFPM_IFACE.encodeFunctionData("ownerOf", [tid]) })); ownerOnOld = o; } catch (e) { ownerOnOld = `ERR: ${e.message}`; }
+      try { const [o] = NFPM_IFACE.decodeFunctionResult("ownerOf", await provider.call({ to: NFPM_NEW, data: NFPM_IFACE.encodeFunctionData("ownerOf", [tid]) })); ownerOnNew = o; } catch (e) { ownerOnNew = `ERR: ${e.message}`; }
+
+      // Approvals
+      if (ownerOnOld && !ownerOnOld.startsWith("ERR")) {
+        try { const [a] = NFPM_IFACE.decodeFunctionResult("getApproved",      await provider.call({ to: NFPM_OLD, data: NFPM_IFACE.encodeFunctionData("getApproved",      [tid]) }));                    approvedOnOld = a; } catch (_) {}
+      }
+      if (ownerOnNew && !ownerOnNew.startsWith("ERR")) {
+        try { const [a] = NFPM_IFACE.decodeFunctionResult("getApproved",      await provider.call({ to: NFPM_NEW, data: NFPM_IFACE.encodeFunctionData("getApproved",      [tid]) }));                    approvedOnNew = a; } catch (_) {}
+      }
+
+      // Simulation deposit
+      try {
+        await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("deposit", [tid]) });
+        depositSimError = "OK (pas de revert)";
+      } catch (e) { depositSimError = e.shortMessage ?? e.message; }
+
+      // Déjà staké ?
+      try { const [s] = GAUGE_IFACE.decodeFunctionResult("stakedContains", await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("stakedContains", [ethers.ZeroAddress, tid]) })); isStaked = s; } catch (_) {}
+    }
   }
 
-  // Also check NFPM_NEW.factory() to confirm it's the right one
-  const nfpmNewFactCalldata = NFPM_IFACE.encodeFunctionData("factory");
-  const nfpmNewFactRaw = await rpcCall("eth_call", [{ to: NFPM_NEW, data: nfpmNewFactCalldata }, "latest"]);
-  const nfpmNewFactory = nfpmNewFactRaw && nfpmNewFactRaw.length >= 66 ? "0x" + nfpmNewFactRaw.substring(26) : null;
-
-  const nfpmOldFactRaw = await rpcCall("eth_call", [{ to: NFPM_OLD, data: nfpmNewFactCalldata }, "latest"]);
-  const nfpmOldFactory = nfpmOldFactRaw && nfpmOldFactRaw.length >= 66 ? "0x" + nfpmOldFactRaw.substring(26) : null;
-
   return Response.json({
-    pool:          POOL,
-    poolFactory,
-    gauge:         isZeroGauge ? "ZERO (no gauge)" : gaugeAddr,
-    gaugeNftRef:   nftRefDecoded,
-    gaugeFactory:  gaugeFactoryRef,
-    isNfpmOld:     nftRefDecoded?.toLowerCase() === NFPM_OLD.toLowerCase(),
-    isNfpmNew:     nftRefDecoded?.toLowerCase() === NFPM_NEW.toLowerCase(),
-    NFPM_OLD,      nfpmOldFactory,
-    NFPM_NEW,      nfpmNewFactory,
-    gaugesSelector: gaugesCalldata.substring(0, 10),
+    rpcUsed: rpcUrl,
+    pool:    POOL,
+    gauge:   isZeroGauge ? "ZERO_ADDRESS" : gaugeAddr,
+    gaugeErr,
+    gaugeNftRef:        nftRef,
+    gaugeNftRefFactory: nftRefFactory,
+    isNfpmOld: nftRef?.toLowerCase() === NFPM_OLD.toLowerCase(),
+    isNfpmNew: nftRef?.toLowerCase() === NFPM_NEW.toLowerCase(),
+    tokenId:   dbTokenId,
+    lastDbErr: dbErrMsg?.substring(0, 200),
+    ownerOnOld,
+    ownerOnNew,
+    approvedOnOld,
+    approvedOnNew,
+    depositSimError,
+    isStaked,
   });
 }
