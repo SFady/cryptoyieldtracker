@@ -730,14 +730,20 @@ export async function POST(req) {
       if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`);
     }
 
-    // 12. Dépôt dans le gauge — pas de simulation (elle peut échouer à cause du lag RPC même
-    //     quand la vraie tx réussit). On envoie directement et on attrape en non-fatal.
+    // 12. Dépôt dans le gauge — essai avec deposit(tokenId, 0) d'abord (Aerodrome v2),
+    //     puis fallback deposit(tokenId) (v1). "execution reverted: ID" = gauge v2 qui
+    //     requiert le 2ème argument (veNFT id, 0 = pas de boost).
     let txGaugeHash = null;
     let gaugeWarning = null;
     try {
-      const depositData = GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]);
+      // Tenter d'abord la signature v2 : deposit(uint256 tokenId, uint256 tokenVeloPair)
+      let depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
       let gaugeGas = 500000n;
-      try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {}
+      try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {
+        // estimateGas v2 échoué → tester la signature v1
+        const depositDataV1 = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
+        try { const est2 = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositDataV1 }); depositData = depositDataV1; gaugeGas = est2 * 3n / 2n; } catch (_2) {}
+      }
       const txGauge = await sendTx(wallet, { to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
       txGaugeHash = txGauge.hash;
       await waitForTx(provider, txGauge);

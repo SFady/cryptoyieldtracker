@@ -580,11 +580,15 @@ async function handleCase6(poolNum = 2) {
 }
 
 async function handleCase8(poolNum = 2) {
-  await writeCollectErr(poolNum, false);
-  await writeErrorState(poolNum, false);
-  // Marquer la position comme fermée pour débloquer le bot (cas 4 / auto-start)
-  await writeLpState(poolNum, { action1: "CREATE_OK", action2: "CLOSE_OK" });
-  return Response.json({ ok: true, msg: `Erreurs réinitialisées (COLLECT_ERR + CREATE_ERR) pour pool ${poolNum}` });
+  // Timeout sur chaque écriture Redis — si Upstash pend, on continue quand même
+  const withTimeout = (p, ms = 4000) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
+  const results = await Promise.allSettled([
+    withTimeout(writeCollectErr(poolNum, false)),
+    withTimeout(writeErrorState(poolNum, false)),
+    withTimeout(writeLpState(poolNum, { action1: "CREATE_OK", action2: "CLOSE_OK" })),
+  ]);
+  const failed = results.filter(r => r.status === "rejected").length;
+  return Response.json({ ok: true, msg: `Erreurs réinitialisées pour pool ${poolNum}${failed ? ` (${failed} écriture(s) Redis timeout — retente dans 1 min)` : ""}` });
 }
 
 async function enrichAndSaveLpState(provider, NFPM, NFPM_IFACE, tokenIdBig, rawId, poolNum) {
@@ -661,6 +665,7 @@ async function handleCase7(poolNum = 2, overrideTokenId = null) {
   const GAUGE_IFACE = new ethers.Interface([
     "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
     "function deposit(uint256 tokenId)",
+    "function deposit(uint256 tokenId, uint256 tokenVeloPair)",
   ]);
   const WETH_ADDR = "0x4200000000000000000000000000000000000006";
   const USDC_ADDR = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -849,17 +854,25 @@ async function handleCase7(poolNum = 2, overrideTokenId = null) {
         Response.json({ error: `NFT #${rawTokenId} a 0 liquidité — position vide, impossible de staker` }, { status: 400 });
   } catch (_) {}
 
-  // 6. Simulation deposit + envoi
+  // 6. Deposit gauge — essai v2 deposit(tokenId, 0) d'abord, fallback v1 deposit(tokenId)
   let depositHash;
   try {
+    // Déterminer la bonne signature via estimateGas (pas de simulation bloquante)
+    let depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
+    let gaugeGas = 500000n;
     try {
-      await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
-    } catch (simErr) {
-      throw new Error(`[simulation] ${simErr.shortMessage ?? simErr.message} | tokenId=${rawTokenId} liquidity=${posLiquidity} gauge=${gaugeAddr}`);
+      const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData });
+      gaugeGas = est * 3n / 2n;
+    } catch (_) {
+      // v2 échoué → tester v1
+      const depositDataV1 = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
+      try {
+        const est2 = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositDataV1 });
+        depositData = depositDataV1;
+        gaugeGas = est2 * 3n / 2n;
+      } catch (_2) {}
     }
-    let gaugeGas = 300000n;
-    try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) }); gaugeGas = est * 3n / 2n; } catch (_) {}
-    const txDeposit = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]), gasLimit: gaugeGas });
+    const txDeposit = await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
     depositHash = txDeposit.hash;
     await waitTx(txDeposit);
   } catch (e) {
