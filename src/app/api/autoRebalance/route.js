@@ -582,6 +582,8 @@ async function handleCase6(poolNum = 2) {
 async function handleCase8(poolNum = 2) {
   await writeCollectErr(poolNum, false);
   await writeErrorState(poolNum, false);
+  // Marquer la position comme fermée pour débloquer le bot (cas 4 / auto-start)
+  await writeLpState(poolNum, { action1: "CREATE_OK", action2: "CLOSE_OK" });
   return Response.json({ ok: true, msg: `Erreurs réinitialisées (COLLECT_ERR + CREATE_ERR) pour pool ${poolNum}` });
 }
 
