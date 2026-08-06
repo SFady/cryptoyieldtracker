@@ -729,13 +729,13 @@ export async function POST(req) {
       if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11b – setApprovalForAll] ${e.shortMessage ?? e.message}`);
     }
 
-    // 12. Dépôt dans le gauge (non-fatal : si le gauge revert, la position est créée sans staking)
+    // 12. Dépôt dans le gauge — pas de simulation (elle peut échouer à cause du lag RPC même
+    //     quand la vraie tx réussit). On envoie directement et on attrape en non-fatal.
     let txGaugeHash = null;
     let gaugeWarning = null;
     try {
-      await provider.call({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]) });
       const depositData = GAUGE_IFACE.encodeFunctionData("deposit", [tokenId]);
-      let gaugeGas = 300000n;
+      let gaugeGas = 500000n;
       try { const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData }); gaugeGas = est * 3n / 2n; } catch (_) {}
       const txGauge = await sendTx(wallet, { to: gaugeAddr, data: depositData, gasLimit: gaugeGas });
       txGaugeHash = txGauge.hash;

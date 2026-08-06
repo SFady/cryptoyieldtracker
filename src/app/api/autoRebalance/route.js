@@ -641,8 +641,10 @@ async function findStakedViaGauge(gaugeAddr, wallet, poolNum) {
 }
 
 async function handleCase7(poolNum = 2, overrideTokenId = null) {
-  const VOTER = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
-  const NFPM  = "0x827922686190790b37229fd06084350E74485b72";
+  const VOTER    = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+  const NFPM_OLD = "0x827922686190790b37229fd06084350E74485b72";
+  const NFPM_NEW = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53";
+  const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef";
 
   const VOTER_IFACE = new ethers.Interface(["function gauges(address pool) view returns (address)"]);
   const NFPM_IFACE  = new ethers.Interface([
@@ -677,6 +679,15 @@ async function handleCase7(poolNum = 2, overrideTokenId = null) {
   }
   if (!provider) return Response.json({ error: "Tous les RPCs sont indisponibles" }, { status: 503 });
   const wallet = new ethers.Wallet(privateKey, provider);
+
+  // Détecter le NFPM selon la factory du pool
+  let NFPM = NFPM_OLD;
+  try {
+    const POOL7 = getPoolAddress(poolNum);
+    const factRaw = await provider.call({ to: POOL7, data: "0xc45a0155" });
+    const [poolFactory] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], factRaw);
+    if (poolFactory.toLowerCase() === FACTORY_NEW) NFPM = NFPM_NEW;
+  } catch (_) {}
 
   // 1. Lire le tokenId — override manuel, sinon DB/Redis, puis scan NFPM wallet
   let tokenId, rawTokenId, dbCandidate;
