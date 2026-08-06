@@ -512,12 +512,10 @@ export async function POST(req) {
       const wethPriceScaled = BigInt(Math.round(wethPriceUsdc * 1e6));
       if (nfpm === NFPM_NEW) {
         // V2 router (factory-agnostique) pour Aerodrome Slipstream v2
-        const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, V2_ROUTER])).catch(() => "0x");
-        const [cur] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h === "0x" ? ethers.zeroPadValue("0x00", 32) : h);
-        if (cur < wethAmount) {
+        try {
           const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
           await waitForTx(provider, txApp);
-        }
+        } catch (_) {}
         let swapHash = null;
         for (const pct of [990n, 980n, 970n]) {
           try {
@@ -538,12 +536,10 @@ export async function POST(req) {
         return swapHash;
       } else {
         // Ancien Aerodrome CL router (Slipstream v1, pool 3)
-        const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER])).catch(() => "0x");
-        const [cur] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h === "0x" ? ethers.zeroPadValue("0x00", 32) : h);
-        if (cur < wethAmount) {
+        try {
           const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
           await waitForTx(provider, txApp);
-        }
+        } catch (_) {}
         let swapHash = null;
         for (const pct of [990n, 980n, 970n]) {
           try {
