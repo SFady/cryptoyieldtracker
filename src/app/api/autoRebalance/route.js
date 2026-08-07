@@ -77,9 +77,6 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noT
   if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
-  // BLOC TEMPORAIRE — créations de position pool 2 désactivées
-  if (poolNum === 2 && [1, 2, 3, 4].includes(forceCase))
-    return Response.json({ skipped: true, reason: "Pool 2 temporairement bloquée — créations désactivées" });
 
   // Cases de recovery / fermeture — bypass des checks lock/erreur
   if (forceCase === 7)  return handleCase7(poolNum, overrideTokenId);
