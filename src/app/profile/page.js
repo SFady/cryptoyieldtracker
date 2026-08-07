@@ -87,8 +87,9 @@ export default function ProfilePage() {
 
         const total2 = pos2
           ? pos2.reduce((s, p) => {
-              const aeroFees = parseFloat(p.aeroRevenueUSD ?? "0");
-              return s + parseFloat(p.totalPoolUSD ?? "0") + aeroFees;
+              const aeroFees    = parseFloat(p.aeroRevenueUSD ?? "0");
+              const tradingFees = (p.fees ?? []).reduce((a, f) => a + parseFloat(f.usd || "0"), 0);
+              return s + parseFloat(p.totalPoolUSD ?? "0") + aeroFees + tradingFees;
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
