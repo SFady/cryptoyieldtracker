@@ -291,14 +291,12 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
 
-  const feePct      = showFeePercent && (pos.lastCollectTimestamp || pos.openTimestamp)
+  const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
         if (totalRevUSD <= 0) return "0.00";
-        const base  = greenTotal || parseFloat(pos.totalPoolUSD) || pos.initialUSD || 1;
-        const refTs = pos.lastCollectTimestamp || pos.openTimestamp;
-        const minutes = Math.max(1, (Date.now() - refTs) / 60_000);
-        const hours   = minutes / 60;
-        return ((totalRevUSD / hours * 24 * 30) / base * 100).toFixed(2);
+        const base  = parseFloat(pos.totalPoolUSD) || 1;
+        const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
+        return ((totalRevUSD / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
     : null;
   const [collecting, setCollecting] = React.useState(false);
