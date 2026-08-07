@@ -287,8 +287,9 @@ function Empty() {
 }
 
 function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], hlData = null }) {
-  const aeroUSD     = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
-  const totalRevUSD = aeroUSD;
+  const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
+  const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
+  const totalRevUSD   = aeroUSD + tradingFeesUSD;
 
   const feePct      = showFeePercent && (pos.lastCollectTimestamp || pos.openTimestamp)
     ? (() => {
@@ -471,6 +472,9 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
 
       {/* Fees */}
       <Section label="Frais non collectés">
+        {(pos.fees ?? []).filter(f => parseFloat(f.usd || "0") > 0.001).map(f => (
+          <TokenRow key={f.symbol} token={f} accent={f.symbol === "USDC" ? "#00e5a0" : "#627eea"} />
+        ))}
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
