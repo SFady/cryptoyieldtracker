@@ -9,7 +9,7 @@ export const maxDuration = 30;
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
 const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
-const NFPM   = "0x827922686190790b37229fd06084350E74485b72";
+const NFPM   = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // NFPM_NEW (Slipstream v2)
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
