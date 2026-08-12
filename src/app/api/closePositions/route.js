@@ -511,35 +511,70 @@ export async function POST(req) {
     const swapWethToStable = async (wethAmount, wethPriceUsdc) => {
       const wethPriceScaled = BigInt(Math.round(wethPriceUsdc * 1e6));
       if (nfpm === NFPM_NEW) {
-        // Pool 2 — multi-hop WETH → AERO → USDC via AMM Aerodrome (pas de pair WETH/USDC direct sur V2_FACTORY)
+        // Pool 2 — essai 1 : SWAP_ROUTER direct WETH→USDC (single hop, moins de slippage)
+        let swapHash = null;
         try {
-          const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
+          const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
           await waitForTx(provider, txApp);
         } catch (_) {}
-        const routes = [
-          { from: WETH, to: AERO, stable: false, factory: V2_FACTORY },
-          { from: AERO, to: stablecoin, stable: false, factory: V2_FACTORY },
-        ];
-        let expectedOut = 0n;
+        const directData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+          tokenIn: WETH, tokenOut: stablecoin, tickSpacing,
+          recipient: wallet.address, deadline: freshDeadline(),
+          amountIn: wethAmount, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+        }]);
+        let directWorks = false;
         try {
-          const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [wethAmount, routes]));
-          const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
-          expectedOut = amounts[amounts.length - 1];
+          await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: directData });
+          directWorks = true;
         } catch (_) {}
-        let swapHash = null;
-        for (const pct of [990n, 980n, 970n]) {
+        if (directWorks) {
+          for (const pct of [990n, 980n, 970n]) {
+            try {
+              const minOut = wethAmount * wethPriceScaled / (10n ** 18n) * pct / 1000n;
+              const data = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
+                tokenIn: WETH, tokenOut: stablecoin, tickSpacing,
+                recipient: wallet.address, deadline: freshDeadline(),
+                amountIn: wethAmount, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
+              }]);
+              let gas = 300000n;
+              try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data }); gas = est * 3n / 2n; } catch (_) {}
+              const tx = await sendTx(wallet, { to: SWAP_ROUTER, data, gasLimit: gas });
+              swapHash = tx.hash;
+              await waitForTx(provider, tx);
+              break;
+            } catch (e) { if (pct === 970n) swapHash = null; }
+          }
+        }
+        // Essai 2 : multi-hop WETH → AERO → USDC via AMM (fallback garanti)
+        if (!swapHash) {
           try {
-            const minOut = expectedOut > 0n ? expectedOut * pct / 1000n : 0n;
-            const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-              wethAmount, minOut, routes, wallet.address, freshDeadline(),
-            ]);
-            let gas = 300000n;
-            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data }); gas = est * 3n / 2n; } catch (_) {}
-            const tx = await sendTx(wallet, { to: V2_ROUTER, data, gasLimit: gas });
-            swapHash = tx.hash;
-            await waitForTx(provider, tx);
-            break;
-          } catch (e) { if (pct === 970n) swapHash = `FAILED:${e.shortMessage ?? e.message}`; }
+            const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
+            await waitForTx(provider, txApp);
+          } catch (_) {}
+          const routes = [
+            { from: WETH, to: AERO, stable: false, factory: V2_FACTORY },
+            { from: AERO, to: stablecoin, stable: false, factory: V2_FACTORY },
+          ];
+          let expectedOut = 0n;
+          try {
+            const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [wethAmount, routes]));
+            const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
+            expectedOut = amounts[amounts.length - 1];
+          } catch (_) {}
+          for (const pct of [990n, 980n, 970n]) {
+            try {
+              const minOut = expectedOut > 0n ? expectedOut * pct / 1000n : 0n;
+              const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
+                wethAmount, minOut, routes, wallet.address, freshDeadline(),
+              ]);
+              let gas = 300000n;
+              try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data }); gas = est * 3n / 2n; } catch (_) {}
+              const tx = await sendTx(wallet, { to: V2_ROUTER, data, gasLimit: gas });
+              swapHash = tx.hash;
+              await waitForTx(provider, tx);
+              break;
+            } catch (e) { if (pct === 970n) swapHash = `FAILED:${e.shortMessage ?? e.message}`; }
+          }
         }
         return swapHash;
       } else {
