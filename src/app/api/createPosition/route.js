@@ -732,8 +732,8 @@ export async function POST(req) {
     }
 
     // 12. Dépôt dans le gauge — 3 tentatives :
-    //   A) deposit(tokenId, 0)  — signature Aerodrome v2
-    //   B) deposit(tokenId)     — signature v1
+    //   A) deposit(tokenId)     — signature v1 (marche pour ce gauge pool 2)
+    //   B) deposit(tokenId, 0)  — signature Aerodrome v2
     //   C) safeTransferFrom(wallet, gauge, tokenId) — bypass direct via ERC721
     let txGaugeHash = null;
     let gaugeWarning = null;
@@ -743,19 +743,21 @@ export async function POST(req) {
       await waitForTx(provider, tx);
     };
     let gaugeOk = false;
-    // A) v2
+    // A) v1 — estimateGas avant d'envoyer pour éviter une tx ratée on-chain
     try {
-      const d = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
+      const d = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
       let g = 500000n;
-      try { const e = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: d }); g = e * 3n / 2n; } catch (_) {}
+      const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: d });
+      g = est * 3n / 2n;
       await tryDeposit(d, g);
       gaugeOk = true;
     } catch (_) {}
-    // B) v1
+    // B) v2
     if (!gaugeOk) try {
-      const d = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
+      const d = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
       let g = 500000n;
-      try { const e = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: d }); g = e * 3n / 2n; } catch (_) {}
+      const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: d });
+      g = est * 3n / 2n;
       await tryDeposit(d, g);
       gaugeOk = true;
     } catch (_) {}
