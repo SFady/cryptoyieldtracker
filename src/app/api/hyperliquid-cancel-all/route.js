@@ -48,6 +48,22 @@ async function signAndSend(wallet, action, nonce) {
   return res.json();
 }
 
+async function closePosition(wallet, coinToIdx, coinToDecimals, position, mids, slippagePct) {
+  const coin  = position.coin;
+  const szi   = parseFloat(position.szi);
+  const isBuy = szi < 0;
+  const size  = parseFloat(Math.abs(szi).toFixed(coinToDecimals[coin] ?? 4)).toString();
+  const mid   = parseFloat(mids[coin]);
+  if (!mid || coinToIdx[coin] === undefined) return { coin, error: "asset ou prix introuvable" };
+  const closePrice = normPx(isBuy ? mid * (1 + slippagePct) : mid * (1 - slippagePct));
+  const result = await signAndSend(wallet, {
+    type:   "order",
+    orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
+    grouping: "na",
+  }, Date.now());
+  return { coin, szi, size, closePrice, slippagePct, result };
+}
+
 export async function GET() {
   const privateKey = process.env.PRIVATE_KEY_HL1;
   if (!privateKey) return Response.json({ error: "PRIVATE_KEY_HL1 manquant" }, { status: 500 });
@@ -91,31 +107,43 @@ export async function POST() {
     await new Promise(r => setTimeout(r, 1000));
   }
 
-  // 2. Close open positions (IoC market close, reduce only)
+  // 2. Close open positions — 3 tentatives avec slippage croissant (5%, 10%, 20%)
   const positions = (state.assetPositions ?? []).filter(p => parseFloat(p.position.szi) !== 0);
   const closeResults = [];
+  let failedCoins = [];
 
   for (const { position } of positions) {
-    const coin  = position.coin;
-    const szi   = parseFloat(position.szi);
-    const isBuy = szi < 0;
-    const size  = parseFloat(Math.abs(szi).toFixed(coinToDecimals[coin] ?? 4)).toString();
-    const mid   = parseFloat(mids[coin]);
-    if (!mid || coinToIdx[coin] === undefined) {
-      closeResults.push({ coin, error: "asset ou prix introuvable" });
-      continue;
+    const freshMids = await hlInfo({ type: "allMids" }).catch(() => mids);
+    let result = null;
+    for (const slippage of [0.05, 0.10, 0.20]) {
+      result = await closePosition(wallet, coinToIdx, coinToDecimals, position, freshMids, slippage);
+      closeResults.push(result);
+      // Vérifier si l'ordre a rempli (status ok et pas d'erreur dans statuses)
+      const statuses = result.result?.response?.data?.statuses ?? [];
+      const filled = statuses.some(s => s.filled !== undefined && !s.error);
+      if (filled) break;
+      // IoC non rempli ou erreur → retenter avec slippage plus grand
+      await new Promise(r => setTimeout(r, 800));
     }
-
-    const closePrice = normPx(isBuy ? mid * 1.05 : mid * 0.95);
-    const result = await signAndSend(wallet, {
-      type:   "order",
-      orders: [{ a: coinToIdx[coin], b: isBuy, p: closePrice, s: size, r: true, t: { limit: { tif: "Ioc" } } }],
-      grouping: "na",
-    }, Date.now());
-    closeResults.push({ coin, szi, size, closePrice, result });
+    const statuses = result?.result?.response?.data?.statuses ?? [];
+    const filled = statuses.some(s => s.filled !== undefined && !s.error);
+    if (!filled) failedCoins.push(position.coin);
   }
 
-  // 3. Cancel residual orders après fermeture
+  // 3. Vérifier que les positions sont bien fermées après les ordres
+  let openAfterClose = 0;
+  let remainingPositions = [];
+  if (positions.length > 0) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const stateAfter = await hlInfo({ type: "clearinghouseState", user: address });
+      const remaining  = (stateAfter.assetPositions ?? []).filter(p => parseFloat(p.position.szi) !== 0);
+      openAfterClose       = remaining.length;
+      remainingPositions   = remaining.map(p => ({ coin: p.position.coin, szi: p.position.szi }));
+    } catch (_) {}
+  }
+
+  // 4. Cancel residual orders après fermeture
   let cleanupResult = null;
   if (closeResults.length > 0) {
     await new Promise(r => setTimeout(r, 500));
@@ -128,12 +156,18 @@ export async function POST() {
     }
   }
 
+  const allClosed = openAfterClose === 0;
+
   return Response.json({
-    ok:           true,
-    cancelled:    cancels.length,
+    ok:                 allClosed,
+    cancelled:          cancels.length,
     cancelResult,
-    closed:       closeResults.length,
+    closed:             closeResults.length,
     closeResults,
     cleanupResult,
-  });
+    openAfterClose,
+    remainingPositions,
+    ...(failedCoins.length > 0 ? { failedCoins } : {}),
+    ...(!allClosed ? { error: `${openAfterClose} position(s) HL non fermée(s) après 3 tentatives : ${remainingPositions.map(p => `${p.coin} szi=${p.szi}`).join(", ")}` } : {}),
+  }, { status: allClosed ? 200 : 500 });
 }
