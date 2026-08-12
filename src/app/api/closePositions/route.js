@@ -511,19 +511,27 @@ export async function POST(req) {
     const swapWethToStable = async (wethAmount, wethPriceUsdc) => {
       const wethPriceScaled = BigInt(Math.round(wethPriceUsdc * 1e6));
       if (nfpm === NFPM_NEW) {
-        // V2 router (factory-agnostique) pour Aerodrome Slipstream v2
+        // Pool 2 — multi-hop WETH → AERO → USDC via AMM Aerodrome (pas de pair WETH/USDC direct sur V2_FACTORY)
         try {
           const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
           await waitForTx(provider, txApp);
         } catch (_) {}
+        const routes = [
+          { from: WETH, to: AERO, stable: false, factory: V2_FACTORY },
+          { from: AERO, to: stablecoin, stable: false, factory: V2_FACTORY },
+        ];
+        let expectedOut = 0n;
+        try {
+          const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [wethAmount, routes]));
+          const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
+          expectedOut = amounts[amounts.length - 1];
+        } catch (_) {}
         let swapHash = null;
         for (const pct of [990n, 980n, 970n]) {
           try {
-            const minOut = wethAmount * wethPriceScaled / (10n ** 18n) * pct / 1000n;
+            const minOut = expectedOut > 0n ? expectedOut * pct / 1000n : 0n;
             const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-              wethAmount, minOut,
-              [{ from: WETH, to: stablecoin, stable: false, factory: V2_FACTORY }],
-              wallet.address, freshDeadline(),
+              wethAmount, minOut, routes, wallet.address, freshDeadline(),
             ]);
             let gas = 300000n;
             try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data }); gas = est * 3n / 2n; } catch (_) {}
@@ -535,7 +543,7 @@ export async function POST(req) {
         }
         return swapHash;
       } else {
-        // Ancien Aerodrome CL router (Slipstream v1, pool 3)
+        // Pool 3 — Aerodrome CL router (Slipstream v1)
         try {
           const txApp = await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
           await waitForTx(provider, txApp);
