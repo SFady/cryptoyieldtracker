@@ -47,6 +47,12 @@ export default function PoolControls() {
         if (data.ok)           setResult({ ok: true,  msg: `Fees collectées ✓` });
         else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
         else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+      } else if (action === "rebalance") {
+        const res  = await fetch(`/api/autoRebalance?case=10&poolNum=${poolNum}`);
+        const data = await res.json();
+        if (data.ok)           setResult({ ok: true,  msg: `Rebalance ✓ — range ${data.rangePct}% · $${data.minPrice}–$${data.maxPrice} · NFT #${data.createResult?.tokenId ?? "?"}${data.hlShort?.ok ? " · HL short ✓" : data.hlShort?.error ? " · HL short ✗" : ""}` });
+        else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
+        else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
       } else {
         const res  = await fetch("/api/closePositions", {
           method: "POST",
@@ -111,7 +117,7 @@ export default function PoolControls() {
           </button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => handleClick("open")} disabled={!!running} style={btnStyle("open", "0,229,160")}>
           {running === "open" ? "En cours…" : confirming === "open" ? "⚠ CONFIRMER ?" : "Ouvrir position"}
         </button>
@@ -121,6 +127,11 @@ export default function PoolControls() {
         <button onClick={() => handleClick("close")} disabled={!!running} style={btnStyle("close", "201,112,112")}>
           {running === "close" ? "En cours…" : confirming === "close" ? "⚠ CONFIRMER ?" : "Tout fermer"}
         </button>
+        {poolNum === 2 && (
+          <button onClick={() => handleClick("rebalance")} disabled={!!running} style={btnStyle("rebalance", "167,139,250")}>
+            {running === "rebalance" ? "En cours… (3–5 min)" : confirming === "rebalance" ? "⚠ CONFIRMER ?" : "↺ Rebalance"}
+          </button>
+        )}
       </div>
       <div style={{ marginTop: 6, fontSize: "0.58rem", fontFamily: "monospace", color: "#555577", letterSpacing: "0.5px" }}>
         cas 5 = collect auto 7h–8h · cas 6 = collect manuel
