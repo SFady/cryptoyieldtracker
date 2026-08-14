@@ -143,13 +143,17 @@ export async function POST() {
     } catch (_) {}
   }
 
-  // 4. Cancel residual orders après fermeture
+  // 4. Cancel residual orders après fermeture (frontendOpenOrders pour capturer les TP/SL trigger orders)
   let cleanupResult = null;
   if (closeResults.length > 0) {
-    await new Promise(r => setTimeout(r, 500));
-    const remainingOrders = await hlInfo({ type: "openOrders", user: address });
-    const residual = (Array.isArray(remainingOrders) ? remainingOrders : [])
-      .filter(o => coinToIdx[o.coin] !== undefined)
+    await new Promise(r => setTimeout(r, 800));
+    const [remainingOrders, remainingFrontend] = await Promise.all([
+      hlInfo({ type: "openOrders", user: address }),
+      hlInfo({ type: "frontendOpenOrders", user: address }),
+    ]);
+    const seenOids = new Set();
+    const residual = [...(Array.isArray(remainingOrders) ? remainingOrders : []), ...(Array.isArray(remainingFrontend) ? remainingFrontend : [])]
+      .filter(o => coinToIdx[o.coin] !== undefined && !seenOids.has(o.oid) && seenOids.add(o.oid))
       .map(o => ({ a: coinToIdx[o.coin], o: o.oid }));
     if (residual.length > 0) {
       cleanupResult = await signAndSend(wallet, { type: "cancel", cancels: residual }, Date.now());
