@@ -789,7 +789,8 @@ export async function POST(req) {
       txMint:     mintTxHash,
       txGauge:    txGaugeHash,
       rangePct:   parseFloat(rangePct),
-      budgetUsed: `$${totalBudget.toFixed(2)} / $${amountUSDC} demandés`,
+      budgetUsed:      `$${totalBudget.toFixed(2)} / $${amountUSDC} demandés`,
+      totalBudgetUSD:  parseFloat(totalBudget.toFixed(2)),
       detail: {
         totalBudget:    totalBudget.toFixed(2),
         swapRatio:      swapRatio.toFixed(4),

@@ -16,8 +16,9 @@ export default function AtrPanel() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [showClose,  setShowClose]  = useState(false);
+  const [showCreate,    setShowCreate]    = useState(false);
+  const [showClose,     setShowClose]     = useState(false);
+  const [showRebalance, setShowRebalance] = useState(false);
 
   const fetchAtr = useCallback(async () => {
     setLoading(true);
@@ -208,6 +209,29 @@ export default function AtrPanel() {
           </button>
 
           {showClose && <ClosePanel />}
+
+          {/* Bouton rebalance pool 2 */}
+          <button
+            onClick={() => { setShowRebalance(v => !v); setShowCreate(false); setShowClose(false); }}
+            style={{
+              width: "100%",
+              padding: "13px",
+              marginBottom: 12,
+              background: showRebalance ? "rgba(100,180,255,0.08)" : "rgba(100,180,255,0.06)",
+              border: "1px solid rgba(100,180,255,0.35)",
+              borderRadius: 10,
+              color: "#64b4ff",
+              fontFamily: "monospace",
+              fontSize: "0.85rem",
+              fontWeight: 700,
+              letterSpacing: "1px",
+              cursor: "pointer",
+            }}
+          >
+            {showRebalance ? "✕ ANNULER" : "↺ REBALANCE POOL 2"}
+          </button>
+
+          {showRebalance && <RebalancePool2Panel onDone={() => setShowRebalance(false)} />}
 
           <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#44446a", textAlign: "right" }}>
             {lastFetch ? lastFetch.toLocaleTimeString("fr-FR") : "—"} · {data.candleCount} bougies · {data.interval}
@@ -435,6 +459,87 @@ function TestRebalanceSection() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function RebalancePool2Panel({ onDone }) {
+  const [status,    setStatus]    = useState(null); // null | "loading" | "ok" | "error"
+  const [result,    setResult]    = useState(null);
+  const [confirm,   setConfirm]   = useState(false);
+
+  async function handleRebalance() {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res  = await fetch("/api/autoRebalance?case=10&poolNum=2");
+      const json = await res.json();
+      if (json.error || json.skipped) throw new Error(json.error ?? json.reason ?? "Échec rebalance");
+      setStatus("ok");
+      setResult(json);
+    } catch (e) {
+      setStatus("error");
+      setResult({ error: e.message });
+    }
+  }
+
+  const ROW = ({ label, value, color }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "monospace", fontSize: "0.75rem", padding: "3px 0" }}>
+      <span style={{ color: "#6666aa" }}>{label}</span>
+      <span style={{ color: color ?? "#eaf6ff", fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ background: "rgba(100,180,255,0.04)", border: "1px solid rgba(100,180,255,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 12 }}>
+      <div style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#64b4ff", fontWeight: 700, marginBottom: 10, letterSpacing: "1px" }}>
+        REBALANCE POOL 2
+      </div>
+      <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#6666aa", marginBottom: 12, lineHeight: 1.5 }}>
+        Collecte fees + AERO → USDC · ferme HL · rouvre LP (range percentile × 2) · rouvre short HL delta-neutre
+      </div>
+
+      {status === null && !confirm && (
+        <button onClick={() => setConfirm(true)} style={{ width: "100%", padding: "10px", background: "rgba(100,180,255,0.12)", border: "1px solid rgba(100,180,255,0.4)", borderRadius: 8, color: "#64b4ff", fontFamily: "monospace", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" }}>
+          LANCER
+        </button>
+      )}
+
+      {confirm && status === null && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={handleRebalance} style={{ flex: 1, padding: "10px", background: "rgba(240,180,41,0.15)", border: "1px solid rgba(240,180,41,0.5)", borderRadius: 8, color: "#f0b429", fontFamily: "monospace", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" }}>
+            ⚠ CONFIRMER
+          </button>
+          <button onClick={() => setConfirm(false)} style={{ padding: "10px 16px", background: "transparent", border: "1px solid rgba(100,100,150,0.3)", borderRadius: 8, color: "#6666aa", fontFamily: "monospace", fontSize: "0.8rem", cursor: "pointer" }}>
+            Annuler
+          </button>
+        </div>
+      )}
+
+      {status === "loading" && (
+        <div style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#f0b429", textAlign: "center", padding: "10px 0" }}>
+          ⏳ Rebalance en cours… (peut prendre 3–5 min)
+        </div>
+      )}
+
+      {status === "ok" && result && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ color: "#00e5a0", fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700, marginBottom: 8 }}>✓ Rebalance terminé</div>
+          <ROW label="Range percentile ×2" value={`${result.rangePct}%`} color="#a78bfa" />
+          <ROW label="Prix WETH" value={`$${result.livePrice?.toFixed(0)}`} />
+          <ROW label="Nouvelle borne basse" value={`$${result.minPrice}`} />
+          <ROW label="Nouvelle borne haute" value={`$${result.maxPrice}`} />
+          {result.createResult?.tokenId && <ROW label="Nouveau NFT" value={`#${result.createResult.tokenId}`} color="#00e5a0" />}
+          {result.hlShort?.ok && <ROW label="HL short" value="ouvert ✓" color="#00e5a0" />}
+          {result.hlShort?.error && <ROW label="HL short" value={`erreur: ${result.hlShort.error}`} color="#c97070" />}
+        </div>
+      )}
+
+      {status === "error" && result && (
+        <div style={{ color: "#c97070", fontFamily: "monospace", fontSize: "0.72rem", marginTop: 8, wordBreak: "break-word" }}>
+          ✕ {result.error}
+        </div>
+      )}
     </div>
   );
 }

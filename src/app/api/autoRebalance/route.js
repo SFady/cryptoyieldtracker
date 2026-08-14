@@ -74,7 +74,7 @@ async function getPositionState(poolNum) {
 }
 
 async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noTransfer = false) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(forceCase))
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(forceCase))
     return Response.json({ skipped: true, reason: `Cas ${forceCase} non implémenté` });
 
 
@@ -82,6 +82,7 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noT
   if (forceCase === 7)  return handleCase7(poolNum, overrideTokenId);
   if (forceCase === 8)  return handleCase8(poolNum);
   if (forceCase === 9)  return handleCase9(poolNum, noTransfer);
+  if (forceCase === 10) return handleCase10(poolNum);
 
   // Helper timeout — si Redis pend, continuer avec la valeur par défaut
   const withRedisTimeout = (p, ms, def) => Promise.race([p.catch(() => def), new Promise(r => setTimeout(() => r(def), ms))]);
@@ -1051,5 +1052,111 @@ async function handleCase9(poolNum = 2, noTransfer = false) {
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 9 (close start pool2)", `Erreur : ${msg}`);
     await writeErrorState(poolNum, true, msg);
     return Response.json({ case: 9, error: msg }, { status: 500 });
+  }
+}
+
+// Case 10 — rebalance manuel pool 2 : close LP (keepWeth) + close HL + create + HL short delta-neutre
+async function handleCase10(poolNum = 2) {
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  if (!base) return Response.json({ error: "APP_URL non configuré" }, { status: 500 });
+
+  // 1. Prix live
+  const livePrice = await getPoolWethPrice(0);
+  if (!livePrice || livePrice < 100 || livePrice > 100000)
+    return Response.json({ skipped: true, reason: `Prix WETH invalide : ${livePrice}` });
+
+  // 2. Levier HL actuel (lu avant fermeture)
+  let hlLeverage = 4;
+  try {
+    const hlRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(10000) });
+    const hlData = await hlRes.json();
+    const ethShort = (hlData.positions ?? []).find(p => p.coin === "ETH" && p.side === "short");
+    if (ethShort?.leverage) hlLeverage = ethShort.leverage;
+  } catch (_) {}
+
+  // 3. Range percentile 24h × 2
+  let rangePct = 2;
+  try {
+    const pct = await getPercentileRange();
+    if (pct && pct.cnt >= 10 && pct.p05 > 0)
+      rangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100 * 2);
+  } catch (_) {}
+
+  // 4. Lock
+  const release = await acquireRedisLock();
+  if (!release) return Response.json({ error: "Exécution déjà en cours" }, { status: 409 });
+
+  try {
+    // 5. Fermer LP — garder WETH, vendre fees WETH, pas de transfert destination
+    const closeRes  = await fetch(`${base}/api/closePositions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keepWeth: true, sellWethFees: true, noTransfer: true, poolNum, caseNum: 10 }),
+      signal: AbortSignal.timeout(200000),
+    });
+    const closeData = await closeRes.json();
+    if (!closeRes.ok) throw new Error(closeData?.error ?? "closePositions failed");
+
+    // 6. Fermer position Hyperliquid
+    let hlCloseData = null;
+    try {
+      const hlCloseRes = await fetch(`${base}/api/hyperliquid-cancel-all`, { method: "POST", signal: AbortSignal.timeout(30000) });
+      hlCloseData = await hlCloseRes.json();
+    } catch (_) {}
+
+    // 7. Bornes : exactBounds centré sur livePrice, range = percentile × 2
+    const halfFrac = rangePct / 200;
+    const minPrice = livePrice / (1 + halfFrac);
+    const maxPrice = livePrice * (1 + halfFrac);
+
+    // 8. Créer nouvelle position
+    const createRes  = await fetch(`${base}/api/createPosition`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amountUSDC: 999999, minPrice, maxPrice, currentPrice: livePrice,
+        targetRatio: 0.5, poolNum, exactBounds: true, caseNum: 10,
+      }),
+      signal: AbortSignal.timeout(120000),
+    });
+    const createData = await createRes.json();
+    if (!createRes.ok) throw new Error(createData?.error ?? "createPosition failed");
+
+    // 9. Short HL delta-neutre
+    const Pa  = createData.tickLowerPrice;
+    const Pb  = createData.tickUpperPrice;
+    const P0  = livePrice;
+    const poolAmount = createData.totalBudgetUSD ?? 0;
+    let hlShortData = null;
+    if (poolAmount > 10 && Pa > 0 && Pb > 0) {
+      try {
+        const sqrtP0 = Math.sqrt(P0);
+        const sqrtPa = Math.sqrt(Pa);
+        const sqrtPb = Math.sqrt(Pb);
+        const L         = poolAmount / (2 * sqrtP0 - P0 / sqrtPb - sqrtPa);
+        const ethAtOpen = Math.max(0, L * (1 / sqrtP0 - 1 / sqrtPb));
+        if (ethAtOpen > 0.001) {
+          const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sizeEth: parseFloat(ethAtOpen.toFixed(4)), leverage: hlLeverage, slPriceTrigger: Pb }),
+            signal: AbortSignal.timeout(30000),
+          });
+          hlShortData = await shortRes.json();
+        }
+      } catch (e) {
+        hlShortData = { error: e?.message ?? String(e) };
+      }
+    }
+
+    await release();
+    return Response.json({
+      ok: true, case: 10, rangePct: parseFloat(rangePct.toFixed(2)), livePrice,
+      minPrice: minPrice.toFixed(0), maxPrice: maxPrice.toFixed(0),
+      closeData, hlCloseData, createResult: createData, hlShort: hlShortData,
+    });
+  } catch (e) {
+    await release();
+    const msg = e?.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 10 (rebalance manuel pool2)", `Prix ETH : $${livePrice}\n\nErreur : ${msg}`);
+    await writeErrorState(poolNum, true, msg);
+    return Response.json({ case: 10, error: msg }, { status: 500 });
   }
 }
