@@ -229,7 +229,10 @@ export async function botLoop({ base, price }) {
     try {
       const wethRes  = await fetch(`${base}/api/pool-weth?poolNum=${ALGO_CONFIG.POOL_NUM}`, { signal: AbortSignal.timeout(10000) });
       const wethData = await wethRes.json();
-      const wethInPool = wethData.wethInPool ?? 0;
+      if (wethData.wethInPool === undefined || wethData.wethInPool === null) {
+        throw new Error(`pool-weth n'a pas retourné wethInPool : ${JSON.stringify(wethData)}`);
+      }
+      const wethInPool = wethData.wethInPool;
 
       if (wethInPool >= 0.001) {
         const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
@@ -241,6 +244,7 @@ export async function botLoop({ base, price }) {
         result.hedgeAdjust = { wethInPool, ...(await adjustRes.json()) };
         result.action = 'hedge_adjusted';
       } else {
+        // wethInPool est explicitement 0 → LP vide ou OOR, fermer le short
         await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(30000) });
         result.action = 'hedge_short_closed_weth_null';
       }
