@@ -61,6 +61,7 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.HEDGE_STATE),
     kv.del(REDIS_KEYS.OOR_SINCE),
     kv.del('p2_oor_count'),
+    kv.del('p2_hedge_bucket'),
   ]);
 }
 
@@ -76,11 +77,8 @@ async function autoStart({ base, price }) {
   if (capital < 10) return { ...result, skipped: true, reason: `USDC insuffisant : $${capital.toFixed(2)}` };
   result.capital = parseFloat(capital.toFixed(2));
 
-  // 2. Range percentile × 1.5
-  const pctRes = await fetch(`${base}/api/percentile-range`, { signal: AbortSignal.timeout(10000) });
-  const pctData = await pctRes.json();
-  if (pctData.error) return { ...result, error: `percentile-range : ${pctData.error}` };
-  const rangePct = pctData.rangePct * 4;
+  // 2. Range fixe 15% (±7.5% autour du prix courant)
+  const rangePct = 15;
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
@@ -218,8 +216,43 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : en range + short actif → rien (SL HL gère la sortie)
-  result.action = 'in_range_ok';
+  // Règle 4 : en range + short actif → hedge dynamique par buckets
+  const BUCKET_KEY  = 'p2_hedge_bucket';
+  const bucketSize  = (rMax - rMin) / 10;
+  const currentBucket = Math.max(0, Math.min(9, Math.floor((price - rMin) / bucketSize)));
+  const lastBucket    = await kv.get(BUCKET_KEY);
+
+  result.bucket     = currentBucket;
+  result.lastBucket = lastBucket;
+
+  if (lastBucket === null || lastBucket !== currentBucket) {
+    try {
+      const wethRes  = await fetch(`${base}/api/pool-weth?poolNum=${ALGO_CONFIG.POOL_NUM}`, { signal: AbortSignal.timeout(10000) });
+      const wethData = await wethRes.json();
+      const wethInPool = wethData.wethInPool ?? 0;
+
+      if (wethInPool >= 0.001) {
+        const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ targetEth: wethInPool, slPriceTrigger: rMax, leverage: 4 }),
+          signal:  AbortSignal.timeout(45000),
+        });
+        result.hedgeAdjust = { wethInPool, ...(await adjustRes.json()) };
+        result.action = 'hedge_adjusted';
+      } else {
+        await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(30000) });
+        result.action = 'hedge_short_closed_weth_null';
+      }
+      await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
+    } catch (e) {
+      result.action     = 'hedge_error';
+      result.hedgeError = e.message;
+    }
+  } else {
+    result.action = 'in_range_ok';
+  }
+
   await logBotTick(kv, result);
   return result;
 }

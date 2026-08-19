@@ -1732,24 +1732,18 @@ function StartItem({ isOpen, onToggle }) {
       await fetch("/api/hyperliquid-cancel-all", { method: "POST" });
       setLog(l => [...l, "Cancel ✓"]);
 
-      // 1. Percentile 24h + prix live (en parallèle)
-      const [pctRes, priceRes] = await Promise.all([
-        fetch("/api/percentile-range"),
-        fetch("/api/livePrice"),
-      ]);
-      const pctData   = await pctRes.json();
+      // 1. Prix live
+      const priceRes  = await fetch("/api/livePrice");
       const priceData = await priceRes.json();
-      if (pctData.error) throw new Error(`percentile-range : ${pctData.error}`);
       if (priceData.error) throw new Error(`livePrice : ${priceData.error}`);
 
-      const rangePctRaw = pctData.rangePct;
-      const rangePct    = rangePctRaw * 2;             // ×2 pour élargir le range
-      const livePrice   = priceData.price;
-      const halfFrac    = rangePct / 200;
-      const slPrice     = livePrice * (1 + halfFrac);
-      const tpPrice     = livePrice / (1 + halfFrac);
+      const rangePct = 20;
+      const livePrice = priceData.price;
+      const halfFrac  = rangePct / 200;
+      const slPrice   = livePrice * (1 + halfFrac);
+      const tpPrice   = livePrice / (1 + halfFrac);
 
-      setLog(l => [...l, `Percentile 24h → ${rangePctRaw.toFixed(2)}% × 2 = ${rangePct.toFixed(2)}% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
+      setLog(l => [...l, `Range 20% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
 
       // Guard : si une position LP existante a un SL proche du prix actuel, bloquer
       try {
