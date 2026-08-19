@@ -6,7 +6,7 @@ import { POOL_ADDRESS, getPoolAddress } from "../../lib/config";
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
-const RANGE_COEFF_2 = 1;   // multiplicateur range pool 2
+const RANGE_COEFF_2 = 4;   // multiplicateur range pool 2
 const RANGE_COEFF_3 = 1;   // multiplicateur range pool 3
 
 const sql = neon(process.env.DATABASE_URL);
@@ -1079,7 +1079,7 @@ async function handleCase10(poolNum = 2) {
   try {
     const pct = await getPercentileRange();
     if (pct && pct.cnt >= 10 && pct.p05 > 0)
-      rangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100 * 2);
+      rangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100 * 4);
   } catch (_) {}
 
   // 4. Lock
