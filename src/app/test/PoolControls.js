@@ -28,15 +28,24 @@ export default function PoolControls() {
     setResult(null);
     try {
       if (action === "open") {
-        const res  = await fetch("/api/autoRebalance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ forceCase: 4, poolNum }),
-        });
-        const data = await res.json();
-        if (data.ok)           setResult({ ok: true,  msg: `Position ouverte — range ${data.newRangePct}% · ETH $${data.livePrice?.toFixed(0)}` });
-        else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
-        else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+        if (poolNum === 2) {
+          // Pool 2 : flux complet 20% range + short HL delta-neutre
+          const res  = await fetch("/api/algo-start", { method: "POST" });
+          const data = await res.json();
+          if (data.ok)           setResult({ ok: true,  msg: `Ouvert ✓ — $${data.capital} USDC · range 20% · $${data.tickLowerPrice?.toFixed(0)}–$${data.tickUpperPrice?.toFixed(0)} · short ${data.ethAtOpen} ETH @ $${data.shortEntryPrice?.toFixed(0)}` });
+          else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
+          else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+        } else {
+          const res  = await fetch("/api/autoRebalance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ forceCase: 4, poolNum }),
+          });
+          const data = await res.json();
+          if (data.ok)           setResult({ ok: true,  msg: `Position ouverte — range ${data.newRangePct}% · ETH $${data.livePrice?.toFixed(0)}` });
+          else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
+          else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+        }
       } else if (action === "collect") {
         const res  = await fetch("/api/autoRebalance", {
           method: "POST",
