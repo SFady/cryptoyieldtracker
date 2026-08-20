@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { readLpState } from "../../lib/cronKv";
-import { POOL_ADDRESS as POOL } from "../../lib/config";
+import { getPoolAddress } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 15;
@@ -43,11 +43,15 @@ async function ethCall(to, data) {
         body:    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
         signal:  AbortSignal.timeout(8000),
       });
+      if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) {
+        lastErr = new Error(`RPC ${url} returned non-JSON (status ${res.status})`);
+        continue;
+      }
       const json = await res.json();
       if (json.result && json.result !== "0x") return json.result;
     } catch (e) { lastErr = e; }
   }
-  throw lastErr ?? new Error("eth_call échoué");
+  throw lastErr ?? new Error("eth_call échoué sur tous les RPCs");
 }
 
 async function getTokenId(poolNum) {
@@ -64,6 +68,7 @@ async function getTokenId(poolNum) {
 
 export async function GET(req) {
   const poolNum = parseInt(new URL(req.url).searchParams.get("poolNum") ?? "2");
+  const POOL    = getPoolAddress(poolNum);
   try {
     const tokenId = await getTokenId(poolNum);
 
