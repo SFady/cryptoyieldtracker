@@ -33,12 +33,12 @@ export async function getPercentileRange() {
   } catch (_) { return null; }
 }
 
-// Prochain cron = dernier run + 30 min
+// Prochain cron = dernier run + 5 min
 export async function getNextCronAt() {
   try {
     const lastRun = await kv.get(KEY_LAST_RUN);
     if (!lastRun) return null;
-    const next = new Date(Number(lastRun) + 30 * 60 * 1000);
+    const next = new Date(Number(lastRun) + 5 * 60 * 1000);
     return next.toISOString();
   } catch (_) { return null; }
 }
