@@ -62,6 +62,12 @@ export default function PoolControls() {
         if (data.ok)           setResult({ ok: true,  msg: `Rebalance ✓ — range ${data.rangePct}% · $${data.minPrice}–$${data.maxPrice} · NFT #${data.createResult?.tokenId ?? "?"}${data.hlShort?.ok ? " · HL short ✓" : data.hlShort?.error ? " · HL short ✗" : ""}` });
         else if (data.skipped) setResult({ ok: null,  msg: `skipped — ${data.reason}` });
         else                   setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+      } else if (action === "patchL") {
+        const res  = await fetch("/api/algo-patch-l", { method: "POST" });
+        const data = await res.json();
+        if (data.ok && !data.skipped) setResult({ ok: true,  msg: `L injecté ✓ — L=${data.liquidityL?.toFixed(1)} · P0=$${data.P0?.toFixed(0)} · ETH check=${data.ethCheck} (stocké: ${data.stored_shortSizeEth})` });
+        else if (data.skipped)        setResult({ ok: null,  msg: `déjà présent — L=${data.liquidityL?.toFixed(1)}` });
+        else                          setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
       } else {
         const res  = await fetch("/api/closePositions", {
           method: "POST",
@@ -139,6 +145,11 @@ export default function PoolControls() {
         {poolNum === 2 && (
           <button onClick={() => handleClick("rebalance")} disabled={!!running} style={btnStyle("rebalance", "167,139,250")}>
             {running === "rebalance" ? "En cours… (3–5 min)" : confirming === "rebalance" ? "⚠ CONFIRMER ?" : "↺ Rebalance"}
+          </button>
+        )}
+        {poolNum === 2 && (
+          <button onClick={() => handleClick("patchL")} disabled={!!running} style={btnStyle("patchL", "255,200,80")}>
+            {running === "patchL" ? "En cours…" : "Patch L"}
           </button>
         )}
       </div>
