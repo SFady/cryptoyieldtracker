@@ -148,7 +148,7 @@ export default function PoolControls() {
           </button>
         )}
         {poolNum === 2 && (
-          <button onClick={() => handleClick("patchL")} disabled={!!running} style={btnStyle("patchL", "255,200,80")}>
+          <button onClick={() => { if (!running) fire("patchL"); }} disabled={!!running} style={btnStyle("patchL", "255,200,80")}>
             {running === "patchL" ? "En cours…" : "Patch L"}
           </button>
         )}
