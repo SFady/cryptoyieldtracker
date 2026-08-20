@@ -135,6 +135,7 @@ export async function POST() {
     await Promise.all([
       kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
         capital, leverage, shortSizeEth: ethAtOpen, rangePct,
+        liquidityL: L, tickUpperPrice: Pb,
         startedAt: new Date().toISOString(),
       }, { ex: 30 * 86400 }),
       kv.del(REDIS_KEYS.POSITION_STATE),

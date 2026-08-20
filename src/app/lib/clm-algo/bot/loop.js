@@ -138,9 +138,10 @@ async function autoStart({ base, price }) {
   if (!short.ok) return { ...result, error: `hyperliquid-short : ${short.error}` };
   result.shortEntry = short.ethPrice;
 
-  // 7. Sauvegarder la config runtime
+  // 7. Sauvegarder la config runtime (L et Pb pour le hedge dynamique sans appel NFPM)
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
     capital, leverage, shortSizeEth: ethAtOpen, rangePct,
+    liquidityL: L, tickUpperPrice: Pb,
     startedAt: new Date().toISOString(),
   }, { ex: 30 * 86400 });
   await kv.del(REDIS_KEYS.POSITION_STATE);
@@ -227,12 +228,25 @@ export async function botLoop({ base, price }) {
 
   if (lastBucket === null || lastBucket !== currentBucket) {
     try {
-      const wethRes  = await fetch(`${base}/api/pool-weth?poolNum=${ALGO_CONFIG.POOL_NUM}`, { signal: AbortSignal.timeout(10000) });
-      const wethData = await wethRes.json();
-      if (wethData.wethInPool === undefined || wethData.wethInPool === null) {
-        throw new Error(`pool-weth n'a pas retourné wethInPool : ${JSON.stringify(wethData)}`);
+      // Calcul WETH dans la LP via formule (L stocké au Start, pas d'appel NFPM)
+      const rtConfig  = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
+      const L         = rtConfig?.liquidityL ?? null;
+      const Pb_stored = rtConfig?.tickUpperPrice ?? rMax;
+
+      if (!L) {
+        // L non disponible (position ouverte avant le fix) → skip sans fermer le short
+        result.action = 'hedge_skip_no_L';
+        await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
+        await logBotTick(kv, result);
+        return result;
       }
-      const wethInPool = wethData.wethInPool;
+
+      let wethInPool = 0;
+      if (price < Pb_stored) {
+        wethInPool = L * (1 / Math.sqrt(price) - 1 / Math.sqrt(Pb_stored));
+        wethInPool = Math.max(0, parseFloat(wethInPool.toFixed(6)));
+      }
+      result.wethInPool = wethInPool;
 
       if (wethInPool >= 0.001) {
         const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
@@ -244,7 +258,7 @@ export async function botLoop({ base, price }) {
         result.hedgeAdjust = { wethInPool, ...(await adjustRes.json()) };
         result.action = 'hedge_adjusted';
       } else {
-        // wethInPool est explicitement 0 → LP vide ou OOR, fermer le short
+        // WETH ≈ 0 → prix proche de la borne haute, fermer le short
         await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(30000) });
         result.action = 'hedge_short_closed_weth_null';
       }
