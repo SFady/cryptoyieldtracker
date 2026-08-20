@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 const sql = neon(process.env.DATABASE_URL);
 
 export async function GET() {
-  const [lastRun, count, last10raw, lpState2, lpErr2, lpState3, lpErr3, lpRunning, lastCronResults] = await Promise.all([
+  const [lastRun, count, last10raw, lpState2, lpErr2, lpState3, lpErr3, lpRunning, lastCronResults, botMetrics] = await Promise.all([
     kv.get("cron-last-run"),
     kv.zcard("weth-history"),
     kv.zrange("weth-history", 0, 9, { rev: true, withScores: true }),
@@ -16,6 +16,7 @@ export async function GET() {
     kv.get("lp-err-3"),
     kv.get("lp-running"),
     kv.get("cron-last-results"),
+    kv.get("p2_algo_metrics"),
   ]);
 
   const entries = [];
@@ -58,5 +59,6 @@ export async function GET() {
     pool3: { lpState: lpState3, lpErr: lpErr3, lastDbRows: lastDbRows3 },
     lpRunning:      lpRunning ?? null,
     lastCronResults,
+    botMetrics:     botMetrics ?? [],
   });
 }
