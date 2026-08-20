@@ -78,7 +78,7 @@ async function autoStart({ base, price }) {
   result.capital = parseFloat(capital.toFixed(2));
 
   // 2. Range fixe 15% (±7.5% autour du prix courant)
-  const rangePct = 15;
+  const rangePct = 10;
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));

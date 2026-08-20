@@ -1074,10 +1074,10 @@ async function handleCase10(poolNum = 2) {
     if (ethShort?.leverage) hlLeverage = ethShort.leverage;
   } catch (_) {}
 
-  // 3. Range : 15% fixe pour pool 2, percentile 24h × 4 pour pool 3
+  // 3. Range : 10% fixe pour pool 2, percentile 24h × 4 pour pool 3
   let rangePct;
   if (poolNum === 2) {
-    rangePct = 15;
+    rangePct = 10;
   } else {
     rangePct = 2;
     try {

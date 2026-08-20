@@ -72,11 +72,11 @@ export async function POST() {
     if (!livePrice) return Response.json({ error: 'Prix indisponible', steps }, { status: 503 });
 
     // 4. Range 15% (±7.5%)
-    const rangePct = 15;
+    const rangePct = 10;
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));
-    steps.push(`Prix $${livePrice} · range 20% · bornes $${minPrice}–$${maxPrice}`);
+    steps.push(`Prix $${livePrice} · range 10% · bornes $${minPrice}–$${maxPrice}`);
 
     // 5. Créer la LP 50/50
     const poolRes = await fetch(`${base}/api/createPosition`, {

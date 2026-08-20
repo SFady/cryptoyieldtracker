@@ -1737,7 +1737,7 @@ function StartItem({ isOpen, onToggle }) {
       const priceData = await priceRes.json();
       if (priceData.error) throw new Error(`livePrice : ${priceData.error}`);
 
-      const rangePct = 15;
+      const rangePct = 10;
       const livePrice = priceData.price;
       const halfFrac  = rangePct / 200;
       const slPrice   = livePrice * (1 + halfFrac);
