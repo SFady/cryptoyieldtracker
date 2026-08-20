@@ -1074,13 +1074,18 @@ async function handleCase10(poolNum = 2) {
     if (ethShort?.leverage) hlLeverage = ethShort.leverage;
   } catch (_) {}
 
-  // 3. Range percentile 24h × 2
-  let rangePct = 2;
-  try {
-    const pct = await getPercentileRange();
-    if (pct && pct.cnt >= 10 && pct.p05 > 0)
-      rangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100 * 4);
-  } catch (_) {}
+  // 3. Range : 15% fixe pour pool 2, percentile 24h × 4 pour pool 3
+  let rangePct;
+  if (poolNum === 2) {
+    rangePct = 15;
+  } else {
+    rangePct = 2;
+    try {
+      const pct = await getPercentileRange();
+      if (pct && pct.cnt >= 10 && pct.p05 > 0)
+        rangePct = Math.max(2, ((pct.p95 - pct.p05) / pct.p05) * 100 * 4);
+    } catch (_) {}
+  }
 
   // 4. Lock
   const release = await acquireRedisLock();

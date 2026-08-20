@@ -1737,13 +1737,13 @@ function StartItem({ isOpen, onToggle }) {
       const priceData = await priceRes.json();
       if (priceData.error) throw new Error(`livePrice : ${priceData.error}`);
 
-      const rangePct = 20;
+      const rangePct = 15;
       const livePrice = priceData.price;
       const halfFrac  = rangePct / 200;
       const slPrice   = livePrice * (1 + halfFrac);
       const tpPrice   = livePrice / (1 + halfFrac);
 
-      setLog(l => [...l, `Range 20% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
+      setLog(l => [...l, `Range 15% · prix $${livePrice} · bornes $${tpPrice.toFixed(1)} – $${slPrice.toFixed(1)}`]);
 
       // Guard : si une position LP existante a un SL proche du prix actuel, bloquer
       try {

@@ -71,8 +71,8 @@ export async function POST() {
     const livePrice = priceData.price;
     if (!livePrice) return Response.json({ error: 'Prix indisponible', steps }, { status: 503 });
 
-    // 4. Range 20% (±10%)
-    const rangePct = 20;
+    // 4. Range 15% (±7.5%)
+    const rangePct = 15;
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));
