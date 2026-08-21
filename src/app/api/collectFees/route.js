@@ -57,6 +57,7 @@ const NFPM_IFACE = new ethers.Interface([
   "function approve(address to, uint256 tokenId)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
+  "function decreaseLiquidity((uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint256 amount0, uint256 amount1)",
   "function safeTransferFrom(address from, address to, uint256 tokenId)",
 ]);
 
@@ -243,6 +244,21 @@ export async function POST(req) {
       } catch (_) {}
     }
     if (nftInWallet) {
+      // Settle feeGrowth → tokensOwed (sinon collect retourne 0 si la position était stakée)
+      try {
+        const dlData = NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [{
+          tokenId,
+          liquidity:   0n,
+          amount0Min:  0n,
+          amount1Min:  0n,
+          deadline:    freshDeadline(),
+        }]);
+        let dlGas = 300000n;
+        try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: dlData }); dlGas = est * 3n / 2n; } catch (_) {}
+        const txDl = await wallet.sendTransaction({ to: NFPM, data: dlData, gasLimit: dlGas });
+        await waitForTx(txDl);
+      } catch (e) { console.log(`[collectFees decreaseLiquidity(0)] ${e.message ?? e}`); }
+
       try {
         const collectData = NFPM_IFACE.encodeFunctionData("collect", [{
           tokenId,
@@ -380,39 +396,54 @@ export async function POST(req) {
 
     // 11. Re-stake — 3 méthodes : A) deposit v2  B) deposit v1  C) safeTransferFrom
     let restakeError = null;
-    if (isStaked && withdrawOk) {
+    if (isStaked && nftInWallet) {
       let restakeOk = false;
+
+      // Nonce explicite pour éviter le drift après la longue chaîne de txs précédentes
+      let nonce;
+      try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
+      const withNonce = (n) => (nonce !== undefined ? { nonce: n } : {});
 
       // Approve (nécessaire pour A et B)
       try {
         const txApprove = await wallet.sendTransaction({
           to:   NFPM,
           data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
+          ...withNonce(nonce++),
         });
         await waitForTx(txApprove);
-      } catch (_) {}
+      } catch (_) {
+        try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
+      }
 
       // A) deposit(tokenId, 0) — Slipstream v2
       if (!restakeOk) try {
+        const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
         let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]) })) * 3n / 2n; } catch (_) {}
-        await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]), gasLimit: gas }));
+        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; } catch (_) {}
+        await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
-      } catch (_) {}
+      } catch (_) {
+        try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
+      }
 
       // B) deposit(tokenId) — Slipstream v1
       if (!restakeOk) try {
+        const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
         let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]) })) * 3n / 2n; } catch (_) {}
-        await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]), gasLimit: gas }));
+        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; } catch (_) {}
+        await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
-      } catch (_) {}
+      } catch (_) {
+        try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
+      }
 
       // C) safeTransferFrom — le gauge reçoit le NFT via onERC721Received
       if (!restakeOk) try {
+        const stfData = NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]);
         let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: NFPM, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]) })) * 3n / 2n; } catch (_) {}
-        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]), gasLimit: gas }));
+        try { gas = (await provider.estimateGas({ to: NFPM, from: wallet.address, data: stfData })) * 3n / 2n; } catch (_) {}
+        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: stfData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
       } catch (e) {
         restakeError = `3 méthodes échouées — ${e.message ?? String(e)}`;
