@@ -22,7 +22,7 @@ async function sendErrorEmail(subject, body) {
 }
 
 export const runtime     = "nodejs";
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -316,7 +316,9 @@ export async function POST(req) {
               recipient: wallet.address, deadline: freshDeadline(),
               amountIn: wethFees, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
             }]);
-            try { const est = await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
+            // estimateGas avant d'envoyer — si ça revert (slippage trop élevé), passer au niveau suivant
+            try { swapGas = (await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData })) * 3n / 2n; }
+            catch (_) { if (pct > 0n) continue; } // skip ce niveau de slippage, sauf 0n = toujours tenter
             const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
             swapWethHash = txSwap.hash;
             await waitForTx(txSwap);
