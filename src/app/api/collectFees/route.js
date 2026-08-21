@@ -152,9 +152,10 @@ async function waitForTx(tx) {
 }
 
 export async function POST(req) {
-  const body    = await req.json().catch(() => ({}));
-  const poolNum = body.poolNum ?? 2;
-  const caseNum = body.caseNum ?? 5;
+  const body       = await req.json().catch(() => ({}));
+  const poolNum    = body.poolNum ?? 2;
+  const caseNum    = body.caseNum ?? 5;
+  const noTransfer = body.noTransfer ?? false;
   let rawTokenId = null;
 
   try {
@@ -250,12 +251,19 @@ export async function POST(req) {
 
     // 6. Swap fees WETH → USDC
     let swapWethHash = null;
+    let swapWethError = null;
     try {
       const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
       const wethFees  = wethAfter > wethBefore ? wethAfter - wethBefore : 0n;
       if (wethFees > 0n) {
-        const tsRaw      = await ethCall(POOL, "0xd0c93a7c");
-        const tickSpacing = Number(ethers.toBigInt(tsRaw));
+        // tickSpacing : lire depuis le pool, fallback 100 (WETH/USDC 0.05%)
+        let tickSpacing = 100;
+        try {
+          const tsRaw = await ethCall(POOL, "0xd0c93a7c");
+          const ts = Number(ethers.toBigInt(tsRaw));
+          if (ts > 0) tickSpacing = ts;
+        } catch (_) {}
+
         try {
           const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
           const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
@@ -264,6 +272,7 @@ export async function POST(req) {
             await waitForTx(txApp);
           }
         } catch (_) {}
+
         let wethPriceInUsdc6 = 0n;
         try {
           const s0Hex = await ethCall(POOL, "0x3850c7bd");
@@ -272,10 +281,12 @@ export async function POST(req) {
           const sqrtPf = Number(sqrtPriceX96) / 2**96;
           wethPriceInUsdc6 = BigInt(Math.round(sqrtPf * sqrtPf * 1e18));
         } catch (_) {}
+
         let swapGas = 300000n;
-        for (const pct of [990n, 980n, 970n]) {
+        let swapOk = false;
+        for (const pct of [990n, 980n, 970n, 0n]) {
           try {
-            const minOut = wethPriceInUsdc6 > 0n ? wethFees * wethPriceInUsdc6 / (10n ** 18n) * pct / 1000n : 0n;
+            const minOut = (wethPriceInUsdc6 > 0n && pct > 0n) ? wethFees * wethPriceInUsdc6 / (10n ** 18n) * pct / 1000n : 0n;
             const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
               tokenIn: WETH, tokenOut: USDC, tickSpacing,
               recipient: wallet.address, deadline: freshDeadline(),
@@ -285,11 +296,13 @@ export async function POST(req) {
             const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
             swapWethHash = txSwap.hash;
             await waitForTx(txSwap);
+            swapOk = true;
             break;
-          } catch (_) {}
+          } catch (e) { swapWethError = e.message ?? String(e); }
         }
+        if (!swapOk) console.log(`[collectFees swapWeth] toutes tentatives échouées — ${swapWethError} — ${Number(wethFees) / 1e18} WETH non converti`);
       }
-    } catch (e) { console.log(`[collectFees swapWeth] ${e.message ?? e}`); }
+    } catch (e) { swapWethError = e.message ?? String(e); console.log(`[collectFees swapWeth] ${swapWethError}`); }
 
     // 8. Swap AERO → USDC
     let aeroSwapHash = null;
@@ -326,11 +339,11 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 9. Envoyer 75% du delta USDC vers DESTINATION_WALLET, garder 25% en wallet pour la prochaine position
+    // 9. Envoyer 50% du delta USDC vers DESTINATION_WALLET (sauf si noTransfer=true)
     let transferHash = null;
     try {
       const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
-      if (dest) {
+      if (dest && !noTransfer) {
         const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
         const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
         console.log(`[collectFees] before=${usdcBefore} after=${usdcAfter} delta=${delta} dest=${dest}`);
@@ -406,7 +419,7 @@ export async function POST(req) {
       }
     }
 
-    return Response.json({ ok: true, swapWethHash, aeroSwapHash, transferHash, ...(restakeError ? { restakeError } : {}) });
+    return Response.json({ ok: true, swapWethHash, aeroSwapHash, transferHash, ...(restakeError ? { restakeError } : {}), ...(swapWethError ? { swapWethError } : {}) });
 
   } catch (e) {
     const msg = e.message ?? String(e);

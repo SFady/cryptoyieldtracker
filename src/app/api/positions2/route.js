@@ -11,7 +11,10 @@ const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
 const NFPM   = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // NFPM_NEW (Slipstream v2)
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
-const USDC   = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
+const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
+const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 
 const VOTER_IFACE = new ethers.Interface([
   "function gauges(address pool) view returns (address)",
@@ -20,15 +23,16 @@ const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   "function earned(address account, uint256 tokenId) view returns (uint256)",
 ]);
+const V2_ROUTER_IFACE = new ethers.Interface([
+  "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
+]);
 
-async function getAeroPrice() {
+async function getAeroPrice(ethCall) {
   try {
-    const res  = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=aerodrome-finance&vs_currencies=usd",
-      { signal: AbortSignal.timeout(4000) }
-    );
-    const data = await res.json();
-    return data?.["aerodrome-finance"]?.usd ?? 0;
+    const routes  = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
+    const amtsHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [ethers.parseUnits("1", 18), routes]));
+    const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", amtsHex);
+    return parseFloat(ethers.formatUnits(amounts[1], 6));
   } catch (_) { return 0; }
 }
 
@@ -401,7 +405,7 @@ export async function GET() {
     const aeroUsdById = {};
     const aeroBalById = {};
     if (gaugeAddr && stakedIds.length > 0) {
-      const aeroPrice = await getAeroPrice();
+      const aeroPrice = await getAeroPrice(ethCall);
       await Promise.allSettled(stakedIds.map(async (tokenId) => {
         try {
           const hex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("earned", [WALLET, tokenId]));
