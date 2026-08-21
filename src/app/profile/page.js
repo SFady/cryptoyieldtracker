@@ -325,7 +325,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
       const res  = await fetch("/api/collectFees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ poolNum }),
+        body: JSON.stringify({ poolNum, noTransfer: poolNum === 2 }),
       });
       const data = await res.json();
       if (data.error) setCollectResult({ ok: false, msg: data.error });

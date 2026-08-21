@@ -231,10 +231,18 @@ export async function POST(req) {
       }
     }
 
-    // 6. Collect fees WETH + USDC — uniquement si withdraw OK (NFT dans le wallet)
+    // 6. Collect fees WETH + USDC — si NFT dans le wallet (unstake OK ou jamais staké)
     const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
     const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
-    if (withdrawOk) {
+    let nftInWallet = withdrawOk;
+    if (!nftInWallet) {
+      try {
+        const ownerHex = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]));
+        const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", ownerHex);
+        nftInWallet = owner.toLowerCase() === wallet.address.toLowerCase();
+      } catch (_) {}
+    }
+    if (nftInWallet) {
       try {
         const collectData = NFPM_IFACE.encodeFunctionData("collect", [{
           tokenId,
