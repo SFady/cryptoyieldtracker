@@ -704,8 +704,9 @@ export async function POST(req) {
       });
       await waitForTx(provider, txApproveId);
     } catch (e) {
-      // "nonce already used" = la tx approve est déjà on-chain → on continue
-      if (!(e.shortMessage ?? e.message ?? "").includes("nonce")) throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${e.shortMessage ?? e.message}`);
+      const msg11a = e.shortMessage ?? e.message ?? "";
+      // "nonce already used" ou "could not coalesce" = tx probablement déjà on-chain → on continue
+      if (!msg11a.includes("nonce") && !msg11a.includes("could not coalesce")) throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${msg11a}`);
     }
 
     try {

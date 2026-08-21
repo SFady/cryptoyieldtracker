@@ -885,8 +885,15 @@ async function handleCase7(poolNum = 2, overrideTokenId = null) {
     return Response.json({ error: `deposit gauge échoué : ${e.message}` }, { status: 500 });
   }
 
-  // 7. Effacer l'état d'erreur
+  // 7. Effacer l'état d'erreur + mettre à jour DB pour que collectFees utilise le bon tokenId
   await writeErrorState(poolNum, false);
+  try {
+    await sql`
+      INSERT INTO lp_events (action1, action2, token_id, pool_num, created_at)
+      VALUES ('CREATE_OK', NULL, ${rawTokenId}, ${poolNum}, NOW())
+    `;
+    await writeLpState(poolNum, { action1: "CREATE_OK", action2: null, token_id: rawTokenId, created_at: new Date().toISOString() });
+  } catch (_) {}
   return Response.json({ ok: true, msg: `NFT #${rawTokenId} restaké avec succès`, txDeposit: depositHash, tokenId: rawTokenId });
 }
 
