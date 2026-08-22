@@ -169,6 +169,7 @@ export async function botLoop({ base, price }) {
   const rMin    = hasLP ? parseFloat(lpState.range_min) : null;
   const rMax    = hasLP ? parseFloat(lpState.range_max) : null;
   const isOOR   = hasLP && (price < rMin || price > rMax);
+  console.log(`[botLoop] hasLP=${hasLP} rMin=${rMin} rMax=${rMax} price=${price} isOOR=${isOOR} action2=${lpState?.action2 ?? 'n/a'}`);
 
   // 2. État short HL
   const { hasShort } = await getShortState(base);
@@ -197,10 +198,12 @@ export async function botLoop({ base, price }) {
     const edgeHigh  = rMax - 0.05 * rangeSize;
     const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
 
+    console.log(`[botLoop] edgeLow=${rMin + 0.05*(rMax-rMin)} edgeHigh=${rMax - 0.05*(rMax-rMin)} inEdge=${inEdge}`);
     if (inEdge) {
       const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
       const count = prev.zone === inEdge ? prev.count + 1 : 1;
       await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
+      console.log(`[botLoop] edge_streak count=${count}`);
       result.edgeZone  = inEdge;
       result.edgeCount = count;
       if (count >= 3) {
