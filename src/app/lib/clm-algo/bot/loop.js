@@ -190,35 +190,20 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 1b : zone bord (5% bas ou 5% haut du range) 3 CRONs consécutifs → rebalance préventif
-  const EDGE_KEY  = 'p2_edge_streak';
-  if (hasLP) {
-    const rangeSize = rMax - rMin;
-    const edgeLow   = rMin + 0.05 * rangeSize;
-    const edgeHigh  = rMax - 0.05 * rangeSize;
-    const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
-
-    console.log(`[botLoop] edgeLow=${rMin + 0.05*(rMax-rMin)} edgeHigh=${rMax - 0.05*(rMax-rMin)} inEdge=${inEdge}`);
-    if (inEdge) {
-      const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
-      const count = prev.zone === inEdge ? prev.count + 1 : 1;
-      await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
-      console.log(`[botLoop] edge_streak count=${count}`);
-      result.edgeZone  = inEdge;
-      result.edgeCount = count;
-      if (count >= 3) {
-        result.action = 'edge_close_all';
-        try   { result.closeShort = await closeShort(base); }
-        catch (e) { result.closeShortError = e.message; }
-        try   { result.closeLP = await closeLP(base); }
-        catch (e) { result.closeLPError = e.message; }
-        await clearAlgoState();
-        await logBotTick(kv, result);
-        return result;
-      }
-    } else {
-      await kv.del(EDGE_KEY);
-    }
+  // Règle 1b : edge zone gérée dans cron/route.js (range réel depuis positions2)
+  // Déclenchement si p2_edge_streak.count >= 3 (lu depuis Redis)
+  const EDGE_KEY = 'p2_edge_streak';
+  const edgeStreak = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
+  result.edgeCount = edgeStreak.count;
+  if (edgeStreak.count >= 3) {
+    result.action = 'edge_close_all';
+    try   { result.closeShort = await closeShort(base); }
+    catch (e) { result.closeShortError = e.message; }
+    try   { result.closeLP = await closeLP(base); }
+    catch (e) { result.closeLPError = e.message; }
+    await clearAlgoState();
+    await logBotTick(kv, result);
+    return result;
   }
   await kv.del(OOR_KEY);
 

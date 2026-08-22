@@ -111,6 +111,36 @@ async function handle(req) {
       } catch (e) {
         rebalanceResults["p2"] = { error: e.message };
       }
+
+      // Edge zone check (5% bords du range) — utilise les bornes réelles de la position
+      if (price) {
+        try {
+          const p2res = await fetch(`${base}/api/positions2`, { signal: AbortSignal.timeout(8000) });
+          const p2data = await p2res.json();
+          const pos = (p2data.positions ?? [])[0];
+          if (pos) {
+            const rMin = parseFloat(pos.rangeLow);
+            const rMax = parseFloat(pos.rangeHigh);
+            if (!isNaN(rMin) && !isNaN(rMax)) {
+              const rangeSize = rMax - rMin;
+              const edgeLow   = rMin + 0.05 * rangeSize;
+              const edgeHigh  = rMax - 0.05 * rangeSize;
+              const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
+              const EDGE_KEY  = 'p2_edge_streak';
+              if (inEdge) {
+                const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
+                const count = prev.zone === inEdge ? prev.count + 1 : 1;
+                await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
+                console.log(`[cron edge] inEdge=${inEdge} count=${count} price=${price} edgeLow=${edgeLow.toFixed(2)} edgeHigh=${edgeHigh.toFixed(2)}`);
+              } else {
+                await kv.del(EDGE_KEY);
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`[cron edge] ${e.message}`);
+        }
+      }
     }
 
     // Pool 3 (si PRIVATE_KEY_3 configuré)
