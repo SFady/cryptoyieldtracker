@@ -516,17 +516,21 @@ async function handleCase5(poolNum = 2) {
     return Response.json({ error: `DB check failed: ${e.message}` }, { status: 500 });
   }
 
-  // 4. Appeler collectFees
+  // 4. Appeler collectFees en 3 étapes (chacune <60s pour Vercel Hobby)
   try {
-    const res = await fetch(`${base}/api/collectFees`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ poolNum, caseNum: 5 }),
-      signal: AbortSignal.timeout(180000),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "collectFees failed"));
-    return Response.json({ ok: true, case: 5, ...data });
+    const cfBase = { poolNum, caseNum: 5 };
+    const r1 = await fetch(`${base}/api/collectFees`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...cfBase, step: 1 }), signal: AbortSignal.timeout(58000) });
+    const d1 = await r1.json();
+    if (!r1.ok) throw new Error(d1?.error ?? "collectFees step1 failed");
+    if (d1.skipped) return Response.json({ ok: true, case: 5, skipped: true, reason: d1.reason });
+
+    const r2 = await fetch(`${base}/api/collectFees`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...cfBase, step: 2, wethBefore: d1.wethBefore, usdcBefore: d1.usdcBefore }), signal: AbortSignal.timeout(58000) });
+    const d2 = await r2.json().catch(() => ({}));
+
+    const r3 = await fetch(`${base}/api/collectFees`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...cfBase, step: 3, rawTokenId: d1.rawTokenId, isStaked: d1.isStaked, usdcBefore: d1.usdcBefore }), signal: AbortSignal.timeout(58000) });
+    const d3 = await r3.json().catch(() => ({}));
+
+    return Response.json({ ok: true, case: 5, ...d2, ...d3 });
   } catch (e) {
     const msg = e?.message ?? String(e);
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 5 (collect fees)", `Erreur : ${msg}`);
@@ -569,15 +573,19 @@ async function handleCase6(poolNum = 2) {
   }
 
   try {
-    const res = await fetch(`${base}/api/collectFees`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ poolNum, caseNum: 6, noTransfer: poolNum === 2 }),
-      signal: AbortSignal.timeout(180000),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? "collectFees failed"));
-    return Response.json({ ok: true, case: 6, ...data });
+    const cfBase = { poolNum, caseNum: 6, noTransfer: poolNum === 2 };
+    const r1 = await fetch(`${base}/api/collectFees`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...cfBase, step: 1 }), signal: AbortSignal.timeout(58000) });
+    const d1 = await r1.json();
+    if (!r1.ok) throw new Error(d1?.error ?? "collectFees step1 failed");
+    if (d1.skipped) return Response.json({ ok: true, case: 6, skipped: true, reason: d1.reason });
+
+    const r2 = await fetch(`${base}/api/collectFees`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...cfBase, step: 2, wethBefore: d1.wethBefore, usdcBefore: d1.usdcBefore }), signal: AbortSignal.timeout(58000) });
+    const d2 = await r2.json().catch(() => ({}));
+
+    const r3 = await fetch(`${base}/api/collectFees`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...cfBase, step: 3, rawTokenId: d1.rawTokenId, isStaked: d1.isStaked, usdcBefore: d1.usdcBefore }), signal: AbortSignal.timeout(58000) });
+    const d3 = await r3.json().catch(() => ({}));
+
+    return Response.json({ ok: true, case: 6, ...d2, ...d3 });
   } catch (e) {
     const msg = e?.message ?? String(e);
     await sendErrorEmail("[CryptoYieldTracker] Erreur — Cas 6 (collect fees manuel)", `Erreur : ${msg}`);

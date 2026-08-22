@@ -131,77 +131,72 @@ async function waitForTx(tx) {
     if (r?.status === 0) throw new Error("reverted");
     return r;
   } catch (_) {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 15; i++) {
       await new Promise(res => setTimeout(res, 2000));
-      for (const url of RPC_URLS) {
-        try {
-          const res  = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [tx.hash] }),
-            signal: AbortSignal.timeout(6000),
-          });
-          const json = await res.json();
-          if (json.result) {
-            if (json.result.status === "0x0") throw new Error(`revert on-chain (hash=${tx.hash})`);
-            return json.result;
-          }
-        } catch (e) {
-          if (e.message?.startsWith("revert on-chain")) throw e;
+      const url = RPC_URLS[i % RPC_URLS.length];
+      try {
+        const res  = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [tx.hash] }),
+          signal: AbortSignal.timeout(3000),
+        });
+        const json = await res.json();
+        if (json.result) {
+          if (json.result.status === "0x0") throw new Error(`revert on-chain (hash=${tx.hash})`);
+          return json.result;
         }
+      } catch (e) {
+        if (e.message?.startsWith("revert on-chain")) throw e;
       }
     }
     throw new Error(`timeout confirmation tx ${tx.hash}`);
   }
 }
 
-export async function POST(req) {
-  const body       = await req.json().catch(() => ({}));
-  const poolNum    = body.poolNum ?? 2;
-  const caseNum    = body.caseNum ?? 5;
-  const noTransfer = body.noTransfer ?? false;
-  let rawTokenId = null;
+async function readTokenIdFromDb(poolNum) {
+  let rows = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      rows = await sql`
+        SELECT token_id FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND action2 IS NULL
+          AND COALESCE(pool_num, 2) = ${poolNum}
+        ORDER BY id DESC LIMIT 1
+      `;
+      break;
+    } catch (e) {
+      if (attempt < 2) { await new Promise(r => setTimeout(r, 2000)); continue; }
+      throw e;
+    }
+  }
+  if (rows.length === 0 || !rows[0].token_id) return null;
+  return rows[0].token_id;
+}
 
+// ─── ÉTAPE 1 : getReward + withdraw + decreaseLiquidity + collect ──────────────
+async function handleStep1(poolNum) {
+  let rawTokenId = null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
     const NFPM = poolNum === 2 ? NFPM_NEW : NFPM_OLD;
     const POOL = getPoolAddress(poolNum);
 
-    // 1. Récupérer le tokenId depuis la DB (retry sur erreur Neon transitoire)
-    let rows = [];
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        rows = await sql`
-          SELECT token_id FROM lp_events
-          WHERE action1 = 'CREATE_OK' AND action2 IS NULL
-            AND COALESCE(pool_num, 2) = ${poolNum}
-          ORDER BY id DESC LIMIT 1
-        `;
-        break;
-      } catch (e) {
-        if (attempt < 2) { await new Promise(r => setTimeout(r, 2000)); continue; }
-        throw e;
-      }
-    }
-    if (rows.length === 0 || !rows[0].token_id)
-      return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
-    rawTokenId = rows[0].token_id;
+    rawTokenId = await readTokenIdFromDb(poolNum);
+    if (!rawTokenId) return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     const tokenId = BigInt(rawTokenId);
 
-    const rpcUrl  = await pickRpc();
+    const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
-    // 2. Gauge address
     const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL]));
     const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", gaugeHex);
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 
-    // 3. Vérifier si le NFT est staké via stakedContains — ownerOf peut retourner le gauge
-    //    sans déposant valide (NFT bloqué), ce qui ferait échouer withdraw avec "NA"
     let isStaked = false;
     try {
       const result = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedContains", [wallet.address, tokenId]));
@@ -209,35 +204,27 @@ export async function POST(req) {
       isStaked = staked;
     } catch (_) {}
 
-    // 4. Claim AERO rewards (non-bloquant)
     if (isStaked) {
       try {
-        const tx = await wallet.sendTransaction({
-          to: gaugeAddr,
-          data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
-        });
+        const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
         await waitForTx(tx);
       } catch (_) {}
     }
 
-    // 5. Unstake (withdraw) — non-bloquant : si revert, on skip collect LP mais on traite l'AERO du wallet
     let withdrawOk = false;
     if (isStaked) {
       try {
-        const tx = await wallet.sendTransaction({
-          to: gaugeAddr,
-          data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]),
-        });
+        const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]) });
         await waitForTx(tx);
         withdrawOk = true;
       } catch (e) {
-        console.log(`[collectFees withdraw failed — continuing with AERO only] ${e.message ?? e}`);
+        console.log(`[collectFees step1 withdraw failed] ${e.message ?? e}`);
       }
     }
 
-    // 6. Collect fees WETH + USDC — si NFT dans le wallet (unstake OK ou jamais staké)
     const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
     const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
+
     let nftInWallet = withdrawOk;
     if (!nftInWallet) {
       try {
@@ -246,46 +233,66 @@ export async function POST(req) {
         nftInWallet = owner.toLowerCase() === wallet.address.toLowerCase();
       } catch (_) {}
     }
+
     if (nftInWallet) {
-      // Settle feeGrowth → tokensOwed (sinon collect retourne 0 si la position était stakée)
       try {
         const dlData = NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [{
-          tokenId,
-          liquidity:   0n,
-          amount0Min:  0n,
-          amount1Min:  0n,
-          deadline:    freshDeadline(),
+          tokenId, liquidity: 0n, amount0Min: 0n, amount1Min: 0n, deadline: freshDeadline(),
         }]);
         let dlGas = 300000n;
         try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: dlData }); dlGas = est * 3n / 2n; } catch (_) {}
-        const txDl = await wallet.sendTransaction({ to: NFPM, data: dlData, gasLimit: dlGas });
-        await waitForTx(txDl);
-      } catch (e) { console.log(`[collectFees decreaseLiquidity(0)] ${e.message ?? e}`); }
+        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: dlData, gasLimit: dlGas }));
+      } catch (e) { console.log(`[collectFees step1 decreaseLiquidity] ${e.message ?? e}`); }
 
       try {
         const collectData = NFPM_IFACE.encodeFunctionData("collect", [{
-          tokenId,
-          recipient:   wallet.address,
-          amount0Max:  MAX_UINT128,
-          amount1Max:  MAX_UINT128,
+          tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128,
         }]);
         let collectGas = 300000n;
         try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
-        const tx = await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas });
-        await waitForTx(tx);
-      } catch (e) { console.log(`[collect] non-bloquant : ${e.message ?? e}`); }
+        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas }));
+      } catch (e) { console.log(`[collectFees step1 collect] ${e.message ?? e}`); }
     }
 
-    // 6. Swap fees WETH → USDC
+    const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
+    const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
+    console.log(`[collectFees step1] WETH: ${wethBefore}→${wethAfter} delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}, USDC: ${usdcBefore}→${usdcAfter} delta=${usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n}, nftInWallet=${nftInWallet}, isStaked=${isStaked}`);
+
+    return Response.json({
+      ok: true,
+      rawTokenId,
+      isStaked,
+      nftInWallet,
+      wethBefore:  wethBefore.toString(),
+      usdcBefore:  usdcBefore.toString(),
+    });
+  } catch (e) {
+    const msg = e.message ?? String(e);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur step1 — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}`);
+    return Response.json({ error: msg }, { status: 500 });
+  }
+}
+
+// ─── ÉTAPE 2 : swap WETH → USDC + swap AERO → USDC ──────────────────────────
+async function handleStep2(poolNum, body) {
+  try {
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+    if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+    const POOL = getPoolAddress(poolNum);
+
+    const wethBefore = BigInt(body.wethBefore ?? "0");
+
+    const rpcUrl   = await pickRpc();
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const wallet   = new ethers.Wallet(privateKey, provider);
+    const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
+
     let swapWethHash = null;
     let swapWethError = null;
     try {
       const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
-      const usdcAfterCollect = await readBal(USDC, wallet.address).catch(() => 0n);
-      console.log(`[collectFees] après collect — WETH: ${wethBefore}→${wethAfter} (delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}), USDC: ${usdcBefore}→${usdcAfterCollect} (delta=${usdcAfterCollect > usdcBefore ? usdcAfterCollect - usdcBefore : 0n}), nftInWallet=${nftInWallet}`);
       const wethFees  = wethAfter > wethBefore ? wethAfter - wethBefore : 0n;
       if (wethFees > 0n) {
-        // tickSpacing : lire depuis le pool, fallback 100 (WETH/USDC 0.05%)
         let tickSpacing = 100;
         try {
           const tsRaw = await ethCall(POOL, "0xd0c93a7c");
@@ -297,8 +304,7 @@ export async function POST(req) {
           const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
           const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
           if (current < wethFees) {
-            const txApp = await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) });
-            await waitForTx(txApp);
+            await waitForTx(await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) }));
           }
         } catch (_) {}
 
@@ -321,9 +327,8 @@ export async function POST(req) {
               recipient: wallet.address, deadline: freshDeadline(),
               amountIn: wethFees, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
             }]);
-            // estimateGas avant d'envoyer — si ça revert (slippage trop élevé), passer au niveau suivant
             try { swapGas = (await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData })) * 3n / 2n; }
-            catch (_) { if (pct > 0n) continue; } // skip ce niveau de slippage, sauf 0n = toujours tenter
+            catch (_) { if (pct > 0n) continue; }
             const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
             swapWethHash = txSwap.hash;
             await waitForTx(txSwap);
@@ -331,21 +336,18 @@ export async function POST(req) {
             break;
           } catch (e) { swapWethError = e.message ?? String(e); }
         }
-        if (!swapOk) console.log(`[collectFees swapWeth] toutes tentatives échouées — ${swapWethError} — ${Number(wethFees) / 1e18} WETH non converti`);
+        if (!swapOk) console.log(`[collectFees step2 swapWeth] échec — ${swapWethError}`);
       }
-    } catch (e) { swapWethError = e.message ?? String(e); console.log(`[collectFees swapWeth] ${swapWethError}`); }
+    } catch (e) { swapWethError = e.message ?? String(e); }
 
-    // 8. Swap AERO → USDC
     let aeroSwapHash = null;
     try {
       const aeroBal  = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
       if (aeroBal >= MIN_AERO) {
-        const txApp = await wallet.sendTransaction({
-          to:   AERO,
-          data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
-        });
-        await waitForTx(txApp);
+        await waitForTx(await wallet.sendTransaction({
+          to: AERO, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
+        }));
         const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
         let expectedUsdcOut = 0n;
         try {
@@ -371,19 +373,48 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 9. Envoyer 50% du delta USDC vers DESTINATION_WALLET (sauf si noTransfer=true)
+    return Response.json({ ok: true, swapWethHash, aeroSwapHash, ...(swapWethError ? { swapWethError } : {}) });
+  } catch (e) {
+    return Response.json({ error: e.message ?? String(e) }, { status: 500 });
+  }
+}
+
+// ─── ÉTAPE 3 : transfer + log DB + restake ───────────────────────────────────
+async function handleStep3(poolNum, noTransfer, caseNum, body) {
+  let rawTokenId = body.rawTokenId ?? null;
+  try {
+    const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+    if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
+    const NFPM = poolNum === 2 ? NFPM_NEW : NFPM_OLD;
+    const POOL = getPoolAddress(poolNum);
+
+    if (!rawTokenId) {
+      rawTokenId = await readTokenIdFromDb(poolNum);
+      if (!rawTokenId) return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
+    }
+    const tokenId = BigInt(rawTokenId);
+
+    const isStaked   = body.isStaked   ?? false;
+    const usdcBefore = BigInt(body.usdcBefore ?? "0");
+
+    const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL]));
+    const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", gaugeHex);
+
+    const rpcUrl   = await pickRpc();
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const wallet   = new ethers.Wallet(privateKey, provider);
+    const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
+
     let transferHash = null;
     try {
       const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
       if (dest && !noTransfer) {
         const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
         const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
-        console.log(`[collectFees] before=${usdcBefore} after=${usdcAfter} delta=${delta} dest=${dest}`);
-        const toSend = delta / 2n;
+        const toSend    = delta / 2n;
         if (toSend > 0n) {
           const txTransfer = await wallet.sendTransaction({
-            to:   USDC,
-            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
+            to: USDC, data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
           });
           transferHash = txTransfer.hash;
           await waitForTx(txTransfer);
@@ -393,62 +424,58 @@ export async function POST(req) {
           } catch (_) {}
         }
       }
-    } catch (e) { console.log(`[collectFees transfer] ${e.message ?? e}`); }
+    } catch (e) { console.log(`[collectFees step3 transfer] ${e.message ?? e}`); }
 
-    // 10. Logger FEE_COLLECT en DB + marquer dans Redis (pas de modification action2 — position reste ouverte)
     try {
       await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('FEE_COLLECT', ${rawTokenId}, ${poolNum})`;
       await writeCollectedToday(poolNum);
       await writeCollectErr(poolNum, false);
     } catch (_) {}
 
-    // 11. Re-stake — 3 méthodes : A) deposit v2  B) deposit v1  C) safeTransferFrom
     let restakeError = null;
+    let nftInWallet = false;
+    try {
+      const ownerHex = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]));
+      const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", ownerHex);
+      nftInWallet = owner.toLowerCase() === wallet.address.toLowerCase();
+    } catch (_) {}
+
     if (isStaked && nftInWallet) {
       let restakeOk = false;
-
-      // Nonce explicite pour éviter le drift après la longue chaîne de txs précédentes
       let nonce;
       try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
       const withNonce = (n) => (nonce !== undefined ? { nonce: n } : {});
 
-      // Approve (nécessaire pour A et B)
       try {
-        const txApprove = await wallet.sendTransaction({
-          to:   NFPM,
-          data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]),
-          ...withNonce(nonce++),
-        });
-        await waitForTx(txApprove);
+        await waitForTx(await wallet.sendTransaction({
+          to: NFPM, data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]), ...withNonce(nonce++),
+        }));
       } catch (_) {
         try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
       }
 
-      // A) deposit(tokenId, 0) — Slipstream v2
       if (!restakeOk) try {
         const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
         let gas = 500000n;
         try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; }
-        catch (_) { throw new Error("estimateGas deposit A échoué — méthode inconnue du gauge"); }
+        catch (_) { throw new Error("estimateGas deposit A échoué"); }
         await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
       } catch (_) {
         try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
       }
 
-      // B) deposit(tokenId) — Slipstream v1
       if (!restakeOk) try {
         const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
         let gas = 500000n;
         try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; }
-        catch (_) { throw new Error("estimateGas deposit B échoué — méthode inconnue du gauge"); }
+        catch (_) { throw new Error("estimateGas deposit B échoué"); }
         await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
       } catch (_) {
         try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
       }
 
-      // C) safeTransferFrom — le gauge reçoit le NFT via onERC721Received
       if (!restakeOk) try {
         const stfData = NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]);
         let gas = 500000n;
@@ -460,28 +487,38 @@ export async function POST(req) {
       }
 
       if (!restakeOk && !restakeError) restakeError = "Toutes les méthodes de restake ont échoué";
-
       if (restakeError) {
-        console.log(`[collectFees restake] ${restakeError}`);
+        console.log(`[collectFees step3 restake] ${restakeError}`);
         await writeErrorState(poolNum, true, `Restake échoué — NFT #${rawTokenId} dans wallet non staké. Relancer via cas 7. Erreur : ${restakeError}`);
         await sendErrorEmail("[CryptoYieldTracker] Erreur — Restake collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${restakeError}\n\nRelancer avec : autoRebalance?case=7&poolNum=${poolNum}`);
       }
     }
 
-    return Response.json({ ok: true, swapWethHash, aeroSwapHash, transferHash, ...(restakeError ? { restakeError } : {}), ...(swapWethError ? { swapWethError } : {}) });
-
+    return Response.json({ ok: true, transferHash, ...(restakeError ? { restakeError } : {}) });
   } catch (e) {
     const msg = e.message ?? String(e);
-    // Ne bloquer Case 5 que si une opération on-chain a échoué (rawTokenId lu = on a tenté quelque chose)
-    // Si rawTokenId=null, c'est une erreur DB/infra avant toute opération → retry automatique au prochain cron
-    const isInfraError = rawTokenId === null || msg.includes("Control plane request failed") || msg.includes("neon:retryable");
-    if (!isInfraError) {
+    const isInfra = !rawTokenId || msg.includes("Control plane request failed") || msg.includes("neon:retryable");
+    if (!isInfra) {
       try {
         await sql`INSERT INTO lp_events (action1, action2, error_msg, token_id, pool_num) VALUES ('FEE_COLLECT', 'COLLECT_ERR', ${msg}, ${rawTokenId}, ${poolNum})`;
         await writeCollectErr(poolNum, true);
       } catch (_) {}
     }
-    await sendErrorEmail("[CryptoYieldTracker] Erreur — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}${isInfraError ? "\n\n⚠ Erreur infra/DB transitoire — retry automatique au prochain cron" : ""}`);
+    await sendErrorEmail("[CryptoYieldTracker] Erreur step3 — collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${msg}`);
     return Response.json({ error: msg }, { status: 500 });
   }
+}
+
+// ─── Handler principal ────────────────────────────────────────────────────────
+export async function POST(req) {
+  const body       = await req.json().catch(() => ({}));
+  const poolNum    = body.poolNum    ?? 2;
+  const caseNum    = body.caseNum    ?? 5;
+  const noTransfer = body.noTransfer ?? false;
+  const step       = body.step       ?? 1;
+
+  if (step === 1) return handleStep1(poolNum);
+  if (step === 2) return handleStep2(poolNum, body);
+  if (step === 3) return handleStep3(poolNum, noTransfer, caseNum, body);
+  return Response.json({ error: `step invalide: ${step}` }, { status: 400 });
 }

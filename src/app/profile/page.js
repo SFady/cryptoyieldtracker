@@ -322,14 +322,33 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
     setCollecting(true);
     setCollectResult(null);
     try {
-      const res  = await fetch("/api/collectFees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ poolNum, noTransfer: poolNum === 2 }),
+      const base = { poolNum, noTransfer: poolNum === 2 };
+
+      // Étape 1 : getReward + withdraw + decreaseLiquidity + collect (~20s)
+      const r1 = await fetch("/api/collectFees", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...base, step: 1 }),
       });
-      const data = await res.json();
-      if (data.error) setCollectResult({ ok: false, msg: data.error });
-      else setCollectResult({ ok: true, msg: `Collecté ✓ — Solde USDC : $${data.finalUsdc}` });
+      const d1 = await r1.json();
+      if (d1.error) { setCollectResult({ ok: false, msg: `[step1] ${d1.error}` }); return; }
+      if (d1.skipped) { setCollectResult({ ok: true, msg: d1.reason }); return; }
+
+      // Étape 2 : swap WETH + swap AERO (~15s)
+      const r2 = await fetch("/api/collectFees", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...base, step: 2, wethBefore: d1.wethBefore, usdcBefore: d1.usdcBefore }),
+      });
+      await r2.json();
+
+      // Étape 3 : transfer + log DB + restake (~15s)
+      const r3 = await fetch("/api/collectFees", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...base, step: 3, rawTokenId: d1.rawTokenId, isStaked: d1.isStaked, usdcBefore: d1.usdcBefore }),
+      });
+      const d3 = await r3.json();
+
+      if (d3.restakeError) setCollectResult({ ok: false, msg: `Collecté mais restake échoué — ${d3.restakeError}` });
+      else setCollectResult({ ok: true, msg: "Collecté ✓" });
     } catch (e) {
       setCollectResult({ ok: false, msg: e.message });
     } finally {
