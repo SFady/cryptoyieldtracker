@@ -200,25 +200,26 @@ async function handleStep1(poolNum) {
       const result = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedContains", [wallet.address, tokenId]));
       const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedContains", result);
       isStaked = staked;
-    } catch (_) {}
+    } catch (e) {
+      console.log(`[collectFees step1 stakedContains] ${e.message ?? e}`);
+    }
+    console.log(`[collectFees step1 isStaked] ${isStaked}`);
 
     const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
     const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
 
-    // getReward distribue AERO émissions + part LP des trading fees (via gauge)
-    // Les trading fees WETH/USDC vont au feesVotingReward (voteurs) — seule la part LP arrive ici
-    if (isStaked) {
-      try {
-        const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
-        await waitForTx(tx);
-      } catch (e) {
-        console.log(`[collectFees step1 getReward] ${e.message ?? e}`);
-      }
+    // Appel getReward inconditionnellement — si la position n'est pas stakée, la tx échoue et on log
+    try {
+      const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
+      await waitForTx(tx);
+      console.log(`[collectFees step1 getReward] OK`);
+    } catch (e) {
+      console.log(`[collectFees step1 getReward] ${e.message ?? e}`);
     }
 
     const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
     const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
-    console.log(`[collectFees step1] WETH: ${wethBefore}→${wethAfter} delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}, USDC: ${usdcBefore}→${usdcAfter} delta=${usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n}, isStaked=${isStaked}`);
+    console.log(`[collectFees step1] WETH: ${wethBefore}→${wethAfter} delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}, USDC: ${usdcBefore}→${usdcAfter} delta=${usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n}`);
 
     return Response.json({
       ok: true,
