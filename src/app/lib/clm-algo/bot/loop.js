@@ -60,7 +60,6 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.POSITION_STATE),
     kv.del(REDIS_KEYS.HEDGE_STATE),
     kv.del(REDIS_KEYS.OOR_SINCE),
-    kv.del('p2_oor_count'),
     kv.del('p2_hedge_bucket'),
   ]);
 }
@@ -177,17 +176,8 @@ export async function botLoop({ base, price }) {
   result.hasShort = hasShort;
   result.isOOR    = isOOR;
 
-  // Règle 1 : hors range → fermer LP + short (confirmation 2 crons consécutifs)
-  const OOR_KEY = 'p2_oor_count';
+  // Règle 1 : hors range → fermer LP + short (dès le 1er CRON OOR)
   if (isOOR) {
-    const oorCount = ((await kv.get(OOR_KEY)) ?? 0) + 1;
-    await kv.set(OOR_KEY, oorCount, { ex: 7200 });
-    if (oorCount < 2) {
-      result.action   = 'oor_waiting';
-      result.oorCount = oorCount;
-      await logBotTick(kv, result);
-      return result;
-    }
     result.action = 'oor_close_all';
     try   { result.closeShort = await closeShort(base); }
     catch (e) { result.closeShortError = e.message; }

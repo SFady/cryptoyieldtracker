@@ -22,7 +22,6 @@ export async function POST(req) {
   await Promise.all([
     kv.del(REDIS_KEYS.POSITION_STATE),
     kv.del(REDIS_KEYS.OOR_SINCE),
-    kv.del('p2_oor_count'),
   ]);
 
   // Sauvegarder la config runtime
