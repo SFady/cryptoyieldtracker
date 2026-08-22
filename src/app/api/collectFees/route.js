@@ -124,11 +124,14 @@ async function readBal(token, address) {
 
 async function waitForTx(tx) {
   try {
-    const r = await tx.wait();
+    const r = await Promise.race([
+      tx.wait(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("tx.wait() timeout")), 12000)),
+    ]);
     if (r?.status === 0) throw new Error("reverted");
     return r;
   } catch (_) {
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 12; i++) {
       await new Promise(res => setTimeout(res, 2000));
       for (const url of RPC_URLS) {
         try {
@@ -278,6 +281,8 @@ export async function POST(req) {
     let swapWethError = null;
     try {
       const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
+      const usdcAfterCollect = await readBal(USDC, wallet.address).catch(() => 0n);
+      console.log(`[collectFees] après collect — WETH: ${wethBefore}→${wethAfter} (delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}), USDC: ${usdcBefore}→${usdcAfterCollect} (delta=${usdcAfterCollect > usdcBefore ? usdcAfterCollect - usdcBefore : 0n}), nftInWallet=${nftInWallet}`);
       const wethFees  = wethAfter > wethBefore ? wethAfter - wethBefore : 0n;
       if (wethFees > 0n) {
         // tickSpacing : lire depuis le pool, fallback 100 (WETH/USDC 0.05%)
@@ -349,13 +354,14 @@ export async function POST(req) {
           expectedUsdcOut = amounts[amounts.length - 1];
         } catch (_) {}
         let aeroSwapGas = 300000n;
-        for (const pct of [990n, 980n, 970n]) {
+        for (const pct of [990n, 980n, 970n, 0n]) {
           try {
-            const minOut = expectedUsdcOut * pct / 1000n;
+            const minOut = pct > 0n ? expectedUsdcOut * pct / 1000n : 0n;
             const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
               aeroBal, minOut, routes, wallet.address, freshDeadline(),
             ]);
-            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
+            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; }
+            catch (_) { if (pct > 0n) continue; }
             const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
             aeroSwapHash = txSwap.hash;
             await waitForTx(txSwap);
@@ -422,7 +428,8 @@ export async function POST(req) {
       if (!restakeOk) try {
         const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
         let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; } catch (_) {}
+        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; }
+        catch (_) { throw new Error("estimateGas deposit A échoué — méthode inconnue du gauge"); }
         await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
       } catch (_) {
@@ -433,7 +440,8 @@ export async function POST(req) {
       if (!restakeOk) try {
         const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
         let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; } catch (_) {}
+        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; }
+        catch (_) { throw new Error("estimateGas deposit B échoué — méthode inconnue du gauge"); }
         await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
         restakeOk = true;
       } catch (_) {
