@@ -245,8 +245,9 @@ async function handleStep1(poolNum) {
 
     if (nftInWallet) {
       try {
+        // liquidity=1 (non-zero requis par Slipstream) pour forcer la mise à jour de tokensOwed via feeGrowthDelta
         const dlData = NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [{
-          tokenId, liquidity: 0n, amount0Min: 0n, amount1Min: 0n, deadline: freshDeadline(),
+          tokenId, liquidity: 1n, amount0Min: 0n, amount1Min: 0n, deadline: freshDeadline(),
         }]);
         let dlGas = 300000n;
         try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: dlData }); dlGas = est * 3n / 2n; } catch (_) {}
