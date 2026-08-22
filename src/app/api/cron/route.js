@@ -105,6 +105,7 @@ async function handle(req) {
     // Pool 2 — CLM Neutral Zone Hedge bot
     if (process.env.PRIVATE_KEY) {
       try {
+        await pickCase(2); // peuple lp-state-2 dans Redis depuis la DB si absent
         const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
         rebalanceResults["p2"] = await botLoop({ base, price });
       } catch (e) {
