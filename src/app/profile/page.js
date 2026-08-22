@@ -682,9 +682,14 @@ function RangeBar({ low, high, current, inRange, cronWeth = [] }) {
         </span>
         {cronWeth.length > 0 && (
           <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-            {[...cronWeth].reverse().map((w, i) => (
-              <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: w >= lo && w <= hi ? "#00e5a0" : "#c97070", opacity: 0.75 }} />
-            ))}
+            {[...cronWeth].reverse().map((w, i) => {
+              const edge5Low  = lo + 0.05 * (hi - lo);
+              const edge5High = hi - 0.05 * (hi - lo);
+              const dotColor  = (w < lo || w > hi) ? "#c97070"
+                              : (w <= edge5Low || w >= edge5High) ? "#f0b429"
+                              : "#00e5a0";
+              return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, opacity: 0.85 }} />;
+            })}
           </div>
         )}
       </div>

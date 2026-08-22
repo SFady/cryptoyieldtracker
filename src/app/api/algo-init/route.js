@@ -22,6 +22,7 @@ export async function POST(req) {
   await Promise.all([
     kv.del(REDIS_KEYS.POSITION_STATE),
     kv.del(REDIS_KEYS.OOR_SINCE),
+    kv.del('p2_edge_streak'),
   ]);
 
   // Sauvegarder la config runtime

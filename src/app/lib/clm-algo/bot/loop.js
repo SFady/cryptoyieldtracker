@@ -60,6 +60,7 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.POSITION_STATE),
     kv.del(REDIS_KEYS.HEDGE_STATE),
     kv.del(REDIS_KEYS.OOR_SINCE),
+    kv.del('p2_edge_streak'),
     kv.del('p2_hedge_bucket'),
   ]);
 }
@@ -176,7 +177,7 @@ export async function botLoop({ base, price }) {
   result.hasShort = hasShort;
   result.isOOR    = isOOR;
 
-  // Règle 1 : hors range → fermer LP + short (dès le 1er CRON OOR)
+  // Règle 1 : hors range → fermer LP + short immédiatement
   if (isOOR) {
     result.action = 'oor_close_all';
     try   { result.closeShort = await closeShort(base); }
@@ -186,6 +187,35 @@ export async function botLoop({ base, price }) {
     await clearAlgoState();
     await logBotTick(kv, result);
     return result;
+  }
+
+  // Règle 1b : zone bord (5% bas ou 5% haut du range) 3 CRONs consécutifs → rebalance préventif
+  const EDGE_KEY  = 'p2_edge_streak';
+  if (hasLP) {
+    const rangeSize = rMax - rMin;
+    const edgeLow   = rMin + 0.05 * rangeSize;
+    const edgeHigh  = rMax - 0.05 * rangeSize;
+    const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
+
+    if (inEdge) {
+      const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
+      const count = prev.zone === inEdge ? prev.count + 1 : 1;
+      await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
+      result.edgeZone  = inEdge;
+      result.edgeCount = count;
+      if (count >= 3) {
+        result.action = 'edge_close_all';
+        try   { result.closeShort = await closeShort(base); }
+        catch (e) { result.closeShortError = e.message; }
+        try   { result.closeLP = await closeLP(base); }
+        catch (e) { result.closeLPError = e.message; }
+        await clearAlgoState();
+        await logBotTick(kv, result);
+        return result;
+      }
+    } else {
+      await kv.del(EDGE_KEY);
+    }
   }
   await kv.del(OOR_KEY);
 

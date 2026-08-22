@@ -141,6 +141,7 @@ export async function POST() {
       kv.del(REDIS_KEYS.POSITION_STATE),
       kv.del(REDIS_KEYS.HEDGE_STATE),
       kv.del(REDIS_KEYS.OOR_SINCE),
+      kv.del('p2_edge_streak'),
       kv.del('p2_hedge_bucket'),
     ]);
     steps.push('État Redis initialisé ✓');
