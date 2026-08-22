@@ -187,7 +187,7 @@ async function handleStep1(poolNum) {
     if (!rawTokenId) return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     const tokenId = BigInt(rawTokenId);
 
-    const rpcUrl   = await pickRpc();
+    const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
@@ -282,7 +282,7 @@ async function handleStep2(poolNum, body) {
 
     const wethBefore = BigInt(body.wethBefore ?? "0");
 
-    const rpcUrl   = await pickRpc();
+    const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
@@ -400,7 +400,7 @@ async function handleStep3(poolNum, noTransfer, caseNum, body) {
     const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL]));
     const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", gaugeHex);
 
-    const rpcUrl   = await pickRpc();
+    const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
