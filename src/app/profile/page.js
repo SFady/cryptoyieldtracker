@@ -22,6 +22,7 @@ export default function ProfilePage() {
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [nextCronAt2, setNextCronAt2] = useState(null);
   const [cronWeth2, setCronWeth2] = useState([]);
+  const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
   const [hlData2, setHlData2]     = useState(null);
@@ -46,7 +47,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
       fetch("/api/hyperliquid-status")
@@ -137,7 +138,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} hlData={hlData2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} />)}
           </>
         );
       })()}
@@ -287,7 +288,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], hlData = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null }) {
   const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
@@ -398,7 +399,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} cronWeth={cronWeth} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} cronWeth={cronWeth} edgeStreak={edgeStreak} />
         )}
       </div>
 
@@ -632,7 +633,7 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, cronWeth = [] }) {
+function RangeBar({ low, high, current, inRange, cronWeth = [], edgeStreak = null }) {
   const lo  = parseFloat(low);
   const hi  = parseFloat(high);
   const cur = parseFloat(current);
@@ -682,13 +683,12 @@ function RangeBar({ low, high, current, inRange, cronWeth = [] }) {
         </span>
         <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
           {[0, 1, 2].map((i) => {
-            const w = cronWeth[i];
-            const edge5Low  = lo + 0.05 * (hi - lo);
-            const edge5High = hi - 0.05 * (hi - lo);
-            const dotColor  = w == null        ? "#00e5a0"
-                            : (w < lo || w > hi) ? "#c97070"
-                            : (w <= edge5Low || w >= edge5High) ? "#f0b429"
-                            : "#00e5a0";
+            const streakCount = edgeStreak?.count ?? 0;
+            // dot 0 = plus récent, dot 2 = plus ancien
+            // orange si ce cron fait partie du streak actuel
+            const dotColor = !inRange        ? "#c97070"
+                           : streakCount > i ? "#f0b429"
+                           :                   "#00e5a0";
             return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, opacity: 0.85 }} />;
           })}
         </div>

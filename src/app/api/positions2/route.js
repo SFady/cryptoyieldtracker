@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
+import { kv } from "@vercel/kv";
 import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL } from "../../lib/config";
 
@@ -286,8 +287,9 @@ async function buildPosition(tokenId, ethCall, openData) {
 export async function GET() {
   const cached = await readPositionsCache(2);
   if (cached) {
-    const cronWeth = await getLastTwoPrices();
-    return Response.json({ ...cached, cronWeth });
+    const cronWeth   = await getLastTwoPrices();
+    const edgeStreak = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
+    return Response.json({ ...cached, cronWeth, edgeStreak });
   }
 
   try {
@@ -487,10 +489,11 @@ export async function GET() {
       }));
     } catch (_) {}
 
-    const nextCronAt = await getNextCronAt();
-    const cronWeth   = await getLastTwoPrices();
+    const nextCronAt  = await getNextCronAt();
+    const cronWeth    = await getLastTwoPrices();
+    const edgeStreak  = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, walletShort };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
