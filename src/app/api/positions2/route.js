@@ -222,12 +222,8 @@ async function buildPosition(tokenId, ethCall, openData) {
   const t0 = TOKENS[token0Addr] ?? { symbol: "TK0", decimals: 18 };
   const t1 = TOKENS[token1Addr] ?? { symbol: "TK1", decimals: 6  };
 
-  const [s0Hex, fg0Hex, fg1Hex, tickLoHex, tickHiHex] = await Promise.all([
+  const [s0Hex] = await Promise.all([
     ethCall(POOL, "0x3850c7bd"),
-    ethCall(POOL, POOL_IFACE.encodeFunctionData("feeGrowthGlobal0X128")).catch(() => null),
-    ethCall(POOL, POOL_IFACE.encodeFunctionData("feeGrowthGlobal1X128")).catch(() => null),
-    ethCall(POOL, POOL_IFACE.encodeFunctionData("ticks", [tickLower])).catch(() => null),
-    ethCall(POOL, POOL_IFACE.encodeFunctionData("ticks", [tickUpper])).catch(() => null),
   ]);
 
   const sqrtP    = toUint(word(s0Hex, 0));
@@ -239,37 +235,10 @@ async function buildPosition(tokenId, ethCall, openData) {
   const bal1 = Number(a1) / 10 ** t1.decimals;
   const inRange = currTick >= tickLower && currTick < tickUpper;
 
-  let fee0 = Number(owed0) / 10 ** t0.decimals;
-  let fee1 = Number(owed1) / 10 ** t1.decimals;
-  try {
-    const sub256   = (a, b) => mod256(a - b);
-    const [fg0]    = POOL_IFACE.decodeFunctionResult("feeGrowthGlobal0X128", fg0Hex);
-    const [fg1]    = POOL_IFACE.decodeFunctionResult("feeGrowthGlobal1X128", fg1Hex);
-    const tickLo   = POOL_IFACE.decodeFunctionResult("ticks", tickLoHex);
-    const tickHi   = POOL_IFACE.decodeFunctionResult("ticks", tickHiHex);
-
-    const fgGlobal0 = BigInt(fg0);
-    const fgGlobal1 = BigInt(fg1);
-    const fgOutLo0  = BigInt(tickLo.feeGrowthOutside0X128);
-    const fgOutLo1  = BigInt(tickLo.feeGrowthOutside1X128);
-    const fgOutHi0  = BigInt(tickHi.feeGrowthOutside0X128);
-    const fgOutHi1  = BigInt(tickHi.feeGrowthOutside1X128);
-
-    const fgBelow0  = currTick >= tickLower ? fgOutLo0 : sub256(fgGlobal0, fgOutLo0);
-    const fgBelow1  = currTick >= tickLower ? fgOutLo1 : sub256(fgGlobal1, fgOutLo1);
-    const fgAbove0  = currTick <  tickUpper ? fgOutHi0 : sub256(fgGlobal0, fgOutHi0);
-    const fgAbove1  = currTick <  tickUpper ? fgOutHi1 : sub256(fgGlobal1, fgOutHi1);
-
-    const fgInside0 = sub256(sub256(fgGlobal0, fgBelow0), fgAbove0);
-    const fgInside1 = sub256(sub256(fgGlobal1, fgBelow1), fgAbove1);
-
-    const Q128      = 1n << 128n;
-    const pending0  = (liquidity * sub256(fgInside0, fgInside0Last)) / Q128 + owed0;
-    const pending1  = (liquidity * sub256(fgInside1, fgInside1Last)) / Q128 + owed1;
-
-    fee0 = Number(pending0) / 10 ** t0.decimals;
-    fee1 = Number(pending1) / 10 ** t1.decimals;
-  } catch (_) {}
+  // Position stakée dans CLGauge Aerodrome : les fees WETH/USDC vont au feesVotingReward
+  // (voteurs veAERO), pas à l'LP via NFPM. On n'affiche rien de collectible ici.
+  const fee0 = 0;
+  const fee1 = 0;
 
   const ethPrice = Number((sqrtP * sqrtP * 10n ** 12n) / (1n << 192n));
   const usd = (sym, amt) => sym === "WETH" ? amt * ethPrice : amt;
