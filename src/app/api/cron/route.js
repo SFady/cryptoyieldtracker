@@ -112,12 +112,11 @@ async function handle(req) {
         rebalanceResults["p2"] = { error: e.message };
       }
 
-      // Edge zone check (5% bords du range) — utilise les bornes réelles de la position
+      // Edge zone check (5% bords du range) — lit le cache Redis positions2, pas de DB
       if (price) {
         try {
-          const p2res = await fetch(`${base}/api/positions2`, { signal: AbortSignal.timeout(8000) });
-          const p2data = await p2res.json();
-          const pos = (p2data.positions ?? [])[0];
+          const cached = await readPositionsCache(2);
+          const pos    = cached?.positions?.[0];
           if (pos) {
             const rMin = parseFloat(pos.rangeLow);
             const rMax = parseFloat(pos.rangeHigh);
