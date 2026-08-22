@@ -220,11 +220,14 @@ async function handleStep1(poolNum) {
         console.log(`[step1 withdraw sim REVERT] ${simErr.message?.slice(0, 400) ?? simErr}`);
       }
       try {
-        const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]) });
+        const withdrawData = GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]);
+        let withdrawGas = 500000n;
+        try { withdrawGas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: withdrawData })) * 2n; } catch (_) {}
+        const tx = await wallet.sendTransaction({ to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
         await waitForTx(tx);
         withdrawOk = true;
       } catch (e) {
-        console.log(`[collectFees step1 withdraw failed] ${e.message ?? e}`);
+        console.log(`[collectFees step1 withdraw failed] ${e.message ?? e} | revert=${e.revert?.args ?? e.data ?? ''}`);
       }
     }
 
