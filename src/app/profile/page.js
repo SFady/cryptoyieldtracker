@@ -680,18 +680,18 @@ function RangeBar({ low, high, current, inRange, cronWeth = [] }) {
         <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
           {inRange ? "● IN" : "● OUT"}
         </span>
-        {cronWeth.length > 0 && (
-          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-            {[...cronWeth].reverse().map((w, i) => {
-              const edge5Low  = lo + 0.05 * (hi - lo);
-              const edge5High = hi - 0.05 * (hi - lo);
-              const dotColor  = (w < lo || w > hi) ? "#c97070"
-                              : (w <= edge5Low || w >= edge5High) ? "#f0b429"
-                              : "#00e5a0";
-              return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, opacity: 0.85 }} />;
-            })}
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+          {[0, 1, 2].map((i) => {
+            const w = cronWeth[i];
+            const edge5Low  = lo + 0.05 * (hi - lo);
+            const edge5High = hi - 0.05 * (hi - lo);
+            const dotColor  = w == null        ? "#00e5a0"
+                            : (w < lo || w > hi) ? "#c97070"
+                            : (w <= edge5Low || w >= edge5High) ? "#f0b429"
+                            : "#00e5a0";
+            return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, opacity: 0.85 }} />;
+          })}
+        </div>
       </div>
     </div>
   );
