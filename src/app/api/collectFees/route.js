@@ -174,23 +174,21 @@ async function readTokenIdFromDb(poolNum) {
   return rows[0].token_id;
 }
 
-// ─── ÉTAPE 1 : getReward + withdraw + decreaseLiquidity + collect ──────────────
+// ─── ÉTAPE 1 : getReward (AERO + part LP des fees via gauge) ─────────────────
 async function handleStep1(poolNum) {
   let rawTokenId = null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
-    const NFPM = poolNum === 2 ? NFPM_NEW : NFPM_OLD;
     const POOL = getPoolAddress(poolNum);
 
     rawTokenId = await readTokenIdFromDb(poolNum);
     if (!rawTokenId) return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     const tokenId = BigInt(rawTokenId);
 
-    const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
+    const rpcUrl = RPC_URLS[0];
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
-    const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
     const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL]));
     const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", gaugeHex);
@@ -204,75 +202,29 @@ async function handleStep1(poolNum) {
       isStaked = staked;
     } catch (_) {}
 
+    const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
+    const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
+
+    // getReward distribue AERO émissions + part LP des trading fees (via gauge)
+    // Les trading fees WETH/USDC vont au feesVotingReward (voteurs) — seule la part LP arrive ici
     if (isStaked) {
       try {
         const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
         await waitForTx(tx);
-      } catch (_) {}
-    }
-
-    let withdrawOk = false;
-    if (isStaked) {
-      try {
-        await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]), from: wallet.address });
-        console.log(`[step1 withdraw sim] OK — pas de revert simulé`);
-      } catch (simErr) {
-        console.log(`[step1 withdraw sim REVERT] ${simErr.message?.slice(0, 400) ?? simErr}`);
-      }
-      try {
-        const withdrawData = GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]);
-        let withdrawGas = 500000n;
-        try { withdrawGas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: withdrawData })) * 2n; } catch (_) {}
-        const tx = await wallet.sendTransaction({ to: gaugeAddr, data: withdrawData, gasLimit: withdrawGas });
-        await waitForTx(tx);
-        withdrawOk = true;
       } catch (e) {
-        console.log(`[collectFees step1 withdraw failed] ${e.message ?? e} | revert=${e.revert?.args ?? e.data ?? ''}`);
+        console.log(`[collectFees step1 getReward] ${e.message ?? e}`);
       }
-    }
-
-    const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
-    const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
-
-    let nftInWallet = withdrawOk;
-    if (!nftInWallet) {
-      try {
-        const ownerHex = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]));
-        const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", ownerHex);
-        nftInWallet = owner.toLowerCase() === wallet.address.toLowerCase();
-      } catch (_) {}
-    }
-
-    if (nftInWallet) {
-      try {
-        // liquidity=1 (non-zero requis par Slipstream) pour forcer la mise à jour de tokensOwed via feeGrowthDelta
-        const dlData = NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [{
-          tokenId, liquidity: 1n, amount0Min: 0n, amount1Min: 0n, deadline: freshDeadline(),
-        }]);
-        let dlGas = 300000n;
-        try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: dlData }); dlGas = est * 3n / 2n; } catch (_) {}
-        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: dlData, gasLimit: dlGas }));
-      } catch (e) { console.log(`[collectFees step1 decreaseLiquidity] ${e.message ?? e}`); }
-
-      try {
-        const collectData = NFPM_IFACE.encodeFunctionData("collect", [{
-          tokenId, recipient: wallet.address, amount0Max: MAX_UINT128, amount1Max: MAX_UINT128,
-        }]);
-        let collectGas = 300000n;
-        try { const est = await provider.estimateGas({ to: NFPM, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
-        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: collectData, gasLimit: collectGas }));
-      } catch (e) { console.log(`[collectFees step1 collect] ${e.message ?? e}`); }
     }
 
     const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
     const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
-    console.log(`[collectFees step1] WETH: ${wethBefore}→${wethAfter} delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}, USDC: ${usdcBefore}→${usdcAfter} delta=${usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n}, nftInWallet=${nftInWallet}, isStaked=${isStaked}`);
+    console.log(`[collectFees step1] WETH: ${wethBefore}→${wethAfter} delta=${wethAfter > wethBefore ? wethAfter - wethBefore : 0n}, USDC: ${usdcBefore}→${usdcAfter} delta=${usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n}, isStaked=${isStaked}`);
 
     return Response.json({
       ok: true,
       rawTokenId,
       isStaked,
-      nftInWallet,
+      nftInWallet: false,
       wethBefore:  wethBefore.toString(),
       usdcBefore:  usdcBefore.toString(),
     });
@@ -389,31 +341,24 @@ async function handleStep2(poolNum, body) {
   }
 }
 
-// ─── ÉTAPE 3 : transfer + log DB + restake ───────────────────────────────────
+// ─── ÉTAPE 3 : transfer + log DB ─────────────────────────────────────────────
 async function handleStep3(poolNum, noTransfer, caseNum, body) {
   let rawTokenId = body.rawTokenId ?? null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
-    const NFPM = poolNum === 2 ? NFPM_NEW : NFPM_OLD;
     const POOL = getPoolAddress(poolNum);
 
     if (!rawTokenId) {
       rawTokenId = await readTokenIdFromDb(poolNum);
       if (!rawTokenId) return Response.json({ skipped: true, reason: "Aucune position ouverte en DB" });
     }
-    const tokenId = BigInt(rawTokenId);
 
-    const isStaked   = body.isStaked   ?? false;
     const usdcBefore = BigInt(body.usdcBefore ?? "0");
 
-    const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL]));
-    const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult("gauges", gaugeHex);
-
-    const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
+    const rpcUrl  = RPC_URLS[0];
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
-    const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
     let transferHash = null;
     try {
@@ -442,69 +387,7 @@ async function handleStep3(poolNum, noTransfer, caseNum, body) {
       await writeCollectErr(poolNum, false);
     } catch (_) {}
 
-    let restakeError = null;
-    let nftInWallet = false;
-    try {
-      const ownerHex = await ethCall(NFPM, NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]));
-      const [owner] = NFPM_IFACE.decodeFunctionResult("ownerOf", ownerHex);
-      nftInWallet = owner.toLowerCase() === wallet.address.toLowerCase();
-    } catch (_) {}
-
-    if (isStaked && nftInWallet) {
-      let restakeOk = false;
-      let nonce;
-      try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
-      const withNonce = (n) => (nonce !== undefined ? { nonce: n } : {});
-
-      try {
-        await waitForTx(await wallet.sendTransaction({
-          to: NFPM, data: NFPM_IFACE.encodeFunctionData("approve", [gaugeAddr, tokenId]), ...withNonce(nonce++),
-        }));
-      } catch (_) {
-        try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
-      }
-
-      if (!restakeOk) try {
-        const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256,uint256)", [tokenId, 0n]);
-        let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; }
-        catch (_) { throw new Error("estimateGas deposit A échoué"); }
-        await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
-        restakeOk = true;
-      } catch (_) {
-        try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
-      }
-
-      if (!restakeOk) try {
-        const depositData = GAUGE_IFACE.encodeFunctionData("deposit(uint256)", [tokenId]);
-        let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: depositData })) * 3n / 2n; }
-        catch (_) { throw new Error("estimateGas deposit B échoué"); }
-        await waitForTx(await wallet.sendTransaction({ to: gaugeAddr, data: depositData, gasLimit: gas, ...withNonce(nonce++) }));
-        restakeOk = true;
-      } catch (_) {
-        try { nonce = await provider.getTransactionCount(wallet.address, "pending"); } catch (_) {}
-      }
-
-      if (!restakeOk) try {
-        const stfData = NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]);
-        let gas = 500000n;
-        try { gas = (await provider.estimateGas({ to: NFPM, from: wallet.address, data: stfData })) * 3n / 2n; } catch (_) {}
-        await waitForTx(await wallet.sendTransaction({ to: NFPM, data: stfData, gasLimit: gas, ...withNonce(nonce++) }));
-        restakeOk = true;
-      } catch (e) {
-        restakeError = `3 méthodes échouées — ${e.message ?? String(e)}`;
-      }
-
-      if (!restakeOk && !restakeError) restakeError = "Toutes les méthodes de restake ont échoué";
-      if (restakeError) {
-        console.log(`[collectFees step3 restake] ${restakeError}`);
-        await writeErrorState(poolNum, true, `Restake échoué — NFT #${rawTokenId} dans wallet non staké. Relancer via cas 7. Erreur : ${restakeError}`);
-        await sendErrorEmail("[CryptoYieldTracker] Erreur — Restake collectFees", `Pool : ${poolNum}\nTokenId : ${rawTokenId}\n\nErreur : ${restakeError}\n\nRelancer avec : autoRebalance?case=7&poolNum=${poolNum}`);
-      }
-    }
-
-    return Response.json({ ok: true, transferHash, ...(restakeError ? { restakeError } : {}) });
+    return Response.json({ ok: true, transferHash });
   } catch (e) {
     const msg = e.message ?? String(e);
     const isInfra = !rawTokenId || msg.includes("Control plane request failed") || msg.includes("neon:retryable");
