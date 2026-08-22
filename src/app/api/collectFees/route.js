@@ -214,6 +214,12 @@ async function handleStep1(poolNum) {
     let withdrawOk = false;
     if (isStaked) {
       try {
+        await provider.call({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]), from: wallet.address });
+        console.log(`[step1 withdraw sim] OK — pas de revert simulé`);
+      } catch (simErr) {
+        console.log(`[step1 withdraw sim REVERT] ${simErr.message?.slice(0, 400) ?? simErr}`);
+      }
+      try {
         const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("withdraw", [tokenId]) });
         await waitForTx(tx);
         withdrawOk = true;
