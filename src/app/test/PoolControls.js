@@ -72,7 +72,7 @@ export default function PoolControls() {
         const res  = await fetch("/api/closePositions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ poolNum, noTransfer: true }),
+          body: JSON.stringify({ poolNum, noTransfer: true, keepWeth: true }),
         });
         const data = await res.json();
         if (!res.ok) { setResult({ ok: false, msg: data.error ?? JSON.stringify(data) }); return; }
