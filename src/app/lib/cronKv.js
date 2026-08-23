@@ -92,6 +92,14 @@ export async function clearWethFeesPending(poolNum) {
   try { await kv.del(`weth-fees-pending-${poolNum}`); } catch (_) {}
 }
 
+// Range réel de la position pool 2 (long-lived, mis à jour à chaque chargement positions2)
+export async function writeP2Range(min, max) {
+  try { await kv.set('p2_live_range', { min: String(min), max: String(max) }, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+export async function readP2Range() {
+  try { return await kv.get('p2_live_range'); } catch (_) { return null; }
+}
+
 // État d'erreur lp_events (CREATE_ERR / CLOSE_ERR)
 export async function writeErrorState(poolNum, hasError, msg = null) {
   try { await kv.set(`lp-err-${poolNum}`, { hasError, msg }, { ex: LP_STATE_TTL }); } catch (_) {}

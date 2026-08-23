@@ -104,22 +104,7 @@ async function handle(req) {
   if (base) {
     // Pool 2 — CLM Neutral Zone Hedge bot
     if (process.env.PRIVATE_KEY) {
-      // Injecter le range réel dans lp-state-2 si range_min/max sont null (depuis cache positions2, sans DB)
-      try {
-        await pickCase(2);
-        const cached = await readPositionsCache(2);
-        const pos    = cached?.positions?.[0];
-        if (pos?.rangeLow && pos?.rangeHigh) {
-          const lpState2 = await readLpState(2);
-          if (lpState2 && (lpState2.range_min == null || isNaN(parseFloat(lpState2.range_min)))) {
-            await writeLpState(2, { ...lpState2, range_min: pos.rangeLow, range_max: pos.rangeHigh });
-            console.log(`[cron] range injecté dans lp-state-2: ${pos.rangeLow}–${pos.rangeHigh}`);
-          }
-        }
-      } catch (e) {
-        console.log(`[cron] range inject: ${e.message}`);
-      }
-
+      try { await pickCase(2); } catch (_) {}
       try {
         const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
         rebalanceResults["p2"] = await botLoop({ base, price });

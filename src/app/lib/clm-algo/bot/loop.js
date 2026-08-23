@@ -1,7 +1,7 @@
 import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState }      from '../../cronKv.js';
+import { readLpState, readP2Range, writeP2Range } from '../../cronKv.js';
 import { closeShort, getShortState } from '../hedge/hyperliquid.js';
 import { logBotTick }       from './metrics.js';
 
@@ -62,7 +62,50 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.OOR_SINCE),
     kv.del('p2_edge_streak'),
     kv.del('p2_hedge_bucket'),
+    kv.del('p2_live_range'),
   ]);
+}
+
+/**
+ * Collecte les AERO (pendant que la position est encore stakée), ferme short + LP,
+ * puis rouvre immédiatement avec tout le capital disponible.
+ */
+async function runCollect(base, price) {
+  const out = {};
+
+  // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
+  for (const step of [1, 2]) {
+    try {
+      const r = await fetch(`${base}/api/collectFees`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ step, poolNum: 2 }),
+        signal:  AbortSignal.timeout(120000),
+      });
+      out[`step${step}`] = await r.json();
+    } catch (e) { out[`step${step}Error`] = e.message; }
+  }
+
+  // Fermer le short HL
+  try   { out.closeShort = await closeShort(base); }
+  catch (e) { out.closeShortError = e.message; }
+
+  // Fermer la LP (retire les fonds, met à jour la DB)
+  try   { out.closeLP = await closeLP(base); }
+  catch (e) { out.closeLPError = e.message; }
+
+  // Réinitialiser l'état algo (supprime aussi p2_live_range)
+  await clearAlgoState();
+
+  // Rouvrir LP + short avec tout l'USDC disponible (fees AERO + fonds retirés)
+  out.autoStart = await autoStart({ base, price });
+
+  // Sauvegarder le nouveau range
+  if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
+    await writeP2Range(out.autoStart.pool.tickLowerPrice, out.autoStart.pool.tickUpperPrice);
+  }
+
+  return out;
 }
 
 /**
@@ -166,9 +209,20 @@ export async function botLoop({ base, price }) {
   // 1. État LP
   const lpState = await readLpState(ALGO_CONFIG.POOL_NUM);
   const hasLP   = !!(lpState && lpState.action2 === null);
-  const rMin    = hasLP ? parseFloat(lpState.range_min) : null;
-  const rMax    = hasLP ? parseFloat(lpState.range_max) : null;
-  const isOOR   = hasLP && (price < rMin || price > rMax);
+  let rMin = hasLP ? parseFloat(lpState.range_min) : null;
+  let rMax = hasLP ? parseFloat(lpState.range_max) : null;
+
+  // range_min/max peut être null en DB (pool 2) → lire p2_live_range (mis à jour à chaque page)
+  if (hasLP && (rMin == null || isNaN(rMin))) {
+    const lr = await readP2Range();
+    if (lr?.min) {
+      rMin = parseFloat(lr.min);
+      rMax = parseFloat(lr.max);
+      console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
+    }
+  }
+
+  const isOOR = hasLP && !isNaN(rMin) && !isNaN(rMax) && (price < rMin || price > rMax);
 
   // 2. État short HL
   const { hasShort } = await getShortState(base);
@@ -177,14 +231,10 @@ export async function botLoop({ base, price }) {
   result.hasShort = hasShort;
   result.isOOR    = isOOR;
 
-  // Règle 1 : hors range → fermer LP + short immédiatement
+  // Règle 1 : hors range → collect AERO + fermer + rouvrir immédiatement
   if (isOOR) {
-    result.action = 'oor_close_all';
-    try   { result.closeShort = await closeShort(base); }
-    catch (e) { result.closeShortError = e.message; }
-    try   { result.closeLP = await closeLP(base); }
-    catch (e) { result.closeLPError = e.message; }
-    await clearAlgoState();
+    result.action  = 'oor_close_all';
+    result.collect = await runCollect(base, price);
     await logBotTick(kv, result);
     return result;
   }
@@ -204,12 +254,8 @@ export async function botLoop({ base, price }) {
       result.edgeCount = count;
       console.log(`[botLoop edge] inEdge=${inEdge} count=${count}`);
       if (count >= 3) {
-        result.action = 'edge_close_all';
-        try   { result.closeShort = await closeShort(base); }
-        catch (e) { result.closeShortError = e.message; }
-        try   { result.closeLP = await closeLP(base); }
-        catch (e) { result.closeLPError = e.message; }
-        await clearAlgoState();
+        result.action  = 'edge_close_all';
+        result.collect = await runCollect(base, price);
         await logBotTick(kv, result);
         return result;
       }
@@ -217,7 +263,6 @@ export async function botLoop({ base, price }) {
       await kv.del(EDGE_KEY);
     }
   }
-  await kv.del(OOR_KEY);
 
   // Règle 2 : LP sans short → fermer LP (SL déclenché, on ne relance pas)
   if (hasLP && !hasShort) {
