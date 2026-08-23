@@ -620,7 +620,7 @@ export async function POST(req) {
         swapHash = await swapWethToStable(wethBal, wethPriceUsdc);
         await new Promise(r => setTimeout(r, 2000));
       }
-    } catch (e) { throw new Error(`[étape 4] ${e.message ?? e.shortMessage}`); }
+    } catch (e) { console.log(`[étape 4 weth swap raté] ${e.message ?? e.shortMessage} — WETH reste dans le wallet, on continue`); }
     // end if (!keepWeth)
 
     // Lecture du solde après WETH fee swap (avant AERO) pour isoler la part AERO
