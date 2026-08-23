@@ -13,6 +13,7 @@ import { logBotTick }       from './metrics.js';
 //   4. En range + short    → rien (short géré par SL HL)
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
   'https://base.drpc.org',
@@ -21,7 +22,7 @@ const RPC_URLS = [
   'https://mainnet.base.org',
 ].filter(Boolean);
 
-async function getWalletUsdc() {
+async function readWalletToken(tokenAddress, decimals) {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) return 0;
   const wallet = new ethers.Wallet(privateKey.trim());
@@ -32,24 +33,27 @@ async function getWalletUsdc() {
       const res  = await fetch(url, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: USDC_ADDRESS, data }, 'latest'] }),
+        body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: tokenAddress, data }, 'latest'] }),
         signal:  AbortSignal.timeout(6000),
       });
       const json = await res.json();
       if (json.result && json.result !== '0x') {
         const raw = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], json.result)[0];
-        return Number(raw) / 1e6; // USDC 6 décimales
+        return Number(raw) / Math.pow(10, decimals);
       }
     } catch (_) {}
   }
   return 0;
 }
 
+const getWalletUsdc = () => readWalletToken(USDC_ADDRESS, 6);
+const getWalletWeth = () => readWalletToken(WETH_ADDRESS, 18);
+
 async function closeLP(base) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ keepWeth: false, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true }),
+    body:    JSON.stringify({ keepWeth: true, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true }),
     signal:  AbortSignal.timeout(120000),
   });
   return res.json();
@@ -115,9 +119,11 @@ async function runCollect(base, price) {
 async function autoStart({ base, price }) {
   const result = { action: 'auto_start' };
 
-  // 1. Capital disponible
-  const capital = await getWalletUsdc();
-  if (capital < 10) return { ...result, skipped: true, reason: `USDC insuffisant : $${capital.toFixed(2)}` };
+  // 1. Capital disponible = USDC + WETH déjà dans le wallet
+  // createPosition lit les deux balances et fait 1 seul swap d'équilibrage
+  const [usdcBal, wethBal] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
+  const capital = usdcBal + wethBal * price;
+  if (capital < 10) return { ...result, skipped: true, reason: `Capital insuffisant : $${capital.toFixed(2)}` };
   result.capital = parseFloat(capital.toFixed(2));
 
   // 2. Range fixe 15% (±7.5% autour du prix courant)
