@@ -169,7 +169,6 @@ export async function botLoop({ base, price }) {
   const rMin    = hasLP ? parseFloat(lpState.range_min) : null;
   const rMax    = hasLP ? parseFloat(lpState.range_max) : null;
   const isOOR   = hasLP && (price < rMin || price > rMax);
-  console.log(`[botLoop] hasLP=${hasLP} rMin=${rMin} rMax=${rMax} price=${price} isOOR=${isOOR} action2=${lpState?.action2 ?? 'n/a'}`);
 
   // 2. État short HL
   const { hasShort } = await getShortState(base);
@@ -190,20 +189,33 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 1b : edge zone gérée dans cron/route.js (range réel depuis positions2)
-  // Déclenchement si p2_edge_streak.count >= 3 (lu depuis Redis)
+  // Règle 1b : zone bord (5% bas ou 5% haut du range) 3 CRONs consécutifs → rebalance préventif
   const EDGE_KEY = 'p2_edge_streak';
-  const edgeStreak = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
-  result.edgeCount = edgeStreak.count;
-  if (edgeStreak.count >= 3) {
-    result.action = 'edge_close_all';
-    try   { result.closeShort = await closeShort(base); }
-    catch (e) { result.closeShortError = e.message; }
-    try   { result.closeLP = await closeLP(base); }
-    catch (e) { result.closeLPError = e.message; }
-    await clearAlgoState();
-    await logBotTick(kv, result);
-    return result;
+  if (hasLP && !isNaN(rMin) && !isNaN(rMax)) {
+    const rangeSize = rMax - rMin;
+    const edgeLow   = rMin + 0.05 * rangeSize;
+    const edgeHigh  = rMax - 0.05 * rangeSize;
+    const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
+    if (inEdge) {
+      const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
+      const count = prev.zone === inEdge ? prev.count + 1 : 1;
+      await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
+      result.edgeZone  = inEdge;
+      result.edgeCount = count;
+      console.log(`[botLoop edge] inEdge=${inEdge} count=${count}`);
+      if (count >= 3) {
+        result.action = 'edge_close_all';
+        try   { result.closeShort = await closeShort(base); }
+        catch (e) { result.closeShortError = e.message; }
+        try   { result.closeLP = await closeLP(base); }
+        catch (e) { result.closeLPError = e.message; }
+        await clearAlgoState();
+        await logBotTick(kv, result);
+        return result;
+      }
+    } else {
+      await kv.del(EDGE_KEY);
+    }
   }
   await kv.del(OOR_KEY);
 

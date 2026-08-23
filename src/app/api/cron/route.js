@@ -104,41 +104,27 @@ async function handle(req) {
   if (base) {
     // Pool 2 — CLM Neutral Zone Hedge bot
     if (process.env.PRIVATE_KEY) {
+      // Injecter le range réel dans lp-state-2 si range_min/max sont null (depuis cache positions2, sans DB)
       try {
-        await pickCase(2); // peuple lp-state-2 dans Redis depuis la DB si absent
+        await pickCase(2);
+        const cached = await readPositionsCache(2);
+        const pos    = cached?.positions?.[0];
+        if (pos?.rangeLow && pos?.rangeHigh) {
+          const lpState2 = await readLpState(2);
+          if (lpState2 && (lpState2.range_min == null || isNaN(parseFloat(lpState2.range_min)))) {
+            await writeLpState(2, { ...lpState2, range_min: pos.rangeLow, range_max: pos.rangeHigh });
+            console.log(`[cron] range injecté dans lp-state-2: ${pos.rangeLow}–${pos.rangeHigh}`);
+          }
+        }
+      } catch (e) {
+        console.log(`[cron] range inject: ${e.message}`);
+      }
+
+      try {
         const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
         rebalanceResults["p2"] = await botLoop({ base, price });
       } catch (e) {
         rebalanceResults["p2"] = { error: e.message };
-      }
-
-      // Edge zone check (5% bords du range) — lit le cache Redis positions2, pas de DB
-      if (price) {
-        try {
-          const cached = await readPositionsCache(2);
-          const pos    = cached?.positions?.[0];
-          if (pos) {
-            const rMin = parseFloat(pos.rangeLow);
-            const rMax = parseFloat(pos.rangeHigh);
-            if (!isNaN(rMin) && !isNaN(rMax)) {
-              const rangeSize = rMax - rMin;
-              const edgeLow   = rMin + 0.05 * rangeSize;
-              const edgeHigh  = rMax - 0.05 * rangeSize;
-              const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
-              const EDGE_KEY  = 'p2_edge_streak';
-              if (inEdge) {
-                const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
-                const count = prev.zone === inEdge ? prev.count + 1 : 1;
-                await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
-                console.log(`[cron edge] inEdge=${inEdge} count=${count} price=${price} edgeLow=${edgeLow.toFixed(2)} edgeHigh=${edgeHigh.toFixed(2)}`);
-              } else {
-                await kv.del(EDGE_KEY);
-              }
-            }
-          }
-        } catch (e) {
-          console.log(`[cron edge] ${e.message}`);
-        }
       }
     }
 
