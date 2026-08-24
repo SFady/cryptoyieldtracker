@@ -7,6 +7,7 @@ export const runtime     = 'nodejs';
 export const maxDuration = 120;
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
   'https://base.drpc.org',
@@ -15,29 +16,32 @@ const RPC_URLS = [
   'https://mainnet.base.org',
 ].filter(Boolean);
 
-async function getWalletUsdc() {
+async function getTokenBalance(tokenAddress, decimals) {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) return 0;
-  const wallet  = new ethers.Wallet(privateKey.trim());
-  const iface   = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
-  const data    = iface.encodeFunctionData('balanceOf', [wallet.address]);
+  const wallet = new ethers.Wallet(privateKey.trim());
+  const iface  = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
+  const data   = iface.encodeFunctionData('balanceOf', [wallet.address]);
   for (const url of RPC_URLS) {
     try {
       const res  = await fetch(url, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: USDC_ADDRESS, data }, 'latest'] }),
+        body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: tokenAddress, data }, 'latest'] }),
         signal:  AbortSignal.timeout(6000),
       });
       const json = await res.json();
       if (json.result && json.result !== '0x') {
         const raw = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], json.result)[0];
-        return Number(raw) / 1e6;
+        return Number(raw) / 10 ** decimals;
       }
     } catch (_) {}
   }
   return 0;
 }
+
+function getWalletUsdc()  { return getTokenBalance(USDC_ADDRESS, 6); }
+function getWalletWeth()  { return getTokenBalance(WETH_ADDRESS, 18); }
 
 /**
  * POST /api/algo-start
@@ -51,11 +55,11 @@ export async function POST() {
   const steps = [];
 
   try {
-    // 1. Solde USDC du wallet
-    const capital = await getWalletUsdc();
-    steps.push(`Capital wallet : $${capital.toFixed(2)}`);
-    if (capital < 50) {
-      return Response.json({ ok: false, skipped: true, reason: `USDC insuffisant : $${capital.toFixed(2)} (min $50)`, steps });
+    // 1. Solde USDC + WETH du wallet (en parallèle)
+    const [usdcBalance, wethBalance] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
+    steps.push(`Wallet : $${usdcBalance.toFixed(2)} USDC · ${wethBalance.toFixed(4)} WETH`);
+    if (usdcBalance < 50 && wethBalance < 0.02) {
+      return Response.json({ ok: false, skipped: true, reason: `Capital insuffisant : $${usdcBalance.toFixed(2)} USDC + ${wethBalance.toFixed(4)} WETH`, steps });
     }
 
     // 2. Annuler ordres HL résiduels
@@ -72,7 +76,11 @@ export async function POST() {
     const livePrice = priceData.price;
     if (!livePrice) return Response.json({ error: 'Prix indisponible', steps }, { status: 503 });
 
-    // 4. Range 15% (±7.5%)
+    // Capital total = USDC + WETH valorisé au prix live
+    const capital = usdcBalance + wethBalance * livePrice;
+    steps.push(`Capital total : $${capital.toFixed(2)} (USDC $${usdcBalance.toFixed(2)} + ${wethBalance.toFixed(4)} WETH × $${livePrice.toFixed(0)})`);
+
+    // 4. Range 10% (±5%)
     const rangePct = 10;
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
@@ -84,7 +92,7 @@ export async function POST() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        amountUSDC:   capital,
+        amountUSDC:   usdcBalance,
         minPrice,
         maxPrice,
         currentPrice: livePrice,
