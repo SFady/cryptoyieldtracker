@@ -314,7 +314,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
         if (totalRevUSD <= 0) return "0.00";
-        const base  = openingTotal ?? parseFloat(pos.totalPoolUSD) || 1;
+        const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
         const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
         return ((totalRevUSD / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
