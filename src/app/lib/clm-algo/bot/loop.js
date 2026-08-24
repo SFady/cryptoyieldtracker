@@ -315,27 +315,32 @@ export async function botLoop({ base, price }) {
   result.bucket     = currentBucket;
   result.lastBucket = lastBucket;
 
+  // wethInPool calculé à chaque cron (pas seulement au changement de bucket) pour le close préventif
+  const rtConfig  = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
+  const L         = rtConfig?.liquidityL ?? null;
+  const Pb_stored = rtConfig?.tickUpperPrice ?? rMax;
+  let wethInPool = 0;
+  if (L && price < Pb_stored) {
+    wethInPool = Math.max(0, parseFloat((L * (1 / Math.sqrt(price) - 1 / Math.sqrt(Pb_stored))).toFixed(6)));
+  }
+  result.wethInPool = wethInPool;
+
+  // Close préventif : très peu d'ETH dans LP → OOR borne haute imminent
+  if (L && wethInPool < 0.02) {
+    result.action  = 'preventive_close_near_pb';
+    result.collect = await runCollect(base, price);
+    await logBotTick(kv, result);
+    return result;
+  }
+
   if (lastBucket === null || lastBucket !== currentBucket) {
     try {
-      // Calcul WETH dans la LP via formule (L stocké au Start, pas d'appel NFPM)
-      const rtConfig  = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
-      const L         = rtConfig?.liquidityL ?? null;
-      const Pb_stored = rtConfig?.tickUpperPrice ?? rMax;
-
       if (!L) {
-        // L non disponible (position ouverte avant le fix) → skip sans fermer le short
         result.action = 'hedge_skip_no_L';
         await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
         await logBotTick(kv, result);
         return result;
       }
-
-      let wethInPool = 0;
-      if (price < Pb_stored) {
-        wethInPool = L * (1 / Math.sqrt(price) - 1 / Math.sqrt(Pb_stored));
-        wethInPool = Math.max(0, parseFloat(wethInPool.toFixed(6)));
-      }
-      result.wethInPool = wethInPool;
 
       if (wethInPool >= 0.001) {
         const deltaUsd = Math.abs(wethInPool - (currentShortEth ?? 0)) * price;
@@ -360,9 +365,7 @@ export async function botLoop({ base, price }) {
           try { await kv.incrbyfloat('p2_hedge_fees', _fee); } catch (_) {}
         }
       } else {
-        // WETH ≈ 0 → prix proche de la borne haute, fermer le short
-        await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(30000) });
-        result.action = 'hedge_short_closed_weth_null';
+        result.action = 'hedge_weth_null';
       }
       await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
     } catch (e) {
