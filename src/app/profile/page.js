@@ -98,6 +98,7 @@ export default function ProfilePage() {
             + parseFloat(wethWalletUSD2 || 0)
             + hlTotal2
           : null;
+        const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
         return (
           <>
             <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} openingTotal={openingTotal2} mt />
@@ -140,7 +141,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} openingDelta={delta2} />)}
           </>
         );
       })()}
@@ -304,7 +305,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0 }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0, openingDelta = null }) {
   const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
@@ -519,7 +520,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
-        <TotalRow label="Total revenus" value={`$${totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
+        <TotalRow label="Total revenus" value={`$${openingDelta !== null ? (totalRevUSD + openingDelta).toFixed(2) : totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" delta={openingDelta} />
       </Section>
 
       {/* Footer */}
@@ -613,7 +614,7 @@ function TokenRow({ token, accent }) {
   );
 }
 
-function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
+function TotalRow({ label, value, highlight, percent, percentSuffix = "%", delta = null }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -630,26 +631,39 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
       }}>
         {label}
       </span>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {percent && (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {percent && (
+            <span style={{
+              fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
+              padding: "2px 7px", borderRadius: 4,
+              background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)",
+              color: "#f0b429",
+            }}>
+              {percent}{percentSuffix}
+            </span>
+          )}
+          <span style={{
+            fontWeight: 700,
+            fontFamily: "monospace",
+            fontSize: highlight ? "1rem" : "0.88rem",
+            color: highlight ? "#f0b429" : "#eaf6ff",
+            textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
+          }}>
+            {value}
+          </span>
+        </div>
+        {delta !== null && (
           <span style={{
             fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
             padding: "2px 7px", borderRadius: 4,
-            background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)",
-            color: "#f0b429",
+            color: delta >= 0 ? "#00e5a0" : "#c97070",
+            background: delta >= 0 ? "rgba(0,229,160,0.08)" : "rgba(180,100,100,0.08)",
+            border: `1px solid ${delta >= 0 ? "rgba(0,229,160,0.25)" : "rgba(180,100,100,0.25)"}`,
           }}>
-            {percent}{percentSuffix}
+            {delta >= 0 ? "+" : ""}{delta.toFixed(2)}$
           </span>
         )}
-        <span style={{
-          fontWeight: 700,
-          fontFamily: "monospace",
-          fontSize: highlight ? "1rem" : "0.88rem",
-          color: highlight ? "#f0b429" : "#eaf6ff",
-          textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
-        }}>
-          {value}
-        </span>
       </div>
     </div>
   );
