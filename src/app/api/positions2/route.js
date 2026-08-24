@@ -289,7 +289,8 @@ export async function GET() {
   if (cached) {
     const cronWeth   = await getLastTwoPrices();
     const edgeStreak = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
-    return Response.json({ ...cached, cronWeth, edgeStreak });
+    const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees });
   }
 
   try {
@@ -497,7 +498,8 @@ export async function GET() {
       await writeP2Range(positions[0].rangeLow, positions[0].rangeHigh);
     }
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort };
+    const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

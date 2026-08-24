@@ -196,6 +196,7 @@ async function autoStart({ base, price }) {
   await kv.del(REDIS_KEYS.POSITION_STATE);
   await kv.del(REDIS_KEYS.HEDGE_STATE);
   await kv.del(REDIS_KEYS.OOR_SINCE);
+  await kv.set('p2_hedge_fees', 0, { ex: 30 * 86400 });
 
   return result;
 }
@@ -236,6 +237,9 @@ export async function botLoop({ base, price }) {
   result.hasLP    = hasLP;
   result.hasShort = hasShort;
   result.isOOR    = isOOR;
+  result.rMin     = rMin ?? null;
+  result.rMax     = rMax ?? null;
+  result.poolNum  = ALGO_CONFIG.POOL_NUM;
 
   // Règle 1 : hors range → collect AERO + fermer + rouvrir immédiatement
   if (isOOR) {
@@ -328,6 +332,11 @@ export async function botLoop({ base, price }) {
         });
         result.hedgeAdjust = { wethInPool, ...(await adjustRes.json()) };
         result.action = 'hedge_adjusted';
+        const _filled = result.hedgeAdjust?.deltaResult?.response?.data?.statuses?.[0]?.filled;
+        if (_filled) {
+          const _fee = parseFloat(_filled.totalSz) * parseFloat(_filled.avgPx) * 0.00035;
+          try { await kv.incrbyfloat('p2_hedge_fees', _fee); } catch (_) {}
+        }
       } else {
         // WETH ≈ 0 → prix proche de la borne haute, fermer le short
         await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(30000) });
