@@ -255,7 +255,10 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
         </span>
       )}
       {total && (
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+          <span className="perf-badge perf-badge--pos">
+            ${total}
+          </span>
           {delta !== null && (
             <span style={{
               fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700,
@@ -267,9 +270,6 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
               {delta >= 0 ? "+" : ""}{delta.toFixed(2)}$
             </span>
           )}
-          <span className="perf-badge perf-badge--pos">
-            ${total}
-          </span>
         </div>
       )}
     </div>
