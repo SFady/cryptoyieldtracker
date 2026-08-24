@@ -205,6 +205,7 @@ async function autoStart({ base, price }) {
     const hlStatusData = await hlStatusRes.json();
     const openingTotal = parseFloat((capital + (hlStatusData.accountValue ?? 0)).toFixed(2));
     await kv.set('p2_opening_total', openingTotal, { ex: 30 * 86400 });
+    await kv.set('p2_opening_lp', parseFloat(capital.toFixed(2)), { ex: 30 * 86400 });
     result.openingTotal = openingTotal;
     if (process.env.DATABASE_URL && pool.tokenId) {
       const sql = neon(process.env.DATABASE_URL);

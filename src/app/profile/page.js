@@ -28,6 +28,7 @@ export default function ProfilePage() {
   const [hlData2, setHlData2]     = useState(null);
   const [hedgeFees2, setHedgeFees2] = useState(0);
   const [openingTotal2, setOpeningTotal2] = useState(null);
+  const [openingLp2, setOpeningLp2] = useState(null);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -49,7 +50,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); setOpeningTotal2(d.openingTotal ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
       fetch("/api/hyperliquid-status")
@@ -141,7 +142,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} openingDelta={delta2} openingTotal={openingTotal2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -305,7 +306,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0, openingDelta = null, openingTotal = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
@@ -423,6 +424,21 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
       {/* Pool amounts */}
       <Section label="En pool">
         {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
+        {openingLp != null && (() => {
+          const lpDelta = parseFloat(pos.totalPoolUSD) - openingLp;
+          const col = lpDelta >= 0 ? "#00e5a0" : "#c97070";
+          return (
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
+              <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#6666aa" }}>LP ouverture</span>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <span style={{ fontFamily:"monospace", fontSize:"0.72rem", fontWeight:700, color:col }}>
+                  {lpDelta >= 0 ? "+" : ""}{lpDelta.toFixed(2)}$
+                </span>
+                <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#555577" }}>${openingLp.toFixed(2)}</span>
+              </div>
+            </div>
+          );
+        })()}
         <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />
       </Section>
 
