@@ -150,7 +150,7 @@ export async function POST(req) {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) return Response.json({ error: 'PRIVATE_KEY manquant' }, { status: 500 });
 
-  const POOL = getPoolAddress(poolNum);
+  const POOL  = getPoolAddress(poolNum);
   const steps = [];
 
   try {
