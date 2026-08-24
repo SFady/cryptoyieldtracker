@@ -154,6 +154,13 @@ async function autoStart({ base, price }) {
   if (pool.error) return { ...result, error: `createPosition : ${pool.error}` };
   result.pool = { tickLowerPrice: pool.tickLowerPrice, tickUpperPrice: pool.tickUpperPrice };
 
+  // Convertir le WETH résiduel (non utilisé par la LP) en USDC
+  try {
+    const swapRes = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
+    const swapData = await swapRes.json();
+    if (swapData.ok && !swapData.skipped) result.wethSwapped = swapData.wethSwapped;
+  } catch (_) {}
+
   // 4. Prix HL live au moment du short (placement uniquement)
   let P0_hl = price;
   try {
