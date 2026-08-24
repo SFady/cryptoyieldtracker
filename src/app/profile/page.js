@@ -260,15 +260,15 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
           <span className="perf-badge perf-badge--pos">
             ${total}
           </span>
-          {delta !== null && (
+          {openingTotal !== null && (
             <span style={{
-              fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700,
-              padding: "2px 7px", borderRadius: 4,
-              color: delta >= 0 ? "#00e5a0" : "#c97070",
-              background: delta >= 0 ? "rgba(0,229,160,0.08)" : "rgba(180,100,100,0.08)",
-              border: `1px solid ${delta >= 0 ? "rgba(0,229,160,0.25)" : "rgba(180,100,100,0.25)"}`,
+              fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 600,
+              padding: "1px 6px", borderRadius: 4,
+              color: "#6666aa",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
             }}>
-              {delta >= 0 ? "+" : ""}{delta.toFixed(2)}$
+              Ouverture ${openingTotal.toFixed(2)}
             </span>
           )}
         </div>
@@ -520,7 +520,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
-        <TotalRow label="Total revenus" value={`$${openingDelta !== null ? openingDelta.toFixed(2) : totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" subBadge={openingDelta !== null && greenTotal !== null ? `Ouverture $${(greenTotal - openingDelta).toFixed(2)}` : null} />
+        <TotalRow label="Total revenus" value={`$${totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
 
       {/* Footer */}
@@ -614,7 +614,7 @@ function TokenRow({ token, accent }) {
   );
 }
 
-function TotalRow({ label, value, highlight, percent, percentSuffix = "%", subBadge = null }) {
+function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -631,39 +631,26 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%", subBa
       }}>
         {label}
       </span>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {percent && (
-            <span style={{
-              fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
-              padding: "2px 7px", borderRadius: 4,
-              background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)",
-              color: "#f0b429",
-            }}>
-              {percent}{percentSuffix}
-            </span>
-          )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {percent && (
           <span style={{
-            fontWeight: 700,
-            fontFamily: "monospace",
-            fontSize: highlight ? "1rem" : "0.88rem",
-            color: highlight ? "#f0b429" : "#eaf6ff",
-            textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
+            fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
+            padding: "2px 7px", borderRadius: 4,
+            background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)",
+            color: "#f0b429",
           }}>
-            {value}
-          </span>
-        </div>
-        {subBadge && (
-          <span style={{
-            fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 600,
-            padding: "1px 6px", borderRadius: 4,
-            color: "#6666aa",
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
-          }}>
-            {subBadge}
+            {percent}{percentSuffix}
           </span>
         )}
+        <span style={{
+          fontWeight: 700,
+          fontFamily: "monospace",
+          fontSize: highlight ? "1rem" : "0.88rem",
+          color: highlight ? "#f0b429" : "#eaf6ff",
+          textShadow: highlight ? "0 0 12px rgba(240,180,41,0.5)" : "none",
+        }}>
+          {value}
+        </span>
       </div>
     </div>
   );
