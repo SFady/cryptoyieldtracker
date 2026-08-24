@@ -520,7 +520,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
-        <TotalRow label="Total revenus" value={`$${((openingDelta ?? 0) + totalRevUSD).toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
+        <TotalRow label="Total revenus" value={`$${(openingDelta ?? 0).toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
 
       {/* Footer */}
