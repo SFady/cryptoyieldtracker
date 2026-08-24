@@ -232,7 +232,7 @@ export async function botLoop({ base, price }) {
   const isOOR = hasLP && !isNaN(rMin) && !isNaN(rMax) && (price < rMin || price > rMax);
 
   // 2. État short HL
-  const { hasShort } = await getShortState(base);
+  const { hasShort, sizeEth: currentShortEth } = await getShortState(base);
 
   result.hasLP    = hasLP;
   result.hasShort = hasShort;
@@ -324,6 +324,14 @@ export async function botLoop({ base, price }) {
       result.wethInPool = wethInPool;
 
       if (wethInPool >= 0.001) {
+        const deltaUsd = Math.abs(wethInPool - (currentShortEth ?? 0)) * price;
+        if (deltaUsd < 30) {
+          result.action   = 'hedge_skip_small_delta';
+          result.deltaUsd = parseFloat(deltaUsd.toFixed(2));
+          await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
+          await logBotTick(kv, result);
+          return result;
+        }
         const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
