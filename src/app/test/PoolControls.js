@@ -68,6 +68,15 @@ export default function PoolControls() {
         if (data.ok && !data.skipped) setResult({ ok: true,  msg: `L injecté ✓ — L=${data.liquidityL?.toFixed(1)} · P0=$${data.P0?.toFixed(0)} · ETH check=${data.ethCheck} (stocké: ${data.stored_shortSizeEth})` });
         else if (data.skipped)        setResult({ ok: null,  msg: `déjà présent — L=${data.liquidityL?.toFixed(1)}` });
         else                          setResult({ ok: false, msg: data.error ?? JSON.stringify(data) });
+      } else if (action === "claimAero") {
+        const res  = await fetch("/api/claim-aero-quick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ poolNum }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setResult({ ok: false, msg: data.error ?? JSON.stringify(data) }); return; }
+        setResult({ ok: true, msg: `AERO réclamé ✓ — tokenId ${data.tokenId} · wallet AERO: ${data.aeroWallet}` });
       } else if (action === "closeLpQuick") {
         const res  = await fetch("/api/close-lp-quick", {
           method: "POST",
@@ -154,6 +163,11 @@ export default function PoolControls() {
         {poolNum === 2 && (
           <button onClick={() => handleClick("rebalance")} disabled={!!running} style={btnStyle("rebalance", "167,139,250")}>
             {running === "rebalance" ? "En cours… (3–5 min)" : confirming === "rebalance" ? "⚠ CONFIRMER ?" : "↺ Rebalance"}
+          </button>
+        )}
+        {poolNum === 2 && (
+          <button onClick={() => handleClick("claimAero")} disabled={!!running} style={btnStyle("claimAero", "255,140,200")}>
+            {running === "claimAero" ? "En cours…" : confirming === "claimAero" ? "⚠ CONFIRMER ?" : "Claim AERO"}
           </button>
         )}
         {poolNum === 2 && (
