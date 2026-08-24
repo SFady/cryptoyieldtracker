@@ -104,7 +104,6 @@ async function handle(req) {
   if (base) {
     // Pool 2 — CLM Neutral Zone Hedge bot
     if (process.env.PRIVATE_KEY) {
-      try { await pickCase(2); } catch (_) {}
       try {
         const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
         rebalanceResults["p2"] = await botLoop({ base, price });
