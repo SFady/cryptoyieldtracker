@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { kv }     from '@vercel/kv';
+import { neon }   from '@neondatabase/serverless';
 import { REDIS_KEYS } from '../../lib/clm-algo/config.js';
 
 export const runtime     = 'nodejs';
@@ -143,8 +144,21 @@ export async function POST() {
       kv.del(REDIS_KEYS.OOR_SINCE),
       kv.del('p2_edge_streak'),
       kv.del('p2_hedge_bucket'),
+      kv.set('p2_hedge_fees', 0, { ex: 30 * 86400 }),
     ]);
     steps.push('État Redis initialisé ✓');
+
+    // 10. Total au démarrage (Redis + Neon)
+    try {
+      const hlStatusRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) });
+      const hlStatusData = await hlStatusRes.json();
+      const openingTotal = parseFloat((capital + (hlStatusData.accountValue ?? 0)).toFixed(2));
+      await kv.set('p2_opening_total', openingTotal, { ex: 30 * 86400 });
+      if (process.env.DATABASE_URL && pool.tokenId) {
+        const sql = neon(process.env.DATABASE_URL);
+        await sql`UPDATE lp_events SET total_at_open = ${openingTotal} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
+      }
+    } catch (_) {}
 
     return Response.json({
       ok: true,
