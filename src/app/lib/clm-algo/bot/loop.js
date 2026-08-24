@@ -1,5 +1,6 @@
 import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
+import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
 import { readLpState, readP2Range, writeP2Range } from '../../cronKv.js';
 import { closeShort, getShortState } from '../hedge/hyperliquid.js';
@@ -197,6 +198,19 @@ async function autoStart({ base, price }) {
   await kv.del(REDIS_KEYS.HEDGE_STATE);
   await kv.del(REDIS_KEYS.OOR_SINCE);
   await kv.set('p2_hedge_fees', 0, { ex: 30 * 86400 });
+
+  // Stocker le total portfolio au démarrage (Redis + Neon fallback)
+  try {
+    const hlStatusRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) });
+    const hlStatusData = await hlStatusRes.json();
+    const openingTotal = parseFloat((capital + (hlStatusData.accountValue ?? 0)).toFixed(2));
+    await kv.set('p2_opening_total', openingTotal, { ex: 30 * 86400 });
+    result.openingTotal = openingTotal;
+    if (process.env.DATABASE_URL && pool.tokenId) {
+      const sql = neon(process.env.DATABASE_URL);
+      await sql`UPDATE lp_events SET total_at_open = ${openingTotal} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
+    }
+  } catch (_) {}
 
   return result;
 }

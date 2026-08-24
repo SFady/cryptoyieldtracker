@@ -27,6 +27,7 @@ export default function ProfilePage() {
   const [error2, setError2]       = useState(null);
   const [hlData2, setHlData2]     = useState(null);
   const [hedgeFees2, setHedgeFees2] = useState(0);
+  const [openingTotal2, setOpeningTotal2] = useState(null);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -48,7 +49,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); setOpeningTotal2(d.openingTotal ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
       fetch("/api/hyperliquid-status")
@@ -99,7 +100,7 @@ export default function ProfilePage() {
           : null;
         return (
           <>
-            <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} mt />
+            <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} openingTotal={openingTotal2} mt />
             <div style={{ padding: "4px 0 2px 0", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               {percentileRange2 !== null && (
                 <span style={{
@@ -225,7 +226,7 @@ export default function ProfilePage() {
 
 // ── Composants ────────────────────────────────────────────────────────────────
 
-function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0, totalOverride = null }) {
+function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0, totalOverride = null, openingTotal = null }) {
   const total = totalOverride !== null
     ? totalOverride.toFixed(2)
     : positions && positions.length > 0
@@ -234,6 +235,7 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
           return s + parseFloat(p.totalUSD) + aero;
         }, 0) + extraUSD).toFixed(2)
       : null;
+  const delta = total && openingTotal ? parseFloat(total) - openingTotal : null;
   return (
     <div className="section-header" style={mt ? { marginTop: 28 } : {}}>
       <span style={{
@@ -253,9 +255,22 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
         </span>
       )}
       {total && (
-        <span className="perf-badge perf-badge--pos" style={{ marginLeft: "auto" }}>
-          ${total}
-        </span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          {delta !== null && (
+            <span style={{
+              fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700,
+              padding: "2px 7px", borderRadius: 4,
+              color: delta >= 0 ? "#00e5a0" : "#c97070",
+              background: delta >= 0 ? "rgba(0,229,160,0.08)" : "rgba(180,100,100,0.08)",
+              border: `1px solid ${delta >= 0 ? "rgba(0,229,160,0.25)" : "rgba(180,100,100,0.25)"}`,
+            }}>
+              {delta >= 0 ? "+" : ""}{delta.toFixed(2)}$
+            </span>
+          )}
+          <span className="perf-badge perf-badge--pos">
+            ${total}
+          </span>
+        </div>
       )}
     </div>
   );

@@ -290,7 +290,14 @@ export async function GET() {
     const cronWeth   = await getLastTwoPrices();
     const edgeStreak = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
     const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees });
+    let openingTotal = parseFloat((await kv.get('p2_opening_total')) ?? 0) || null;
+    if (!openingTotal) {
+      try {
+        const rows = await sql`SELECT total_at_open FROM lp_events WHERE COALESCE(pool_num, 2) = 2 AND action2 IS NULL AND total_at_open IS NOT NULL ORDER BY id DESC LIMIT 1`;
+        if (rows[0]?.total_at_open) openingTotal = parseFloat(rows[0].total_at_open);
+      } catch (_) {}
+    }
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal });
   }
 
   try {
@@ -499,7 +506,14 @@ export async function GET() {
     }
 
     const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees };
+    let openingTotal = parseFloat((await kv.get('p2_opening_total')) ?? 0) || null;
+    if (!openingTotal) {
+      try {
+        const rows = await sql`SELECT total_at_open FROM lp_events WHERE COALESCE(pool_num, 2) = 2 AND action2 IS NULL AND total_at_open IS NOT NULL ORDER BY id DESC LIMIT 1`;
+        if (rows[0]?.total_at_open) openingTotal = parseFloat(rows[0].total_at_open);
+      } catch (_) {}
+    }
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
