@@ -339,7 +339,7 @@ export async function botLoop({ base, price }) {
 
       if (wethInPool >= 0.001) {
         const deltaUsd = Math.abs(wethInPool - (currentShortEth ?? 0)) * price;
-        if (deltaUsd < 5) {
+        if (deltaUsd < 10) {
           result.action   = 'hedge_skip_small_delta';
           result.deltaUsd = parseFloat(deltaUsd.toFixed(2));
           await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
