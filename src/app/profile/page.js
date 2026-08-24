@@ -520,7 +520,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
         )}
-        <TotalRow label="Total revenus" value={`$${openingDelta !== null ? (totalRevUSD + openingDelta).toFixed(2) : totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" delta={openingDelta} />
+        <TotalRow label="Total revenus" value={`$${openingDelta !== null ? openingDelta.toFixed(2) : totalRevUSD.toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" subBadge={openingDelta !== null && greenTotal !== null ? `Ouverture $${(greenTotal - openingDelta).toFixed(2)}` : null} />
       </Section>
 
       {/* Footer */}
@@ -614,7 +614,7 @@ function TokenRow({ token, accent }) {
   );
 }
 
-function TotalRow({ label, value, highlight, percent, percentSuffix = "%", delta = null }) {
+function TotalRow({ label, value, highlight, percent, percentSuffix = "%", subBadge = null }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -653,15 +653,15 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%", delta
             {value}
           </span>
         </div>
-        {delta !== null && (
+        {subBadge && (
           <span style={{
-            fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
-            padding: "2px 7px", borderRadius: 4,
-            color: delta >= 0 ? "#00e5a0" : "#c97070",
-            background: delta >= 0 ? "rgba(0,229,160,0.08)" : "rgba(180,100,100,0.08)",
-            border: `1px solid ${delta >= 0 ? "rgba(0,229,160,0.25)" : "rgba(180,100,100,0.25)"}`,
+            fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 600,
+            padding: "1px 6px", borderRadius: 4,
+            color: "#6666aa",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
           }}>
-            {delta >= 0 ? "+" : ""}{delta.toFixed(2)}$
+            {subBadge}
           </span>
         )}
       </div>
