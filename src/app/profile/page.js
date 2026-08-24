@@ -141,7 +141,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} openingDelta={delta2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} openingDelta={delta2} openingTotal={openingTotal2} />)}
           </>
         );
       })()}
@@ -305,7 +305,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0, openingDelta = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0, openingDelta = null, openingTotal = null }) {
   const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
@@ -313,7 +313,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
         if (totalRevUSD <= 0) return "0.00";
-        const base  = parseFloat(pos.totalPoolUSD) || 1;
+        const base  = openingTotal ?? parseFloat(pos.totalPoolUSD) || 1;
         const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
         return ((totalRevUSD / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
