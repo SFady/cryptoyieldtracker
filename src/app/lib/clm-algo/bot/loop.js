@@ -91,16 +91,27 @@ async function runCollect(base, price) {
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
 
-  // Fermer le short HL
-  try   { out.closeShort = await closeShort(base); }
-  catch (e) { out.closeShortError = e.message; }
+  // Fermer le short HL — bloquant : on vérifie qu'il est réellement fermé avant de rouvrir
+  let shortClosed = false;
+  try {
+    out.closeShort = await closeShort(base);
+    const { hasShort } = await getShortState(base);
+    shortClosed = !hasShort;
+  } catch (e) { out.closeShortError = e.message; }
 
-  // Fermer la LP (retire les fonds, met à jour la DB)
+  // Fermer la LP (même si le short n'a pas pu être fermé)
   try   { out.closeLP = await closeLP(base); }
   catch (e) { out.closeLPError = e.message; }
 
   // Réinitialiser l'état algo (supprime aussi p2_live_range)
   await clearAlgoState();
+
+  // Si le short n'est pas confirmé fermé → ne pas rouvrir (évite deux shorts en parallèle)
+  // Le prochain cron détectera !hasLP && hasShort → Rule 2b fermera le short
+  if (!shortClosed) {
+    out.autoStartSkipped = 'short_not_closed';
+    return out;
+  }
 
   // Rouvrir LP + short avec tout l'USDC disponible (fees AERO + fonds retirés)
   out.autoStart = await autoStart({ base, price });

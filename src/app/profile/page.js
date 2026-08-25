@@ -425,7 +425,8 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
       <Section label="En pool">
         {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
         {openingLp != null && (() => {
-          const lpDelta = parseFloat(pos.totalPoolUSD) - openingLp;
+          const lpRef   = openingLp - parseFloat(usdcWallet ?? 0) - parseFloat(wethWalletUSD ?? 0);
+          const lpDelta = parseFloat(pos.totalPoolUSD) - lpRef;
           const col = lpDelta >= 0 ? "#00e5a0" : "#c97070";
           return (
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
@@ -434,7 +435,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
                 <span style={{ fontFamily:"monospace", fontSize:"0.72rem", fontWeight:700, color:col }}>
                   {lpDelta >= 0 ? "+" : ""}{lpDelta.toFixed(2)}$
                 </span>
-                <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#555577" }}>${openingLp.toFixed(2)}</span>
+                <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#555577" }}>${lpRef.toFixed(2)}</span>
               </div>
             </div>
           );
