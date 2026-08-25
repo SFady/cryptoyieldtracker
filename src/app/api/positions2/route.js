@@ -297,8 +297,9 @@ export async function GET() {
         if (rows[0]?.total_at_open) openingTotal = parseFloat(rows[0].total_at_open);
       } catch (_) {}
     }
-    const openingLp = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp });
+    const openingLp      = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
+    const waitingLowVol  = (await kv.get('p2_waiting_low_vol')) || null;
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, waitingLowVol });
   }
 
   try {
@@ -514,8 +515,9 @@ export async function GET() {
         if (rows[0]?.total_at_open) openingTotal = parseFloat(rows[0].total_at_open);
       } catch (_) {}
     }
-    const openingLp = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp };
+    const openingLp     = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
+    const waitingLowVol = (await kv.get('p2_waiting_low_vol')) || null;
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, waitingLowVol };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

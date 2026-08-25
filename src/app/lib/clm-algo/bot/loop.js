@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, readP2Range, writeP2Range } from '../../cronKv.js';
+import { readLpState, readP2Range, writeP2Range, getPercentileRange } from '../../cronKv.js';
 import { closeShort, getShortState } from '../hedge/hyperliquid.js';
 import { logBotTick }       from './metrics.js';
 
@@ -112,6 +112,20 @@ async function runCollect(base, price) {
     out.autoStartSkipped = 'short_not_closed';
     return out;
   }
+
+  // Vérifier la volatilité avant de rouvrir — attendre percentile < 4%
+  try {
+    const pct = await getPercentileRange();
+    const percentile = pct && pct.cnt >= 10 && pct.p05 > 0
+      ? parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2))
+      : null;
+    out.percentile = percentile;
+    if (percentile !== null && percentile >= 4) {
+      await kv.set('p2_waiting_low_vol', { since: new Date().toISOString(), percentile }, { ex: 7 * 86400 });
+      out.autoStartSkipped = 'waiting_low_vol';
+      return out;
+    }
+  } catch (_) {}
 
   // Rouvrir LP + short avec tout l'USDC disponible (fees AERO + fonds retirés)
   out.autoStart = await autoStart({ base, price });
@@ -327,8 +341,28 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 3 : aucune position → auto-start
+  // Règle 3 : aucune position → vérifier si on attend la baisse de volatilité, sinon auto-start
   if (!hasLP && !hasShort) {
+    const waitingLowVol = await kv.get('p2_waiting_low_vol');
+    if (waitingLowVol) {
+      try {
+        const pct = await getPercentileRange();
+        const percentile = pct && pct.cnt >= 10 && pct.p05 > 0
+          ? parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2))
+          : null;
+        result.percentile = percentile;
+        result.waitingLowVolSince = waitingLowVol.since;
+        if (percentile === null || percentile >= 4) {
+          result.action = 'waiting_low_vol';
+          await logBotTick(kv, result);
+          return result;
+        }
+        // Percentile < 4% → lever l'attente et ouvrir
+        await kv.del('p2_waiting_low_vol');
+      } catch (_) {
+        await kv.del('p2_waiting_low_vol'); // En cas d'erreur, ouvrir quand même
+      }
+    }
     result.autoStart = await autoStart({ base, price });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);

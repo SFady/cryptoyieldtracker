@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const [hedgeFees2, setHedgeFees2] = useState(0);
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
+  const [waitingLowVol2, setWaitingLowVol2] = useState(null);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -50,7 +51,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setWaitingLowVol2(d.waitingLowVol ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
       fetch("/api/hyperliquid-status")
@@ -125,6 +126,15 @@ export default function ProfilePage() {
             </div>
             {loading2 && <Spinner label="Découverte des positions…" />}
             {error2   && <ErrorBox msg={error2} />}
+            {waitingLowVol2 && (
+              <div style={{ margin: "8px 0 4px", padding: "10px 16px", borderRadius: 8, background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.30)", color: "#fbbf24", fontFamily: "monospace", fontSize: "0.78rem", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>⏳</span>
+                <span>En attente volatilité &lt; 4% avant réouverture</span>
+                {waitingLowVol2.percentile != null && (
+                  <span style={{ marginLeft: "auto", opacity: 0.7 }}>Percentile actuel : {waitingLowVol2.percentile.toFixed(1)}%</span>
+                )}
+              </div>
+            )}
             {pos2 && pos2.length === 0 && !loading2 && (
               <>
                 <Empty />
