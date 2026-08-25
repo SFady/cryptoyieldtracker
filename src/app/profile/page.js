@@ -467,23 +467,17 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           {hlData && (() => {
             const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
 
-            let closeFees = 0;
-            let pnlNode   = null;
+            let closeFees       = 0;
+            let pnlNode         = null;
+            let priceAdjustment = 0; // normalisation pool↔HL sur le même prix ETH
             if (ethShort) {
-              const orders     = hlData.openOrders ?? [];
-              const coinOrders = orders.filter(o => o.coin === "ETH");
-              const tp   = coinOrders.find(o => o.tpsl === "tp");
-              const sl   = coinOrders.find(o => o.tpsl === "sl");
-              const tpPx = tp?.triggerPx ?? null;
-              const slPx = sl?.triggerPx ?? null;
-              let exitPx = ethShort.markPx;
-              if (tpPx !== null && slPx !== null)
-                exitPx = Math.abs(ethShort.markPx - tpPx) <= Math.abs(ethShort.markPx - slPx) ? tpPx : slPx;
-              else if (tpPx !== null) exitPx = tpPx;
-              else if (slPx !== null) exitPx = slPx;
+              // Utiliser le prix ETH de la pool (slot0 on-chain) pour aligner pool et HL
+              const poolEthPrice  = parseFloat(pos?.wethPrice ?? 0) || ethShort.markPx;
+              const priceDiff     = ethShort.markPx - poolEthPrice; // HL mark vs pool price
+              priceAdjustment     = ethShort.szi * priceDiff;       // ajustement sur le PnL short
 
-              closeFees      = exitPx * ethShort.szi * 0.0005;
-              const pnl      = ethShort.pnl + (ethShort.funding ?? 0) - closeFees;
+              closeFees           = poolEthPrice * ethShort.szi * 0.0005;
+              const pnl           = (ethShort.pnl + priceAdjustment) + (ethShort.funding ?? 0) - closeFees;
               const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
               const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
               const funding      = ethShort.funding ?? 0;
@@ -513,7 +507,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
               );
             }
 
-            const totalHl = hlData.accountValue - closeFees;
+            const totalHl = (hlData.accountValue + priceAdjustment) - closeFees;
             return (
               <>
                 {pnlNode}
