@@ -296,6 +296,16 @@ export async function botLoop({ base, price }) {
     }
   }
 
+  // Règle 2b : short sans LP → fermer le short (LP fermée manuellement ou erreur)
+  if (!hasLP && hasShort) {
+    result.action = 'no_lp_close_short';
+    try   { result.closeShort = await closeShort(base); }
+    catch (e) { result.closeShortError = e.message; }
+    await clearAlgoState();
+    await logBotTick(kv, result);
+    return result;
+  }
+
   // Règle 2 : LP sans short → fermer LP (SL déclenché, on ne relance pas)
   if (hasLP && !hasShort) {
     result.action = 'no_short_close_lp';
