@@ -123,5 +123,5 @@ export async function readPositionsCache(poolNum) {
   try { return await kv.get(`positions-cache-${poolNum}`); } catch (_) { return null; }
 }
 export async function writePositionsCache(poolNum, data) {
-  try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 60 }); } catch (_) {}
+  try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 15 }); } catch (_) {}
 }
