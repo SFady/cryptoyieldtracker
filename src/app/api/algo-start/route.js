@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { kv }     from '@vercel/kv';
 import { neon }   from '@neondatabase/serverless';
 import { REDIS_KEYS } from '../../lib/clm-algo/config.js';
+import { getPercentileRange } from '../../lib/cronKv.js';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 120;
@@ -80,12 +81,16 @@ export async function POST() {
     const capital = usdcBalance + wethBalance * livePrice;
     steps.push(`Capital total : $${capital.toFixed(2)} (USDC $${usdcBalance.toFixed(2)} + ${wethBalance.toFixed(4)} WETH × $${livePrice.toFixed(0)})`);
 
-    // 4. Range 10% (±5%)
-    const rangePct = 10;
+    // 4. Range dynamique = 3 × percentile 24h (min 5%, max 15%, fallback 10%)
+    const pct24h   = await getPercentileRange();
+    const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
+      ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
+      : null;
+    const rangePct = parseFloat(Math.max(5, Math.min(15, p24h !== null ? 3 * p24h : 10)).toFixed(2));
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));
-    steps.push(`Prix $${livePrice} · range 10% · bornes $${minPrice}–$${maxPrice}`);
+    steps.push(`Prix $${livePrice} · range ${rangePct}% (percentile 24h ${p24h !== null ? p24h.toFixed(2) : '?'}%) · bornes $${minPrice}–$${maxPrice}`);
 
     // 5. Créer la LP 50/50
     const poolRes = await fetch(`${base}/api/createPosition`, {

@@ -113,20 +113,6 @@ async function runCollect(base, price) {
     return out;
   }
 
-  // Vérifier la volatilité avant de rouvrir — attendre percentile < 4%
-  try {
-    const pct = await getPercentileRange();
-    const percentile = pct && pct.cnt >= 10 && pct.p05 > 0
-      ? parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2))
-      : null;
-    out.percentile = percentile;
-    if (percentile !== null && percentile >= 4) {
-      await kv.set('p2_waiting_low_vol', { since: new Date().toISOString(), percentile }, { ex: 7 * 86400 });
-      out.autoStartSkipped = 'waiting_low_vol';
-      return out;
-    }
-  } catch (_) {}
-
   // Rouvrir LP + short avec tout l'USDC disponible (fees AERO + fonds retirés)
   out.autoStart = await autoStart({ base, price });
 
@@ -152,12 +138,17 @@ async function autoStart({ base, price }) {
   if (capital < 10) return { ...result, skipped: true, reason: `Capital insuffisant : $${capital.toFixed(2)}` };
   result.capital = parseFloat(capital.toFixed(2));
 
-  // 2. Range fixe 15% (±7.5% autour du prix courant)
-  const rangePct = 10;
+  // 2. Range dynamique = 3 × percentile 24h (min 5%, max 15%, fallback 10%)
+  const pct24h   = await getPercentileRange();
+  const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
+    ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
+    : null;
+  const rangePct = parseFloat(Math.max(5, Math.min(15, p24h !== null ? 3 * p24h : 10)).toFixed(2));
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
-  result.rangePct = parseFloat(rangePct.toFixed(2));
+  result.rangePct   = rangePct;
+  result.percentile = p24h !== null ? parseFloat(p24h.toFixed(2)) : null;
 
   // 3. Créer la LP 50/50
   const poolRes = await fetch(`${base}/api/createPosition`, {
@@ -341,28 +332,8 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 3 : aucune position → vérifier si on attend la baisse de volatilité, sinon auto-start
+  // Règle 3 : aucune position → auto-start
   if (!hasLP && !hasShort) {
-    const waitingLowVol = await kv.get('p2_waiting_low_vol');
-    if (waitingLowVol) {
-      try {
-        const pct = await getPercentileRange();
-        const percentile = pct && pct.cnt >= 10 && pct.p05 > 0
-          ? parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2))
-          : null;
-        result.percentile = percentile;
-        result.waitingLowVolSince = waitingLowVol.since;
-        if (percentile === null || percentile >= 4) {
-          result.action = 'waiting_low_vol';
-          await logBotTick(kv, result);
-          return result;
-        }
-        // Percentile < 4% → lever l'attente et ouvrir
-        await kv.del('p2_waiting_low_vol');
-      } catch (_) {
-        await kv.del('p2_waiting_low_vol'); // En cas d'erreur, ouvrir quand même
-      }
-    }
     result.autoStart = await autoStart({ base, price });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
