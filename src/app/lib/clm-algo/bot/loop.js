@@ -343,8 +343,8 @@ export async function botLoop({ base, price }) {
 
   // Règle 4 : en range + short actif → hedge dynamique par buckets
   const BUCKET_KEY  = 'p2_hedge_bucket';
-  const bucketSize  = (rMax - rMin) / 5;
-  const currentBucket = Math.max(0, Math.min(4, Math.floor((price - rMin) / bucketSize)));
+  const bucketSize  = (rMax - rMin) / 10;
+  const currentBucket = Math.max(0, Math.min(9, Math.floor((price - rMin) / bucketSize)));
   const lastBucket    = await kv.get(BUCKET_KEY);
 
   result.bucket     = currentBucket;
