@@ -609,15 +609,27 @@ function Section({ label, children }) {
   );
 }
 
-function TokenRow({ token, accent }) {
+function TokenRow({ token, accent, badge }) {
   return (
     <div style={{
       display: "flex", justifyContent: "space-between", alignItems: "center",
       padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)",
     }}>
-      <span style={{ fontFamily: "monospace", fontWeight: 600, color: accent, fontSize: "0.88rem" }}>
-        {token.symbol}
-      </span>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ fontFamily: "monospace", fontWeight: 600, color: accent, fontSize: "0.88rem" }}>
+          {token.symbol}
+        </span>
+        {badge && (
+          <span style={{
+            fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700,
+            padding: "2px 7px", borderRadius: 4,
+            background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)",
+            color: "#f0b429",
+          }}>
+            {badge}
+          </span>
+        )}
+      </div>
       <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
         <span style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "#8888bb" }}>
           {token.balance}
