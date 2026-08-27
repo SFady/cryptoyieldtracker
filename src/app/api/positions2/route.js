@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
 import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
-import { POOL_ADDRESS_2 as POOL } from "../../lib/config";
+import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -10,7 +10,6 @@ export const maxDuration = 30;
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
 const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
-const NFPM   = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // NFPM_NEW (Slipstream v2)
 const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";

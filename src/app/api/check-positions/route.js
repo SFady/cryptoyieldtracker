@@ -1,10 +1,10 @@
 import { ethers } from 'ethers';
+import { NFPM_ADDRESS as NFPM } from '../../lib/config.js';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 30;
 
 const WALLET = '0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6';
-const NFPM   = '0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53';
 const POOL   = '0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59';
 const RPC_URLS = [
   'https://base.drpc.org',

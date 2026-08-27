@@ -3,6 +3,7 @@ import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
 import { readLpState, readP2Range, writeP2Range, getPercentileRange } from '../../cronKv.js';
+import { NFPM_ADDRESS } from '../../config.js';
 import { closeShort, getShortState } from '../hedge/hyperliquid.js';
 import { logBotTick }       from './metrics.js';
 
@@ -149,6 +150,15 @@ async function autoStart({ base, price }) {
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
   result.rangePct   = rangePct;
   result.percentile = p24h !== null ? parseFloat(p24h.toFixed(2)) : null;
+
+  // 2b. Vérifier qu'aucune LP orpheline n'est déjà dans le wallet (stake timeout 524)
+  //     Si oui → ne pas créer une deuxième position, alerter pour intervention manuelle
+  try {
+    const nfpmBal = await readWalletToken(NFPM_ADDRESS, 0);
+    if (nfpmBal > 0) {
+      return { ...result, skipped: true, reason: 'orphan_lp_in_wallet', nfpmBalance: nfpmBal };
+    }
+  } catch (_) {}
 
   // 3. Créer la LP 50/50
   const poolRes = await fetch(`${base}/api/createPosition`, {
