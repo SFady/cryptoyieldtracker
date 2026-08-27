@@ -67,8 +67,6 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.HEDGE_STATE),
     kv.del(REDIS_KEYS.OOR_SINCE),
     kv.del('p2_edge_streak'),
-    kv.del('p2_hedge_bucket'),
-    kv.del('p2_hedge_pending'),
     kv.del('p2_live_range'),
   ]);
 }
@@ -343,20 +341,11 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : en range + short actif → hedge dynamique par buckets
-  const BUCKET_KEY  = 'p2_hedge_bucket';
-  const PENDING_KEY = 'p2_hedge_pending';
-  const bucketSize  = (rMax - rMin) / 10;
-  const currentBucket = Math.max(0, Math.min(9, Math.floor((price - rMin) / bucketSize)));
-  const [lastBucket, pending] = await Promise.all([kv.get(BUCKET_KEY), kv.get(PENDING_KEY)]);
-
-  result.bucket     = currentBucket;
-  result.lastBucket = lastBucket;
-
-  // wethInPool calculé à chaque cron (pas seulement au changement de bucket) pour le close préventif
+  // Règle 4 : en range + short actif → hedge continu (chaque cron)
   const rtConfig  = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
   const L         = rtConfig?.liquidityL ?? null;
   const Pb_stored = rtConfig?.tickUpperPrice ?? rMax;
+
   let wethInPool = 0;
   if (L && price < Pb_stored) {
     wethInPool = Math.max(0, parseFloat((L * (1 / Math.sqrt(price) - 1 / Math.sqrt(Pb_stored))).toFixed(6)));
@@ -371,39 +360,22 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  const bucketChanged = lastBucket !== null && lastBucket !== currentBucket;
+  // Seuil minimum d'ajustement : 0.003 ETH (~$7.50) évite les micro-trades sur oscillations
+  const DELTA_THRESHOLD = 0.003;
 
-  if (lastBucket === null || bucketChanged) {
-    // Hysteresis : 2 crons consécutifs dans le nouveau bucket avant d'ajuster (évite oscillations)
-    if (bucketChanged) {
-      const pendingCount = (pending?.bucket === currentBucket) ? pending.count + 1 : 1;
-      if (pendingCount < 2) {
-        await kv.set(PENDING_KEY, { bucket: currentBucket, count: pendingCount }, { ex: 30 * 86400 });
-        result.action       = 'hedge_pending_confirmation';
-        result.pendingCount = pendingCount;
-        await logBotTick(kv, result);
-        return result;
-      }
-      await kv.del(PENDING_KEY);
-    }
+  if (!L) {
+    result.action = 'hedge_skip_no_L';
+  } else if (wethInPool < 0.001) {
+    result.action = 'hedge_weth_null';
+  } else {
+    const deltaEth = Math.abs(wethInPool - (currentShortEth ?? 0));
+    result.deltaEth = parseFloat(deltaEth.toFixed(4));
+    result.deltaUsd = parseFloat((deltaEth * price).toFixed(2));
 
-    try {
-      if (!L) {
-        result.action = 'hedge_skip_no_L';
-        await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
-        await logBotTick(kv, result);
-        return result;
-      }
-
-      if (wethInPool >= 0.001) {
-        const deltaUsd = Math.abs(wethInPool - (currentShortEth ?? 0)) * price;
-        if (deltaUsd < 10) {
-          result.action   = 'hedge_skip_small_delta';
-          result.deltaUsd = parseFloat(deltaUsd.toFixed(2));
-          await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
-          await logBotTick(kv, result);
-          return result;
-        }
+    if (deltaEth < DELTA_THRESHOLD) {
+      result.action = 'in_range_ok';
+    } else {
+      try {
         const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -417,17 +389,11 @@ export async function botLoop({ base, price }) {
           const _fee = parseFloat(_filled.totalSz) * parseFloat(_filled.avgPx) * 0.00035;
           try { await kv.incrbyfloat('p2_hedge_fees', _fee); } catch (_) {}
         }
-      } else {
-        result.action = 'hedge_weth_null';
+      } catch (e) {
+        result.action     = 'hedge_error';
+        result.hedgeError = e.message;
       }
-      await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
-    } catch (e) {
-      result.action     = 'hedge_error';
-      result.hedgeError = e.message;
     }
-  } else {
-    if (pending !== null) await kv.del(PENDING_KEY);
-    result.action = 'in_range_ok';
   }
 
   await logBotTick(kv, result);
