@@ -338,6 +338,13 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         return ((totalRevUSD / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
     : null;
+  const aeroPct     = showFeePercent && pos.openTimestamp && aeroUSD > 0.001
+    ? (() => {
+        const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
+        const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
+        return ((aeroUSD / base) / hours * 24 * 30 * 100).toFixed(2);
+      })()
+    : null;
   const [collecting, setCollecting] = React.useState(false);
   const [collectResult, setCollectResult] = React.useState(null);
   const [confirming, setConfirming] = React.useState(false);
@@ -536,7 +543,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           <TokenRow key={f.symbol} token={f} accent={f.symbol === "USDC" ? "#00e5a0" : "#627eea"} />
         ))}
         {aeroUSD > 0.001 && (
-          <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" />
+          <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" badge={aeroPct ? `${aeroPct}%/mois` : null} />
         )}
         <TotalRow label="Total revenus" value={`$${(openingDelta ?? 0).toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
