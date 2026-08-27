@@ -449,12 +449,12 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           return <TokenRow key={t.symbol} token={tok} accent="#eaf6ff" />;
         })}
         {openingLp != null && (() => {
-          const lpRef   = openingLp - parseFloat(usdcWallet ?? 0) - parseFloat(wethWalletUSD ?? 0);
-          const lpDelta = adjustedPoolUSD - lpRef;
+          const lpRef   = openingLp;
+          const lpDelta = adjustedPoolUSD + parseFloat(usdcWallet ?? 0) + parseFloat(wethWalletUSD ?? 0) - lpRef;
           const col = lpDelta >= 0 ? "#00e5a0" : "#c97070";
           return (
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-              <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#6666aa" }}>LP ouverture</span>
+              <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#6666aa" }}>Capital ouverture</span>
               <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                 <span style={{ fontFamily:"monospace", fontSize:"0.72rem", fontWeight:700, color:col }}>
                   {lpDelta >= 0 ? "+" : ""}{lpDelta.toFixed(2)}$
