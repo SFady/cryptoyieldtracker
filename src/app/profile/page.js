@@ -330,12 +330,11 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
     return wethBal * hlEthPrice + usdcBal;
   })();
 
-  const feePct      = showFeePercent && pos.openTimestamp
+  const feePct      = showFeePercent && pos.openTimestamp && openingDelta !== null
     ? (() => {
-        if (totalRevUSD <= 0) return "0.00";
         const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
         const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
-        return ((totalRevUSD / base) / hours * 24 * 30 * 100).toFixed(2);
+        return ((openingDelta / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
     : null;
   const aeroPct     = showFeePercent && pos.openTimestamp && aeroUSD > 0.001
