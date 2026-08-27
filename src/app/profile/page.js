@@ -88,12 +88,19 @@ export default function ProfilePage() {
           return exitPx * ethShort.szi * 0.0005;
         })();
         const hlTotal2 = hlData2 ? hlData2.accountValue - hlCloseFees2 : 0;
+        const hlPrice2 = (() => {
+          const s = hlData2?.positions?.find(p => p.coin === "ETH" && p.side === "short");
+          return s?.markPx ?? 0;
+        })();
 
         const total2 = pos2
           ? pos2.reduce((s, p) => {
               const aeroFees    = parseFloat(p.aeroRevenueUSD ?? "0");
               const tradingFees = (p.fees ?? []).reduce((a, f) => a + parseFloat(f.usd || "0"), 0);
-              return s + parseFloat(p.totalPoolUSD ?? "0") + aeroFees + tradingFees;
+              const wethBal     = parseFloat(p.pool[0]?.balance ?? 0);
+              const usdcBal     = parseFloat(p.pool[1]?.usd ?? 0);
+              const poolUSD     = hlPrice2 > 0 ? wethBal * hlPrice2 + usdcBal : parseFloat(p.totalPoolUSD ?? "0");
+              return s + poolUSD + aeroFees + tradingFees;
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
@@ -312,6 +319,18 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
 
+  // Oracle HL pour valoriser le WETH du pool (même référence que le PnL short)
+  const hlEthPrice = (() => {
+    const s = hlData?.positions?.find(p => p.coin === "ETH" && p.side === "short");
+    return s?.markPx ?? 0;
+  })();
+  const adjustedPoolUSD = (() => {
+    if (!hlEthPrice) return parseFloat(pos.totalPoolUSD ?? 0);
+    const wethBal = parseFloat(pos.pool[0]?.balance ?? 0);
+    const usdcBal = parseFloat(pos.pool[1]?.usd ?? 0);
+    return wethBal * hlEthPrice + usdcBal;
+  })();
+
   const feePct      = showFeePercent && pos.openTimestamp
     ? (() => {
         if (totalRevUSD <= 0) return "0.00";
@@ -424,10 +443,15 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
 
       {/* Pool amounts */}
       <Section label="En pool">
-        {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
+        {pos.pool.map((t) => {
+          const tok = (t.symbol === "WETH" && hlEthPrice > 0)
+            ? { ...t, usd: (parseFloat(t.balance) * hlEthPrice).toFixed(2) }
+            : t;
+          return <TokenRow key={t.symbol} token={tok} accent="#eaf6ff" />;
+        })}
         {openingLp != null && (() => {
           const lpRef   = openingLp - parseFloat(usdcWallet ?? 0) - parseFloat(wethWalletUSD ?? 0);
-          const lpDelta = parseFloat(pos.totalPoolUSD) - lpRef;
+          const lpDelta = adjustedPoolUSD - lpRef;
           const col = lpDelta >= 0 ? "#00e5a0" : "#c97070";
           return (
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
@@ -441,7 +465,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
             </div>
           );
         })()}
-        <TotalRow label="Total pool" value={`$${pos.totalPoolUSD}`} />
+        <TotalRow label="Total pool" value={`$${adjustedPoolUSD.toFixed(2)}`} />
       </Section>
 
       {/* Hyperliquid — pool 2 uniquement */}
@@ -458,17 +482,12 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           {hlData && (() => {
             const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
 
-            let closeFees       = 0;
-            let pnlNode         = null;
-            let priceAdjustment = 0; // normalisation pool↔HL sur le même prix ETH
+            let closeFees = 0;
+            let pnlNode   = null;
             if (ethShort) {
-              // Utiliser le prix ETH de la pool (slot0 on-chain) pour aligner pool et HL
-              const poolEthPrice  = parseFloat(pos?.wethPrice ?? 0) || ethShort.markPx;
-              const priceDiff     = ethShort.markPx - poolEthPrice; // HL mark vs pool price
-              priceAdjustment     = ethShort.szi * priceDiff;       // ajustement sur le PnL short
-
-              closeFees           = poolEthPrice * ethShort.szi * 0.0005;
-              const pnl           = (ethShort.pnl + priceAdjustment) + (ethShort.funding ?? 0) - closeFees;
+              // Pool WETH valorisé au prix HL → pas de priceAdjustment sur le short
+              closeFees       = ethShort.markPx * ethShort.szi * 0.0005;
+              const pnl       = ethShort.pnl + (ethShort.funding ?? 0) - closeFees;
               const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
               const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
               const funding      = ethShort.funding ?? 0;
@@ -498,7 +517,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
               );
             }
 
-            const totalHl = (hlData.accountValue + priceAdjustment) - closeFees;
+            const totalHl = hlData.accountValue - closeFees;
             return (
               <>
                 {pnlNode}
