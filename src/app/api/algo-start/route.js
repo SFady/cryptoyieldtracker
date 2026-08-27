@@ -124,11 +124,13 @@ export async function POST() {
     steps.push(`Prix HL : $${P0_hl}`);
 
     // 7. Taille delta-neutre : L = Capital / (2√P0 − P0/√Pb − √Pa)
+    //    P0 = centre géométrique des ticks réels (√Pa×Pb) — symétrique, indépendant du prix HL
     //    ETH_open = L × (1/√P0 − 1/√Pb)
-    const sqrtP0   = Math.sqrt(livePrice);
+    const P0_lp    = Math.sqrt(Pa * Pb);
+    const sqrtP0   = Math.sqrt(P0_lp);
     const sqrtPa   = Math.sqrt(Pa);
     const sqrtPb   = Math.sqrt(Pb);
-    const L        = capital / (2 * sqrtP0 - livePrice / sqrtPb - sqrtPa);
+    const L        = capital / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
     const ethAtOpen = parseFloat((L * (1 / sqrtP0 - 1 / sqrtPb)).toFixed(4));
     const leverage  = 4;
     steps.push(`Delta-neutre : ${ethAtOpen} ETH · levier ×${leverage} · SL $${Pb}`);
