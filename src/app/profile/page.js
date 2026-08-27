@@ -484,24 +484,18 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
 
             let closeFees = 0;
             let pnlNode   = null;
+            // Delta HL depuis ouverture = tout inclus (réalisé bucket + unrealized + fees + funding)
+            const hlOpeningValue  = openingTotal != null && openingLp != null ? openingTotal - openingLp : null;
+            const hlDeltaFromOpen = hlOpeningValue != null ? hlData.accountValue - hlOpeningValue : null;
             if (ethShort) {
-              // Pool WETH valorisé au prix HL → pas de priceAdjustment sur le short
-              closeFees       = ethShort.markPx * ethShort.szi * 0.0005;
-              const pnl       = ethShort.pnl + (ethShort.funding ?? 0) - closeFees;
-              const pnlColor = pnl >= 0 ? "#00e5a0" : "#c97070";
-              const pnlStr   = (pnl >= 0 ? "+" : "") + pnl.toFixed(2);
-              const funding      = ethShort.funding ?? 0;
-              const fundingColor = funding >= 0 ? "#00e5a0" : "#c97070";
-              const fundingStr   = (funding >= 0 ? "+" : "") + funding.toFixed(2);
+              closeFees = ethShort.markPx * ethShort.szi * 0.0005;
+              const hlDeltaColor = hlDeltaFromOpen == null ? "#eaf6ff" : hlDeltaFromOpen >= 0 ? "#00e5a0" : "#c97070";
+              const hlDeltaStr   = hlDeltaFromOpen != null ? (hlDeltaFromOpen >= 0 ? "+" : "") + hlDeltaFromOpen.toFixed(2) + " $" : "—";
               pnlNode = (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                     <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Funding</span>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: fundingColor }}>{fundingStr} $</span>
                   </div>
                   {hedgeFees > 0.0005 && (
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
@@ -510,8 +504,8 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
                     </div>
                   )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>PnL short</span>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: pnlColor }}>{pnlStr} $</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>HL depuis ouverture</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: hlDeltaColor }}>{hlDeltaStr}</span>
                   </div>
                 </>
               );
