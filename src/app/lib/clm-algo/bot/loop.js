@@ -68,6 +68,7 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.OOR_SINCE),
     kv.del('p2_edge_streak'),
     kv.del('p2_hedge_bucket'),
+    kv.del('p2_hedge_pending'),
     kv.del('p2_live_range'),
   ]);
 }
@@ -343,9 +344,10 @@ export async function botLoop({ base, price }) {
 
   // Règle 4 : en range + short actif → hedge dynamique par buckets
   const BUCKET_KEY  = 'p2_hedge_bucket';
+  const PENDING_KEY = 'p2_hedge_pending';
   const bucketSize  = (rMax - rMin) / 10;
   const currentBucket = Math.max(0, Math.min(9, Math.floor((price - rMin) / bucketSize)));
-  const lastBucket    = await kv.get(BUCKET_KEY);
+  const [lastBucket, pending] = await Promise.all([kv.get(BUCKET_KEY), kv.get(PENDING_KEY)]);
 
   result.bucket     = currentBucket;
   result.lastBucket = lastBucket;
@@ -368,7 +370,22 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  if (lastBucket === null || lastBucket !== currentBucket) {
+  const bucketChanged = lastBucket !== null && lastBucket !== currentBucket;
+
+  if (lastBucket === null || bucketChanged) {
+    // Hysteresis : 2 crons consécutifs dans le nouveau bucket avant d'ajuster (évite oscillations)
+    if (bucketChanged) {
+      const pendingCount = (pending?.bucket === currentBucket) ? pending.count + 1 : 1;
+      if (pendingCount < 2) {
+        await kv.set(PENDING_KEY, { bucket: currentBucket, count: pendingCount }, { ex: 30 * 86400 });
+        result.action       = 'hedge_pending_confirmation';
+        result.pendingCount = pendingCount;
+        await logBotTick(kv, result);
+        return result;
+      }
+      await kv.del(PENDING_KEY);
+    }
+
     try {
       if (!L) {
         result.action = 'hedge_skip_no_L';
@@ -408,6 +425,7 @@ export async function botLoop({ base, price }) {
       result.hedgeError = e.message;
     }
   } else {
+    if (pending !== null) await kv.del(PENDING_KEY);
     result.action = 'in_range_ok';
   }
 
