@@ -361,7 +361,7 @@ export async function botLoop({ base, price }) {
   }
 
   // Seuil minimum d'ajustement : 0.003 ETH (~$7.50) évite les micro-trades sur oscillations
-  const DELTA_THRESHOLD = 0.003;
+  const DELTA_THRESHOLD = Math.max(0.001, wethInPool * 0.015);
 
   if (!L) {
     result.action = 'hedge_skip_no_L';
