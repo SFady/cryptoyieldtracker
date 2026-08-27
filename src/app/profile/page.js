@@ -481,13 +481,13 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           {hlData && (() => {
             const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
 
-            let closeFees = 0;
+            const closeFees = ethShort ? ethShort.markPx * ethShort.szi * 0.0005 : 0;
             let pnlNode   = null;
             // Delta HL depuis ouverture = tout inclus (réalisé bucket + unrealized + fees + funding)
+            // On utilise (accountValue - closeFees) pour être cohérent avec totalHl et total2
             const hlOpeningValue  = openingTotal != null && openingLp != null ? openingTotal - openingLp : null;
-            const hlDeltaFromOpen = hlOpeningValue != null ? hlData.accountValue - hlOpeningValue : null;
+            const hlDeltaFromOpen = hlOpeningValue != null ? (hlData.accountValue - closeFees) - hlOpeningValue : null;
             if (ethShort) {
-              closeFees = ethShort.markPx * ethShort.szi * 0.0005;
               const hlDeltaColor = hlDeltaFromOpen == null ? "#eaf6ff" : hlDeltaFromOpen >= 0 ? "#00e5a0" : "#c97070";
               const hlDeltaStr   = hlDeltaFromOpen != null ? (hlDeltaFromOpen >= 0 ? "+" : "") + hlDeltaFromOpen.toFixed(2) + " $" : "—";
               pnlNode = (
