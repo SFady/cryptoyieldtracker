@@ -189,16 +189,17 @@ async function autoStart({ base, price }) {
   result.hlPrice = P0_hl;
 
   // 5. Hedge delta-neutre = ETH dans la LP à l'ouverture
-  //    P0_lp = centre géométrique des ticks réels (√Pa×Pb) — symétrique, indépendant du prix HL
-  //    ETH_open = L × (1/√P0_lp − 1/√Pb)
+  //    L calculé au centre géométrique (√Pa×Pb) pour la composition 50/50
+  //    ETH_open = L × (1/√P0_hl − 1/√Pb) au prix HL réel → delta-neutre à l'ouverture
   const Pa       = pool.tickLowerPrice;
   const Pb       = pool.tickUpperPrice;
-  const P0_lp    = Math.sqrt(Pa * Pb); // centre géométrique du range réel
+  const P0_lp    = Math.sqrt(Pa * Pb);
   const sqrtP0   = Math.sqrt(P0_lp);
   const sqrtPa   = Math.sqrt(Pa);
   const sqrtPb   = Math.sqrt(Pb);
   const L        = capital / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
-  const ethAtOpen = parseFloat((L * (1 / sqrtP0 - 1 / sqrtPb)).toFixed(4));
+  const sqrtP0_hl = Math.sqrt(Math.min(Math.max(P0_hl, Pa), Pb));
+  const ethAtOpen = parseFloat(Math.max(0, L * (1 / sqrtP0_hl - 1 / sqrtPb)).toFixed(4));
   const leverage = 4;
   result.ethAtOpen = ethAtOpen;
 
