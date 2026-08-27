@@ -280,7 +280,7 @@ export async function botLoop({ base, price }) {
   const isOOR = hasLP && !isNaN(rMin) && !isNaN(rMax) && (price < rMin || price > rMax);
 
   // 2. État short HL
-  const { hasShort, sizeEth: currentShortEth } = await getShortState(base);
+  const { hasShort } = await getShortState(base);
 
   result.hasLP    = hasLP;
   result.hasShort = hasShort;
@@ -350,16 +350,7 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : en range + short actif → hedge dynamique par buckets
-  const BUCKET_KEY  = 'p2_hedge_bucket';
-  const bucketSize  = (rMax - rMin) / 5;
-  const currentBucket = Math.max(0, Math.min(4, Math.floor((price - rMin) / bucketSize)));
-  const lastBucket    = await kv.get(BUCKET_KEY);
-
-  result.bucket     = currentBucket;
-  result.lastBucket = lastBucket;
-
-  // wethInPool calculé à chaque cron (pas seulement au changement de bucket) pour le close préventif
+  // Règle 4 : en range + short actif → short statique, pas d'ajustement
   const rtConfig  = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
   const L         = rtConfig?.liquidityL ?? null;
   const Pb_stored = rtConfig?.tickUpperPrice ?? rMax;
@@ -377,48 +368,7 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  if (lastBucket === null || lastBucket !== currentBucket) {
-    try {
-      if (!L) {
-        result.action = 'hedge_skip_no_L';
-        await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
-        await logBotTick(kv, result);
-        return result;
-      }
-
-      if (wethInPool >= 0.001) {
-        const deltaUsd = Math.abs(wethInPool - (currentShortEth ?? 0)) * price;
-        if (deltaUsd < 10) {
-          result.action   = 'hedge_skip_small_delta';
-          result.deltaUsd = parseFloat(deltaUsd.toFixed(2));
-          await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
-          await logBotTick(kv, result);
-          return result;
-        }
-        const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ targetEth: wethInPool, slPriceTrigger: rMax, leverage: 4 }),
-          signal:  AbortSignal.timeout(45000),
-        });
-        result.hedgeAdjust = { wethInPool, ...(await adjustRes.json()) };
-        result.action = 'hedge_adjusted';
-        const _filled = result.hedgeAdjust?.deltaResult?.response?.data?.statuses?.[0]?.filled;
-        if (_filled) {
-          const _fee = parseFloat(_filled.totalSz) * parseFloat(_filled.avgPx) * 0.00035;
-          try { await kv.incrbyfloat('p2_hedge_fees', _fee); } catch (_) {}
-        }
-      } else {
-        result.action = 'hedge_weth_null';
-      }
-      await kv.set(BUCKET_KEY, currentBucket, { ex: 30 * 86400 });
-    } catch (e) {
-      result.action     = 'hedge_error';
-      result.hedgeError = e.message;
-    }
-  } else {
-    result.action = 'in_range_ok';
-  }
+  result.action = 'in_range_ok';
 
   await logBotTick(kv, result);
   return result;

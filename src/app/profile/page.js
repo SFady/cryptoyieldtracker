@@ -26,7 +26,6 @@ export default function ProfilePage() {
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
   const [hlData2, setHlData2]     = useState(null);
-  const [hedgeFees2, setHedgeFees2] = useState(0);
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
 
@@ -50,7 +49,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setHedgeFees2(d.hedgeFees ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
       fetch("/api/hyperliquid-status")
@@ -150,7 +149,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} hedgeFees={hedgeFees2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -314,7 +313,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, hedgeFees = 0, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
   const totalRevUSD   = aeroUSD + tradingFeesUSD;
@@ -497,12 +496,6 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
                     <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
                   </div>
-                  {hedgeFees > 0.0005 && (
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                      <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Frais bucket</span>
-                      <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#c97070" }}>-${hedgeFees.toFixed(3)} $</span>
-                    </div>
-                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                     <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>HL depuis ouverture</span>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: hlDeltaColor }}>{hlDeltaStr}</span>
