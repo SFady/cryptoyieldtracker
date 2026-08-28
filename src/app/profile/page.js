@@ -135,7 +135,7 @@ export default function ProfilePage() {
             {pos2 && pos2.length === 0 && !loading2 && (
               <>
                 <Empty />
-                {(parseFloat(usdcWallet2 || 0) > 0 || parseFloat(wethWallet2 || 0) > 0) && (
+                {(parseFloat(usdcWallet2 || 0) > 0 || parseFloat(wethWallet2 || 0) > 0 || hlTotal2 > 0) && (
                   <div style={{ background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
                     <Section label="Solde non utilisé">
                       {parseFloat(usdcWallet2 || 0) > 0 && (
@@ -143,6 +143,9 @@ export default function ProfilePage() {
                       )}
                       {parseFloat(wethWallet2 || 0) > 0 && (
                         <TokenRow token={{ symbol: "WETH", balance: wethWallet2, usd: wethWalletUSD2 ?? "0.00" }} accent="#627eea" />
+                      )}
+                      {hlTotal2 > 0 && (
+                        <TokenRow token={{ symbol: "Hyperliquid", balance: hlTotal2.toFixed(2), usd: hlTotal2.toFixed(2) }} accent="#00c2ff" />
                       )}
                     </Section>
                   </div>
