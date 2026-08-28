@@ -123,18 +123,16 @@ export async function POST() {
     } catch (_) {}
     steps.push(`Prix HL : $${P0_hl}`);
 
-    // 7. Taille delta-neutre : L = Capital / (2√P0 − P0/√Pb − √Pa)
-    //    P0 = centre géométrique des ticks réels (√Pa×Pb) — pour le calcul de L
-    //    ETH_open = L × (1/√P0_hl − 1/√Pb) au prix HL réel → delta-neutre à l'ouverture
+    // 7. Short fixe symétrique : S* = L × (√Pb − 2√Pa + Pa/√Pb) / (Pb − Pa)
+    //    → pertes identiques aux deux bornes, aucun ajustement continu nécessaire
     const P0_lp    = Math.sqrt(Pa * Pb);
     const sqrtP0   = Math.sqrt(P0_lp);
     const sqrtPa   = Math.sqrt(Pa);
     const sqrtPb   = Math.sqrt(Pb);
     const L        = capital / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
-    const sqrtP0_hl = Math.sqrt(Math.min(Math.max(P0_hl, Pa), Pb));
-    const ethAtOpen = parseFloat(Math.max(0, L * (1 / sqrtP0_hl - 1 / sqrtPb)).toFixed(4));
+    const ethAtOpen = parseFloat(Math.max(0, L * (sqrtPb - 2 * sqrtPa + Pa / sqrtPb) / (Pb - Pa)).toFixed(4));
     const leverage  = 4;
-    steps.push(`Delta-neutre : ${ethAtOpen} ETH · levier ×${leverage} · SL $${Pb}`);
+    steps.push(`Short fixe symétrique : ${ethAtOpen} ETH · levier ×${leverage} · SL $${Pb}`);
 
     // 8. Ouvrir le short avec SL à la borne haute
     const shortRes = await fetch(`${base}/api/hyperliquid-short`, {

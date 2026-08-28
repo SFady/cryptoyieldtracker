@@ -186,9 +186,8 @@ async function autoStart({ base, price }) {
   } catch (_) {}
   result.hlPrice = P0_hl;
 
-  // 5. Hedge delta-neutre = ETH dans la LP à l'ouverture
-  //    L calculé au centre géométrique (√Pa×Pb) pour la composition 50/50
-  //    ETH_open = L × (1/√P0_hl − 1/√Pb) au prix HL réel → delta-neutre à l'ouverture
+  // 5. Short fixe symétrique : S* = L × (√Pb − 2√Pa + Pa/√Pb) / (Pb − Pa)
+  //    → pertes identiques aux deux bornes, aucun ajustement continu nécessaire
   const Pa       = pool.tickLowerPrice;
   const Pb       = pool.tickUpperPrice;
   const P0_lp    = Math.sqrt(Pa * Pb);
@@ -196,8 +195,7 @@ async function autoStart({ base, price }) {
   const sqrtPa   = Math.sqrt(Pa);
   const sqrtPb   = Math.sqrt(Pb);
   const L        = capital / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
-  const sqrtP0_hl = Math.sqrt(Math.min(Math.max(P0_hl, Pa), Pb));
-  const ethAtOpen = parseFloat(Math.max(0, L * (1 / sqrtP0_hl - 1 / sqrtPb)).toFixed(4));
+  const ethAtOpen = parseFloat(Math.max(0, L * (sqrtPb - 2 * sqrtPa + Pa / sqrtPb) / (Pb - Pa)).toFixed(4));
   const leverage = 4;
   result.ethAtOpen = ethAtOpen;
 
@@ -341,60 +339,8 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : en range + short actif → hedge continu (chaque cron)
-  const rtConfig  = await kv.get(REDIS_KEYS.RUNTIME_CONFIG);
-  const L         = rtConfig?.liquidityL ?? null;
-  const Pb_stored = rtConfig?.tickUpperPrice ?? rMax;
-
-  let wethInPool = 0;
-  if (L && price < Pb_stored) {
-    wethInPool = Math.max(0, parseFloat((L * (1 / Math.sqrt(price) - 1 / Math.sqrt(Pb_stored))).toFixed(6)));
-  }
-  result.wethInPool = wethInPool;
-
-  // Close préventif : très peu d'ETH dans LP → OOR borne haute imminent
-  if (L && wethInPool < 0.02) {
-    result.action  = 'preventive_close_near_pb';
-    result.collect = await runCollect(base, price);
-    await logBotTick(kv, result);
-    return result;
-  }
-
-  // Seuil minimum d'ajustement : 1.5% de wethInPool, min HL $10
-  const DELTA_THRESHOLD = Math.max(0.001, wethInPool * 0.015, 10 / price);
-
-  if (!L) {
-    result.action = 'hedge_skip_no_L';
-  } else if (wethInPool < 0.001) {
-    result.action = 'hedge_weth_null';
-  } else {
-    const deltaEth = Math.abs(wethInPool - (currentShortEth ?? 0));
-    result.deltaEth = parseFloat(deltaEth.toFixed(4));
-    result.deltaUsd = parseFloat((deltaEth * price).toFixed(2));
-
-    if (deltaEth < DELTA_THRESHOLD) {
-      result.action = 'in_range_ok';
-    } else {
-      try {
-        const adjustRes = await fetch(`${base}/api/hyperliquid-adjust-short`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ targetEth: wethInPool, slPriceTrigger: rMax, leverage: 4 }),
-          signal:  AbortSignal.timeout(45000),
-        });
-        result.hedgeAdjust = { wethInPool, ...(await adjustRes.json()) };
-        result.action = 'hedge_adjusted';
-        const _filled = result.hedgeAdjust?.deltaResult?.response?.data?.statuses?.[0]?.filled;
-        if (_filled) {
-          const _fee = parseFloat(_filled.totalSz) * parseFloat(_filled.avgPx) * 0.00035;
-          try { await kv.incrbyfloat('p2_hedge_fees', _fee); } catch (_) {}
-        }
-      } catch (e) {
-        result.action     = 'hedge_error';
-        result.hedgeError = e.message;
-      }
-    }
-  }
+  // Règle 4 : short fixe symétrique → rien à faire en range
+  result.action = 'in_range_ok';
 
   await logBotTick(kv, result);
   return result;
