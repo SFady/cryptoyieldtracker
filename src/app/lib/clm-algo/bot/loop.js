@@ -177,27 +177,38 @@ async function autoStart({ base, price }) {
     if (swapData.ok && !swapData.skipped) result.wethSwapped = swapData.wethSwapped;
   } catch (_) {}
 
-  // 4. Prix HL live au moment du short (placement uniquement)
+  // 4. Prix HL live + solde HL (en parallèle, avant le short)
   let P0_hl = price;
+  let hlAccountValue = 0;
   try {
-    const hlPriceRes  = await fetch(`${base}/api/hyperliquid-short`, { signal: AbortSignal.timeout(8000) });
-    const hlPriceData = await hlPriceRes.json();
+    const [hlPriceRes, hlStatusRes] = await Promise.all([
+      fetch(`${base}/api/hyperliquid-short`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) }),
+    ]);
+    const hlPriceData  = await hlPriceRes.json();
+    const hlStatusData = await hlStatusRes.json();
     if (hlPriceData.ethPrice) P0_hl = hlPriceData.ethPrice;
+    hlAccountValue = hlStatusData.accountValue ?? 0;
   } catch (_) {}
   result.hlPrice = P0_hl;
 
-  // 5. Short fixe symétrique : S* = L × (√Pb − 2√Pa + Pa/√Pb) / (Pb − Pa)
-  //    → pertes identiques aux deux bornes, aucun ajustement continu nécessaire
+  // 5. Short 100% pool, limité par marge HL disponible
   const Pa       = pool.tickLowerPrice;
   const Pb       = pool.tickUpperPrice;
-  const P0_lp    = Math.sqrt(Pa * Pb);
-  const sqrtP0   = Math.sqrt(P0_lp);
   const sqrtPa   = Math.sqrt(Pa);
   const sqrtPb   = Math.sqrt(Pb);
-  const L        = capital / (2 * sqrtP0 - P0_lp / sqrtPb - sqrtPa);
-  const ethAtOpen = parseFloat(Math.max(0, L * (sqrtPb - 2 * sqrtPa + Pa / sqrtPb) / (Pb - Pa)).toFixed(4));
+  const P0_lp    = Math.sqrt(Pa * Pb);
+  const L        = capital / (2 * Math.sqrt(P0_lp) - P0_lp / sqrtPb - sqrtPa);
   const leverage = 4;
-  result.ethAtOpen = ethAtOpen;
+  const targetSizeEth = capital / P0_hl;
+  const maxFromMargin = hlAccountValue > 0 ? hlAccountValue * leverage / P0_hl : targetSizeEth;
+  const ethAtOpen     = parseFloat(Math.min(targetSizeEth, maxFromMargin).toFixed(4));
+  if (ethAtOpen < targetSizeEth - 0.0001) {
+    const missingUsd = parseFloat(((targetSizeEth - ethAtOpen) * P0_hl / leverage).toFixed(2));
+    result.shortWarning = `marge HL insuffisante : ${ethAtOpen} ETH sur ${parseFloat(targetSizeEth.toFixed(4))} visés — ajouter $${missingUsd} dans HL`;
+  }
+  result.ethAtOpen      = ethAtOpen;
+  result.targetEthShort = parseFloat(targetSizeEth.toFixed(4));
 
   // 6. Ouvrir le short avec SL à la borne haute
   const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
@@ -223,9 +234,7 @@ async function autoStart({ base, price }) {
 
   // Stocker le total portfolio au démarrage (Redis + Neon fallback)
   try {
-    const hlStatusRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) });
-    const hlStatusData = await hlStatusRes.json();
-    const openingTotal = parseFloat((capital + (hlStatusData.accountValue ?? 0)).toFixed(2));
+    const openingTotal = parseFloat((capital + hlAccountValue).toFixed(2));
     await kv.set('p2_opening_total', openingTotal, { ex: 30 * 86400 });
     await kv.set('p2_opening_lp', parseFloat(capital.toFixed(2)), { ex: 30 * 86400 });
     result.openingTotal = openingTotal;
