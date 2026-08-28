@@ -210,21 +210,25 @@ async function autoStart({ base, price }) {
   result.ethAtOpen      = ethAtOpen;
   result.targetEthShort = parseFloat(targetSizeEth.toFixed(4));
 
-  // 6. Ouvrir le short avec SL à la borne haute
+  // 6. Ouvrir le short avec SL trigger à centre+0.5% (pas à Pb)
+  const centreAtOpen = parseFloat(P0_lp.toFixed(2));
+  const slAtDelta    = parseFloat((centreAtOpen * 1.005).toFixed(2));
   const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: Pb }),
+    body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: slAtDelta }),
     signal:  AbortSignal.timeout(30000),
   });
   const short = await shortRes.json();
   if (!short.ok) return { ...result, error: `hyperliquid-short : ${short.error}` };
-  result.shortEntry = short.ethPrice;
+  result.shortEntry     = short.ethPrice;
+  result.slAtDelta      = slAtDelta;
 
-  // 7. Sauvegarder la config runtime (L et Pb pour le hedge dynamique sans appel NFPM)
+  // 7. Sauvegarder la config runtime
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
     capital, leverage, shortSizeEth: ethAtOpen, rangePct,
     liquidityL: L, tickUpperPrice: Pb,
+    centrePrice: centreAtOpen, closeDelta: 0.005,
     startedAt: new Date().toISOString(),
   }, { ex: 30 * 86400 });
   await kv.del(REDIS_KEYS.POSITION_STATE);
@@ -302,59 +306,6 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 1b : zone bord (5% bas ou 5% haut du range) 3 CRONs consécutifs → rebalance préventif
-  const EDGE_KEY = 'p2_edge_streak';
-  if (hasLP && !isNaN(rMin) && !isNaN(rMax)) {
-    const rangeSize = rMax - rMin;
-    const edgeLow   = rMin + 0.05 * rangeSize;
-    const edgeHigh  = rMax - 0.05 * rangeSize;
-    const inEdge    = price <= edgeLow ? 'lower' : price >= edgeHigh ? 'upper' : null;
-    if (inEdge) {
-      const prev  = (await kv.get(EDGE_KEY)) ?? { zone: null, count: 0 };
-      const count = prev.zone === inEdge ? prev.count + 1 : 1;
-      await kv.set(EDGE_KEY, { zone: inEdge, count }, { ex: 7200 });
-      result.edgeZone  = inEdge;
-      result.edgeCount = count;
-      console.log(`[botLoop edge] inEdge=${inEdge} count=${count}`);
-      if (count >= 3) {
-        result.action  = 'edge_close_all';
-        result.collect = await runCollect(base, price);
-        await logBotTick(kv, result);
-        return result;
-      }
-    } else {
-      await kv.del(EDGE_KEY);
-    }
-  }
-
-  // Règles 1c/1d : ajustement du range si volatilité a significativement changé + prix > centre
-  if (hasLP && centerPrice && price > centerPrice) {
-    const pctData        = await getPercentileRange();
-    const p24h           = pctData && pctData.cnt >= 10 && pctData.p05 > 0
-      ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
-      : null;
-    if (p24h !== null) {
-      const rangePctActuel = rtConfig?.rangePct ?? ((rMax - rMin) / rMin * 100);
-      const optimalRange   = 2 * p24h;
-      result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
-      result.optimalRange   = parseFloat(optimalRange.toFixed(2));
-      if (optimalRange < rangePctActuel * 0.75) {
-        // Règle 1c : volatilité réduite → range trop large, resserrer
-        result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price);
-        await logBotTick(kv, result);
-        return result;
-      }
-      if (p24h > rangePctActuel * 1.5) {
-        // Règle 1d : volatilité explosive → range trop serré, élargir
-        result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price);
-        await logBotTick(kv, result);
-        return result;
-      }
-    }
-  }
-
   // Règle 2b : short sans LP → fermer le short (LP fermée manuellement ou erreur)
   if (!hasLP && hasShort) {
     result.action = 'no_lp_close_short';
@@ -384,29 +335,78 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : short dynamique — ON sous le centre, OFF au-dessus
+  // Règle 4 : short dynamique — SL trigger ferme à centre+0.5%, entry trigger rouvre à centre
   if (centerPrice) {
-    const shortNeeded = price < centerPrice;
-    if (!shortNeeded && hasShort) {
-      result.action = 'close_short_above_center';
-      try   { result.closeShort = await closeShort(base); }
-      catch (e) { result.closeShortError = e.message; }
-    } else if (shortNeeded && !hasShort) {
+    const closeDelta     = rtConfig?.closeDelta ?? 0.005;
+    const closeThreshold = parseFloat((centerPrice * (1 + closeDelta)).toFixed(2));
+
+    // Lire les ordres ouverts HL pour vérifier si les triggers sont en place
+    let hlOpenOrders = [];
+    try {
+      const statusRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) });
+      const statusData = await statusRes.json();
+      hlOpenOrders = statusData.openOrders ?? [];
+    } catch (_) {}
+
+    // SL trigger : ordre buy à ~centre+δ (ferme le short si prix monte)
+    const hasCloseTrigger = hlOpenOrders.some(o =>
+      o.coin === 'ETH' && o.side === 'buy' && o.tpsl === 'sl' &&
+      o.triggerPx != null && Math.abs((o.triggerPx - closeThreshold) / closeThreshold) < 0.003
+    );
+    // Entry trigger : ordre sell à ~centre (ouvre un short si prix descend)
+    const hasEntryTrigger = hlOpenOrders.some(o =>
+      o.coin === 'ETH' && o.side === 'sell' && o.tpsl === 'sl' &&
+      o.triggerPx != null && Math.abs((o.triggerPx - centerPrice) / centerPrice) < 0.003
+    );
+
+    result.closeThreshold  = closeThreshold;
+    result.hasCloseTrigger = hasCloseTrigger;
+    result.hasEntryTrigger = hasEntryTrigger;
+
+    const sizeEth  = rtConfig?.shortSizeEth ?? currentShortEth ?? 0;
+    const leverage = rtConfig?.leverage ?? 4;
+
+    if (hasShort && !hasCloseTrigger) {
+      // Short ouvert sans SL à centre+δ → le replacer via hyperliquid-tpsl
+      result.action = 'place_close_trigger';
+      if (sizeEth > 0) {
+        try {
+          const r = await fetch(`${base}/api/hyperliquid-tpsl`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ slPrice: closeThreshold, size: sizeEth }),
+            signal:  AbortSignal.timeout(15000),
+          });
+          result.closeTrigger = await r.json();
+        } catch (e) { result.closeTriggerError = e.message; }
+      }
+    } else if (!hasShort && price <= centerPrice && !hasEntryTrigger) {
+      // Prix déjà sous centre, pas de trigger en attente → ouvrir short au marché avec SL à centre+δ
       result.action = 'reopen_short_below_center';
-      const sizeEth  = rtConfig?.shortSizeEth ?? 0;
-      const leverage = rtConfig?.leverage ?? 4;
-      if (sizeEth > 0 && rMax) {
+      if (sizeEth > 0) {
         try {
           const r = await fetch(`${base}/api/hyperliquid-short`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ sizeEth, leverage, slPriceTrigger: rMax }),
+            body:    JSON.stringify({ sizeEth, leverage, slPriceTrigger: closeThreshold }),
             signal:  AbortSignal.timeout(30000),
           });
           result.reopenShort = await r.json();
         } catch (e) { result.reopenShortError = e.message; }
-      } else {
-        result.action = 'in_range_ok';
+      }
+    } else if (!hasShort && price > centerPrice && !hasEntryTrigger) {
+      // Prix au-dessus centre, pas de trigger → placer stop-sell à centre
+      result.action = 'place_entry_trigger';
+      if (sizeEth > 0) {
+        try {
+          const r = await fetch(`${base}/api/hyperliquid-trigger-entry`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ triggerPx: centerPrice, sizeEth, leverage }),
+            signal:  AbortSignal.timeout(30000),
+          });
+          result.entryTrigger = await r.json();
+        } catch (e) { result.entryTriggerError = e.message; }
       }
     } else {
       result.action = 'in_range_ok';

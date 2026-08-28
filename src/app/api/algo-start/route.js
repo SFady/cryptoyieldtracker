@@ -143,23 +143,26 @@ export async function POST() {
       : null;
     steps.push(`Short 100% pool : ${ethAtOpen} ETH · levier ×${leverage} · SL $${Pb}${shortWarning ? ` · ⚠ ${shortWarning}` : ''}`);
 
-    // 8. Ouvrir le short avec SL à la borne haute
+    // 8. Ouvrir le short avec SL trigger à centre+0.5% (pas à Pb)
+    const centrePrice = parseFloat(P0_lp.toFixed(2));
+    const slAtDelta   = parseFloat((centrePrice * 1.005).toFixed(2));
     const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: Pb }),
+      body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: slAtDelta }),
       signal:  AbortSignal.timeout(30000),
     });
     const short = await shortRes.json();
     if (!short.ok) return Response.json({ error: `hyperliquid-short : ${short.error}`, steps }, { status: 500 });
     const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? P0_hl);
-    steps.push(`Short @ $${avgPx} ✓`);
+    steps.push(`Short @ $${avgPx} ✓ · SL trigger $${slAtDelta} (centre+0.5%)`);
 
     // 9. Initialiser l'état Redis du bot
     await Promise.all([
       kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
         capital, leverage, shortSizeEth: ethAtOpen, rangePct,
         liquidityL: L, tickUpperPrice: Pb,
+        centrePrice, closeDelta: 0.005,
         startedAt: new Date().toISOString(),
       }, { ex: 30 * 86400 }),
       kv.del(REDIS_KEYS.POSITION_STATE),
