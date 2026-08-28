@@ -318,6 +318,34 @@ export async function botLoop({ base, price }) {
     }
   }
 
+  // Règles 1c/1d : ajustement du range si volatilité a significativement changé + prix > centre
+  if (hasLP && centerPrice && price > centerPrice) {
+    const pctData        = await getPercentileRange();
+    const p24h           = pctData && pctData.cnt >= 10 && pctData.p05 > 0
+      ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
+      : null;
+    if (p24h !== null) {
+      const rangePctActuel = rtConfig?.rangePct ?? ((rMax - rMin) / rMin * 100);
+      const optimalRange   = 2 * p24h;
+      result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
+      result.optimalRange   = parseFloat(optimalRange.toFixed(2));
+      if (optimalRange < rangePctActuel * 0.75) {
+        // Règle 1c : volatilité réduite → range trop large, resserrer
+        result.action  = 'range_shrink_rebalance';
+        result.collect = await runCollect(base, price);
+        await logBotTick(kv, result);
+        return result;
+      }
+      if (p24h > rangePctActuel * 1.5) {
+        // Règle 1d : volatilité explosive → range trop serré, élargir
+        result.action  = 'range_expand_rebalance';
+        result.collect = await runCollect(base, price);
+        await logBotTick(kv, result);
+        return result;
+      }
+    }
+  }
+
   // Règle 2b : short sans LP → fermer le short (LP fermée manuellement ou erreur)
   if (!hasLP && hasShort) {
     result.action = 'no_lp_close_short';
