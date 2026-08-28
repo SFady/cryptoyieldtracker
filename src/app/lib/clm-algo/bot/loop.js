@@ -365,9 +365,9 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 2 : LP sans short SOUS le centre → SL déclenché, fermer LP
-  // (price > centre = short fermé intentionnellement par l'algo, on garde la LP)
-  if (hasLP && !hasShort && (!centerPrice || price <= centerPrice)) {
+  // Règle 2 : LP sans short sans centerPrice → état incohérent, fermer LP
+  // Si centerPrice connu, Rule 4 gère la réouverture du short (évite fermeture LP intempestive)
+  if (hasLP && !hasShort && !centerPrice) {
     result.action = 'no_short_close_lp';
     try   { result.closeLP = await closeLP(base); }
     catch (e) { result.closeLPError = e.message; }
