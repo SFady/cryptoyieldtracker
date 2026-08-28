@@ -250,8 +250,11 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // 1. État LP
-  const lpState = await readLpState(ALGO_CONFIG.POOL_NUM);
+  // 1. État LP + config runtime (en parallèle)
+  const [lpState, rtConfig] = await Promise.all([
+    readLpState(ALGO_CONFIG.POOL_NUM),
+    kv.get(REDIS_KEYS.RUNTIME_CONFIG),
+  ]);
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
@@ -267,16 +270,20 @@ export async function botLoop({ base, price }) {
   }
 
   const isOOR = hasLP && !isNaN(rMin) && !isNaN(rMax) && (price < rMin || price > rMax);
+  const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
+    ? Math.sqrt(rMin * rMax)
+    : null;
 
   // 2. État short HL
   const { hasShort, sizeEth: currentShortEth } = await getShortState(base);
 
-  result.hasLP    = hasLP;
-  result.hasShort = hasShort;
-  result.isOOR    = isOOR;
-  result.rMin     = rMin ?? null;
-  result.rMax     = rMax ?? null;
-  result.poolNum  = ALGO_CONFIG.POOL_NUM;
+  result.hasLP       = hasLP;
+  result.hasShort    = hasShort;
+  result.isOOR       = isOOR;
+  result.rMin        = rMin ?? null;
+  result.rMax        = rMax ?? null;
+  result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
+  result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
   // Règle 1 : hors range → collect AERO + fermer + rouvrir immédiatement
   if (isOOR) {
@@ -321,8 +328,9 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 2 : LP sans short → fermer LP (SL déclenché, on ne relance pas)
-  if (hasLP && !hasShort) {
+  // Règle 2 : LP sans short SOUS le centre → SL déclenché, fermer LP
+  // (price > centre = short fermé intentionnellement par l'algo, on garde la LP)
+  if (hasLP && !hasShort && (!centerPrice || price <= centerPrice)) {
     result.action = 'no_short_close_lp';
     try   { result.closeLP = await closeLP(base); }
     catch (e) { result.closeLPError = e.message; }
@@ -339,8 +347,36 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : short fixe symétrique → rien à faire en range
-  result.action = 'in_range_ok';
+  // Règle 4 : short dynamique — ON sous le centre, OFF au-dessus
+  if (centerPrice) {
+    const shortNeeded = price < centerPrice;
+    if (!shortNeeded && hasShort) {
+      result.action = 'close_short_above_center';
+      try   { result.closeShort = await closeShort(base); }
+      catch (e) { result.closeShortError = e.message; }
+    } else if (shortNeeded && !hasShort) {
+      result.action = 'reopen_short_below_center';
+      const sizeEth  = rtConfig?.shortSizeEth ?? 0;
+      const leverage = rtConfig?.leverage ?? 4;
+      if (sizeEth > 0 && rMax) {
+        try {
+          const r = await fetch(`${base}/api/hyperliquid-short`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ sizeEth, leverage, slPriceTrigger: rMax }),
+            signal:  AbortSignal.timeout(30000),
+          });
+          result.reopenShort = await r.json();
+        } catch (e) { result.reopenShortError = e.message; }
+      } else {
+        result.action = 'in_range_ok';
+      }
+    } else {
+      result.action = 'in_range_ok';
+    }
+  } else {
+    result.action = 'in_range_ok';
+  }
 
   await logBotTick(kv, result);
   return result;
