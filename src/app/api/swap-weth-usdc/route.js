@@ -7,7 +7,7 @@ const SWAP_ROUTER = '0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5';
 const WETH        = '0x4200000000000000000000000000000000000006';
 const USDC        = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const TICK_SPACING = 50;
-const MIN_WETH    = 0.0005; // ~$1.25 — en dessous c'est de la poussière
+const MIN_WETH    = 0.0001; // ~$0.25 — en dessous c'est de la poussière
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,

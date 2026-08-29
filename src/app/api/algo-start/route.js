@@ -106,6 +106,13 @@ export async function POST() {
     const Pb = pool.tickUpperPrice;
     steps.push(`LP ouverte ✓ · tick bornes $${Pa}–$${Pb}`);
 
+    // 5b. Convertir le WETH résiduel en USDC
+    try {
+      const swapRes  = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
+      const swapData = await swapRes.json();
+      if (swapData.ok && !swapData.skipped) steps.push(`WETH résiduel swappé → ${swapData.wethSwapped?.toFixed(4)} ETH → USDC ✓`);
+    } catch (_) {}
+
     // 6. Initialiser ancre de tendance si absente
     const existingAnchor = await readPriceAnchor7d();
     if (!existingAnchor) {

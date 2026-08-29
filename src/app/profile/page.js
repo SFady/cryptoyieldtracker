@@ -21,7 +21,6 @@ export default function ProfilePage() {
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [nextCronAt2, setNextCronAt2] = useState(null);
-  const [cronWeth2, setCronWeth2] = useState([]);
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
@@ -34,7 +33,6 @@ export default function ProfilePage() {
   const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
   const [percentileRange3, setPercentileRange3] = useState(null);
   const [nextCronAt3, setNextCronAt3] = useState(null);
-  const [cronWeth3, setCronWeth3] = useState([]);
   const [blockedByError3, setBlockedByError3] = useState(false);
   const [blockReason3, setBlockReason3] = useState(null);
   const [rebalanceBlock3, setRebalanceBlock3] = useState(null);
@@ -48,14 +46,14 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
 
     fetch("/api/positions3")
       .then((r) => r.json())
-      .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setRebalanceBlock3(d.rebalanceBlock ?? null); setWalletShort3(d.walletShort ?? ""); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); setCronWeth3(d.cronWeth ?? []); })
+      .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setRebalanceBlock3(d.rebalanceBlock ?? null); setWalletShort3(d.walletShort ?? ""); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
       .catch((e) => setError3(e.message))
       .finally(() => setLoading3(false));
   }, []);
@@ -117,7 +115,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} cronWeth={cronWeth2} edgeStreak={edgeStreak2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -192,7 +190,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={3} usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} greenTotal={total3} cronWeth={cronWeth3} />)}
+            {pos3 && pos3.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={3} usdcWallet={i === 0 ? usdcWallet3 : null} wethWallet={i === 0 ? wethWallet3 : null} wethWalletUSD={i === 0 ? wethWalletUSD3 : null} />)}
           </>
         );
       })()}
