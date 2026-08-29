@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { kv }     from '@vercel/kv';
 import { neon }   from '@neondatabase/serverless';
 import { REDIS_KEYS } from '../../lib/clm-algo/config.js';
-import { getPercentileRange } from '../../lib/cronKv.js';
+import { getPercentileRange, readPriceAnchor7d, writePriceAnchor7d } from '../../lib/cronKv.js';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 120;
@@ -46,7 +46,7 @@ function getWalletWeth()  { return getTokenBalance(WETH_ADDRESS, 18); }
 
 /**
  * POST /api/algo-start
- * Flux complet pool 2 : LP 20% range 50/50 + short HL delta-neutre avec SL à la borne haute.
+ * Flux complet pool 2 : LP 2× range percentile, ratio 50/50.
  * Même logique que le bouton ▶ START dans DIVERS, mais capital auto (tout le USDC du wallet).
  */
 export async function POST() {
@@ -63,15 +63,7 @@ export async function POST() {
       return Response.json({ ok: false, skipped: true, reason: `Capital insuffisant : $${usdcBalance.toFixed(2)} USDC + ${wethBalance.toFixed(4)} WETH`, steps });
     }
 
-    // 2. Annuler ordres HL résiduels
-    try {
-      await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(30000) });
-      steps.push('Cancel ordres HL ✓');
-    } catch (_) {
-      steps.push('Cancel ordres HL — ignoré (erreur réseau)');
-    }
-
-    // 3. Prix live
+    // 2. Prix live
     const priceRes  = await fetch(`${base}/api/livePrice`, { signal: AbortSignal.timeout(8000) });
     const priceData = await priceRes.json();
     const livePrice = priceData.price;
@@ -81,12 +73,12 @@ export async function POST() {
     const capital = usdcBalance + wethBalance * livePrice;
     steps.push(`Capital total : $${capital.toFixed(2)} (USDC $${usdcBalance.toFixed(2)} + ${wethBalance.toFixed(4)} WETH × $${livePrice.toFixed(0)})`);
 
-    // 4. Range dynamique = 3 × percentile 24h (min 5%, max 15%, fallback 10%)
+    // 4. Range dynamique = 2 × percentile 24h (min 2%, fallback 10%)
     const pct24h   = await getPercentileRange();
     const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
       ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
       : null;
-    const rangePct = parseFloat(Math.max(2, p24h !== null ? 1.5 * p24h : 10).toFixed(2));
+    const rangePct = parseFloat(Math.max(2, p24h !== null ? 2 * p24h : 10).toFixed(2));
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));
@@ -114,52 +106,24 @@ export async function POST() {
     const Pb = pool.tickUpperPrice;
     steps.push(`LP ouverte ✓ · tick bornes $${Pa}–$${Pb}`);
 
-    // 6. Prix HL live + solde HL (en parallèle, avant le short)
-    let P0_hl = livePrice;
-    let hlAccountValue = 0;
-    try {
-      const [hlPriceRes, hlStatusRes] = await Promise.all([
-        fetch(`${base}/api/hyperliquid-short`, { signal: AbortSignal.timeout(8000) }),
-        fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) }),
-      ]);
-      const hlPriceData  = await hlPriceRes.json();
-      const hlStatusData = await hlStatusRes.json();
-      if (hlPriceData.ethPrice) P0_hl = hlPriceData.ethPrice;
-      hlAccountValue = hlStatusData.accountValue ?? 0;
-    } catch (_) {}
-    steps.push(`Prix HL : $${P0_hl} · solde HL : $${hlAccountValue.toFixed(2)}`);
+    // 6. Initialiser ancre de tendance si absente
+    const existingAnchor = await readPriceAnchor7d();
+    if (!existingAnchor) {
+      await writePriceAnchor7d(livePrice);
+      steps.push(`Ancre tendance initialisée à $${livePrice} ✓`);
+    } else {
+      steps.push(`Ancre tendance existante : $${parseFloat(existingAnchor).toFixed(2)}`);
+    }
 
-    // 7. Short 100% pool, limité par marge HL disponible
-    const sqrtPa   = Math.sqrt(Pa);
-    const sqrtPb   = Math.sqrt(Pb);
-    const P0_lp    = Math.sqrt(Pa * Pb);
-    const L        = capital / (2 * Math.sqrt(P0_lp) - P0_lp / sqrtPb - sqrtPa);
-    const leverage  = 4;
-    const S_star    = capital / (2 * P0_hl);
-    const maxFromMargin  = hlAccountValue > 0 ? hlAccountValue * leverage / P0_hl : S_star;
-    const ethAtOpen      = parseFloat(Math.min(S_star, maxFromMargin).toFixed(4));
-    const shortWarning   = ethAtOpen < S_star - 0.0001
-      ? `marge HL insuffisante : ${ethAtOpen} ETH sur ${parseFloat(S_star.toFixed(4))} visés — ajouter $${parseFloat(((S_star - ethAtOpen) * P0_hl / leverage).toFixed(2))} dans HL`
-      : null;
-    steps.push(`Short S* (delta-neutre) : ${ethAtOpen} ETH · levier ×${leverage}${shortWarning ? ` · ⚠ ${shortWarning}` : ''}`);
+    // 7. Initialiser l'état Redis du bot (sans short)
+    const sqrtPa = Math.sqrt(Pa);
+    const sqrtPb = Math.sqrt(Pb);
+    const P0_lp  = Math.sqrt(Pa * Pb);
+    const L      = capital / (2 * Math.sqrt(P0_lp) - P0_lp / sqrtPb - sqrtPa);
 
-    // 8. Ouvrir le short fixe S* (sans SL trigger)
-    const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ sizeEth: ethAtOpen, leverage }),
-      signal:  AbortSignal.timeout(30000),
-    });
-    const short = await shortRes.json();
-    if (!short.ok) return Response.json({ error: `hyperliquid-short : ${short.error}`, steps }, { status: 500 });
-    const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? P0_hl);
-    steps.push(`Short S* @ $${avgPx} ✓ (delta-neutre, sans SL trigger)`);
-
-    // 9. Initialiser l'état Redis du bot
     await Promise.all([
       kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
-        capital, leverage, shortSizeEth: ethAtOpen, rangePct,
-        liquidityL: L, tickUpperPrice: Pb,
+        capital, rangePct, liquidityL: L,
         startedAt: new Date().toISOString(),
       }, { ex: 30 * 86400 }),
       kv.del(REDIS_KEYS.POSITION_STATE),
@@ -171,11 +135,11 @@ export async function POST() {
     ]);
     steps.push('État Redis initialisé ✓');
 
-    // 10. Total au démarrage (Redis + Neon)
+    // 8. Total au démarrage (Redis + Neon)
     try {
-      const openingTotal = parseFloat((capital + hlAccountValue).toFixed(2));
+      const openingTotal = parseFloat(capital.toFixed(2));
       await kv.set('p2_opening_total', openingTotal, { ex: 30 * 86400 });
-      await kv.set('p2_opening_lp', parseFloat(capital.toFixed(2)), { ex: 30 * 86400 });
+      await kv.set('p2_opening_lp',   openingTotal, { ex: 30 * 86400 });
       if (process.env.DATABASE_URL && pool.tokenId) {
         const sql = neon(process.env.DATABASE_URL);
         await sql`UPDATE lp_events SET total_at_open = ${openingTotal} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
@@ -188,9 +152,6 @@ export async function POST() {
       livePrice,
       minPrice, maxPrice,
       tickLowerPrice: Pa, tickUpperPrice: Pb,
-      ethAtOpen, targetEthShort: parseFloat(S_star.toFixed(4)), leverage,
-      shortEntryPrice: avgPx,
-      ...(shortWarning && { shortWarning }),
       steps,
     });
 

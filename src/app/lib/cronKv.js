@@ -125,3 +125,11 @@ export async function readPositionsCache(poolNum) {
 export async function writePositionsCache(poolNum, data) {
   try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 15 }); } catch (_) {}
 }
+
+// Ancre de prix 7 jours (signal de tendance haussier/baissier, TTL 8j auto-reset)
+export async function writePriceAnchor7d(price) {
+  try { await kv.set('p2_price_anchor_7d', price, { ex: 8 * 86400 }); } catch (_) {}
+}
+export async function readPriceAnchor7d() {
+  try { return await kv.get('p2_price_anchor_7d'); } catch (_) { return null; }
+}
