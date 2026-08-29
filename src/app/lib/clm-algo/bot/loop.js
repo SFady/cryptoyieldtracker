@@ -210,7 +210,8 @@ async function autoStart({ base, price }) {
   result.ethAtOpen      = ethAtOpen;
   result.targetEthShort = parseFloat(S_star.toFixed(4));
 
-  // 6. Ouvrir le short fixe S* (sans SL trigger)
+  // 6. Ouvrir le short fixe S* (sans SL trigger) — cancel-all d'abord
+  try { await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(15000) }); } catch (_) {}
   const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -220,6 +221,16 @@ async function autoStart({ base, price }) {
   const short = await shortRes.json();
   if (!short.ok) return { ...result, error: `hyperliquid-short : ${short.error}` };
   result.shortEntry = short.ethPrice;
+
+  // SL de sécurité à Pb + 5% (protection si cron tombe en panne)
+  try {
+    await fetch(`${base}/api/hyperliquid-tpsl`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ slPrice: Pb * 1.05, size: ethAtOpen }),
+      signal:  AbortSignal.timeout(15000),
+    });
+  } catch (_) {}
 
   // 7. Sauvegarder la config runtime
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
@@ -365,6 +376,7 @@ export async function botLoop({ base, price }) {
     const sizeEth  = rtConfig?.shortSizeEth ?? 0;
     const leverage = rtConfig?.leverage ?? 4;
     if (sizeEth > 0) {
+      try { await fetch(`${base}/api/hyperliquid-cancel-all`, { method: 'POST', signal: AbortSignal.timeout(15000) }); } catch (_) {}
       try {
         const r = await fetch(`${base}/api/hyperliquid-short`, {
           method:  'POST',
@@ -374,6 +386,17 @@ export async function botLoop({ base, price }) {
         });
         result.reopenShort = await r.json();
       } catch (e) { result.reopenShortError = e.message; }
+      const Pb = rtConfig?.tickUpperPrice;
+      if (Pb && result.reopenShort?.ok) {
+        try {
+          await fetch(`${base}/api/hyperliquid-tpsl`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ slPrice: Pb * 1.05, size: sizeEth }),
+            signal:  AbortSignal.timeout(15000),
+          });
+        } catch (_) {}
+      }
     }
   } else {
     result.action = 'in_range_ok';
