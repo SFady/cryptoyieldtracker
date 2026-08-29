@@ -243,30 +243,35 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1 : hors range → temporiser 10 min, puis ratio tendance + rebalance
+  // Règle 1 : hors range
+  //   OOR bas  → rebalance immédiat (WETH exposé à la baisse, pas de délai)
+  //   OOR haut → temporiser 10 min (USDC stable, prix peut revenir)
   if (isOOR) {
-    if (!oorSince) {
-      // Premier tick OOR : démarrer le timer
-      await kv.set(REDIS_KEYS.OOR_SINCE, Date.now(), { ex: 30 * 86400 });
-      result.action = 'oor_waiting';
-      result.oorElapsedMin = 0;
-      await logBotTick(kv, result);
-      return result;
+    const isOORLow = price < rMin;
+
+    if (!isOORLow) {
+      // OOR haut : démarrer ou vérifier le timer 10 min
+      if (!oorSince) {
+        await kv.set(REDIS_KEYS.OOR_SINCE, Date.now(), { ex: 30 * 86400 });
+        result.action = 'oor_waiting';
+        result.oorElapsedMin = 0;
+        await logBotTick(kv, result);
+        return result;
+      }
+      const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
+      result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
+      if (elapsedMin < 10) {
+        result.action = 'oor_waiting';
+        await logBotTick(kv, result);
+        return result;
+      }
     }
-    const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
-    result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
-    if (elapsedMin < 10) {
-      // Encore en attente
-      result.action = 'oor_waiting';
-      await logBotTick(kv, result);
-      return result;
-    }
-    // 10 min OOR confirmées → rebalance avec ratio tendance
+
+    // Rebalance : immédiat si OOR bas, après 10 min si OOR haut
     const anchor = await readPriceAnchor7d();
     let targetRatio = 0.5;
     if (anchor) {
-      const r        = price / anchor;
-      const isOORLow = price < rMin;
+      const r = price / anchor;
       if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.60;
       else if (r < 0.97) targetRatio = isOORLow ? 0.30 : 0.20;
     }
