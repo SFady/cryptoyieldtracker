@@ -105,7 +105,7 @@ export default function ProfilePage() {
             + parseFloat(wethWalletUSD2 || 0)
             + hlTotal2
           : null;
-        const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
+        const delta2 = total2 !== null && openingTotal2 !== null && hlData2 !== null ? total2 - openingTotal2 : null;
         return (
           <>
             <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} openingTotal={openingTotal2} mt />
@@ -487,36 +487,39 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           }}>
             Hyperliquid
           </div>
-          {hlData && (() => {
-            const ethShort = hlData.positions.find(p => p.coin === "ETH" && p.side === "short");
-
+          {!hlData ? (
+            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#555577" }}>
+              — indisponible —
+            </div>
+          ) : (() => {
+            const ethShort = hlData.positions?.find(p => p.coin === "ETH" && p.side === "short");
             const closeFees = ethShort ? ethShort.markPx * ethShort.szi * 0.0005 : 0;
-            let pnlNode   = null;
-            // Delta HL depuis ouverture = tout inclus (réalisé bucket + unrealized + fees + funding)
-            // On utilise (accountValue - closeFees) pour être cohérent avec totalHl et total2
             const hlOpeningValue  = openingTotal != null && openingLp != null ? openingTotal - openingLp : null;
             const hlDeltaFromOpen = hlOpeningValue != null ? (hlData.accountValue - closeFees) - hlOpeningValue : null;
-            if (ethShort) {
-              const hlDeltaColor = hlDeltaFromOpen == null ? "#eaf6ff" : hlDeltaFromOpen >= 0 ? "#00e5a0" : "#c97070";
-              const hlDeltaStr   = hlDeltaFromOpen != null ? (hlDeltaFromOpen >= 0 ? "+" : "") + hlDeltaFromOpen.toFixed(2) + " $" : "—";
-              pnlNode = (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>HL depuis ouverture</span>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: hlDeltaColor }}>{hlDeltaStr}</span>
-                  </div>
-                </>
-              );
-            }
-
             const totalHl = hlData.accountValue - closeFees;
             return (
               <>
-                {pnlNode}
+                {ethShort ? (() => {
+                  const hlDeltaColor = hlDeltaFromOpen == null ? "#eaf6ff" : hlDeltaFromOpen >= 0 ? "#00e5a0" : "#c97070";
+                  const hlDeltaStr   = hlDeltaFromOpen != null ? (hlDeltaFromOpen >= 0 ? "+" : "") + hlDeltaFromOpen.toFixed(2) + " $" : "—";
+                  return (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                        <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
+                        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                        <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>HL depuis ouverture</span>
+                        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: hlDeltaColor }}>{hlDeltaStr}</span>
+                      </div>
+                    </>
+                  );
+                })() : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#c97070", fontSize: "0.88rem" }}>Short</span>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#c97070" }}>Pas de short actif</span>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px" }}>
                   <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Total Hyperliquid</span>
                   <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#a78bfa" }}>${totalHl.toFixed(2)}</span>

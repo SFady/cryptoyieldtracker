@@ -188,7 +188,7 @@ export async function POST() {
       livePrice,
       minPrice, maxPrice,
       tickLowerPrice: Pa, tickUpperPrice: Pb,
-      ethAtOpen, targetEthShort: parseFloat(targetSizeEth.toFixed(4)), leverage,
+      ethAtOpen, targetEthShort: parseFloat(S_star.toFixed(4)), leverage,
       shortEntryPrice: avgPx,
       ...(shortWarning && { shortWarning }),
       steps,
