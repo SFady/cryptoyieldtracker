@@ -73,12 +73,12 @@ export async function POST() {
     const capital = usdcBalance + wethBalance * livePrice;
     steps.push(`Capital total : $${capital.toFixed(2)} (USDC $${usdcBalance.toFixed(2)} + ${wethBalance.toFixed(4)} WETH × $${livePrice.toFixed(0)})`);
 
-    // 4. Range dynamique = 2 × percentile 24h (min 2%, fallback 10%)
+    // 4. Range dynamique = 1 × percentile 24h (min 2%, fallback 10%)
     const pct24h   = await getPercentileRange();
     const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
       ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
       : null;
-    const rangePct = parseFloat(Math.max(2, p24h !== null ? 2 * p24h : 10).toFixed(2));
+    const rangePct = parseFloat(Math.max(2, p24h !== null ? p24h : 10).toFixed(2));
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));

@@ -117,7 +117,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} cronWeth={cronWeth2} edgeStreak={edgeStreak2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -212,7 +212,6 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
           return s + parseFloat(p.totalUSD) + aero;
         }, 0) + extraUSD).toFixed(2)
       : null;
-  const delta = total && openingTotal ? parseFloat(total) - openingTotal : null;
   return (
     <div className="section-header" style={mt ? { marginTop: 28 } : {}}>
       <span style={{
@@ -281,10 +280,8 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, openingDelta = null, openingTotal = null, openingLp = null }) {
-  const aeroUSD        = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
-  const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
-  const totalRevUSD    = aeroUSD + tradingFeesUSD;
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+  const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
   // Total revenus = variation pool depuis ouverture + AERO non collectés
@@ -404,29 +401,19 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} cronWeth={cronWeth} edgeStreak={edgeStreak} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} edgeStreak={edgeStreak} />
         )}
       </div>
 
       {/* Pool amounts */}
       <Section label="En pool">
         {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
-        {openingLp != null && (() => {
-          const lpRef   = openingLp;
-          const lpDelta = adjustedPoolUSD + parseFloat(usdcWallet ?? 0) + parseFloat(wethWalletUSD ?? 0) - lpRef;
-          const col = lpDelta >= 0 ? "#00e5a0" : "#c97070";
-          return (
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-              <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#6666aa" }}>Capital ouverture</span>
-              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                <span style={{ fontFamily:"monospace", fontSize:"0.72rem", fontWeight:700, color:col }}>
-                  {lpDelta >= 0 ? "+" : ""}{lpDelta.toFixed(2)}$
-                </span>
-                <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#555577" }}>${lpRef.toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })()}
+        {openingLp != null && (
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.04)" }}>
+            <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#6666aa" }}>Capital ouverture</span>
+            <span style={{ fontFamily:"monospace", fontSize:"0.75rem", color:"#555577" }}>${openingLp.toFixed(2)}</span>
+          </div>
+        )}
         <TotalRow label="Total pool" value={`$${adjustedPoolUSD.toFixed(2)}`} />
       </Section>
 
@@ -598,7 +585,7 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, cronWeth = [], edgeStreak = null }) {
+function RangeBar({ low, high, current, inRange, edgeStreak = null }) {
   const lo  = parseFloat(low);
   const hi  = parseFloat(high);
   const cur = parseFloat(current);

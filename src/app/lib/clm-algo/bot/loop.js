@@ -121,12 +121,12 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   result.capital     = parseFloat(capital.toFixed(2));
   result.targetRatio = targetRatio;
 
-  // 2. Range dynamique = 2 × percentile 24h (min 2%, fallback 10%)
+  // 2. Range dynamique = 1 × percentile 24h (min 2%, fallback 10%)
   const pct24h   = await getPercentileRange();
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  const rangePct = parseFloat(Math.max(2, p24h !== null ? 2 * p24h : 10).toFixed(2));
+  const rangePct = parseFloat(Math.max(2, p24h !== null ? p24h : 10).toFixed(2));
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
@@ -289,10 +289,10 @@ export async function botLoop({ base, price }) {
       : null;
     if (p24h !== null) {
       const rangePctActuel = rtConfig?.rangePct ?? ((rMax - rMin) / rMin * 100);
-      const optimalRange   = 2 * p24h;
+      const optimalRange   = p24h;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
-      const p24hAtOpen = rangePctActuel / 2;
+      const p24hAtOpen = rangePctActuel;
       if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
