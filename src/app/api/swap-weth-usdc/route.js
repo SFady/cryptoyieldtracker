@@ -3,11 +3,11 @@ import { ethers } from 'ethers';
 export const runtime     = 'nodejs';
 export const maxDuration = 60;
 
-const SWAP_ROUTER = '0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5';
-const WETH        = '0x4200000000000000000000000000000000000006';
-const USDC        = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-const TICK_SPACING = 50;
-const MIN_WETH    = 0.0001; // ~$0.25 — en dessous c'est de la poussière
+const SWAP_ROUTER  = '0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5';
+const WETH         = '0x4200000000000000000000000000000000000006';
+const USDC         = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const TICK_SPACINGS = [100, 200, 1, 50]; // essayés dans l'ordre jusqu'au premier succès
+const MIN_WETH     = 0.0001; // ~$0.25 — en dessous c'est de la poussière
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -60,30 +60,31 @@ export async function POST() {
       await txApp.wait();
     } catch (_) {}
 
-    // Swap WETH → USDC (3 tentatives avec slippage croissant)
+    // Swap WETH → USDC : essai de chaque tick spacing puis slippage croissant
     let swapHash = null;
-    for (const pct of [995n, 990n, 980n]) {
-      try {
-        // Prix estimé via eth_call
-        const priceData = SWAP_IFACE.encodeFunctionData('exactInputSingle', [{
-          tokenIn: WETH, tokenOut: USDC, tickSpacing: TICK_SPACING,
-          recipient: wallet.address, deadline: freshDeadline(),
-          amountIn: wethBal, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
-        }]);
-        const simResult = await provider.call({ to: SWAP_ROUTER, data: priceData });
-        const [simOut]  = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], simResult);
-        const minOut    = simOut * pct / 1000n;
+    outer: for (const tickSpacing of TICK_SPACINGS) {
+      for (const pct of [995n, 990n, 980n]) {
+        try {
+          const priceData = SWAP_IFACE.encodeFunctionData('exactInputSingle', [{
+            tokenIn: WETH, tokenOut: USDC, tickSpacing,
+            recipient: wallet.address, deadline: freshDeadline(),
+            amountIn: wethBal, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
+          }]);
+          const simResult = await provider.call({ to: SWAP_ROUTER, data: priceData });
+          const [simOut]  = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], simResult);
+          const minOut    = simOut * pct / 1000n;
 
-        const data = SWAP_IFACE.encodeFunctionData('exactInputSingle', [{
-          tokenIn: WETH, tokenOut: USDC, tickSpacing: TICK_SPACING,
-          recipient: wallet.address, deadline: freshDeadline(),
-          amountIn: wethBal, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
-        }]);
-        const tx = await wallet.sendTransaction({ to: SWAP_ROUTER, data, gasLimit: 300000n });
-        await tx.wait();
-        swapHash = tx.hash;
-        break;
-      } catch (_) {}
+          const data = SWAP_IFACE.encodeFunctionData('exactInputSingle', [{
+            tokenIn: WETH, tokenOut: USDC, tickSpacing,
+            recipient: wallet.address, deadline: freshDeadline(),
+            amountIn: wethBal, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
+          }]);
+          const tx = await wallet.sendTransaction({ to: SWAP_ROUTER, data, gasLimit: 300000n });
+          await tx.wait();
+          swapHash = tx.hash;
+          break outer;
+        } catch (_) {}
+      }
     }
 
     if (!swapHash) return Response.json({ error: 'Swap WETH→USDC échoué' }, { status: 500 });
