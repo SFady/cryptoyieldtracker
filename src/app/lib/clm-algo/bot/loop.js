@@ -371,12 +371,12 @@ export async function botLoop({ base, price }) {
 
     // SL trigger : ordre buy à ~centre+δ (ferme le short si prix monte)
     const hasCloseTrigger = hlOpenOrders.some(o =>
-      o.coin === 'ETH' && o.side === 'buy' && o.tpsl === 'sl' &&
+      o.coin === 'ETH' && o.side === 'buy' &&
       o.triggerPx != null && Math.abs((o.triggerPx - closeThreshold) / closeThreshold) < 0.003
     );
     // Entry trigger : ordre sell à ~centre (ouvre un short si prix descend)
     const hasEntryTrigger = hlOpenOrders.some(o =>
-      o.coin === 'ETH' && o.side === 'sell' && o.tpsl === 'sl' &&
+      o.coin === 'ETH' && o.side === 'sell' &&
       o.triggerPx != null && Math.abs((o.triggerPx - centerPrice) / centerPrice) < 0.003
     );
 
