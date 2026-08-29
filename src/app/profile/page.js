@@ -25,7 +25,6 @@ export default function ProfilePage() {
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
-  const [hlData2, setHlData2]     = useState(null);
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
 
@@ -52,10 +51,6 @@ export default function ProfilePage() {
         .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setCronWeth2(d.cronWeth ?? []); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
-      fetch("/api/hyperliquid-status")
-        .then((r) => r.json())
-        .then((d) => { if (!d.error) setHlData2(d); })
-        .catch(() => {});
     }
 
     fetch("/api/positions3")
@@ -69,43 +64,16 @@ export default function ProfilePage() {
     <>
       {/* ── Wallet 2 : WETH/USDC ── */}
       {SHOW_POOL2 && (() => {
-        const hlCloseFees2 = (() => {
-          if (!hlData2) return 0;
-          const ethShort = hlData2.positions?.find(p => p.coin === "ETH" && p.side === "short");
-          if (!ethShort) return 0;
-          const orders = hlData2.openOrders ?? [];
-          const coinOrders = orders.filter(o => o.coin === "ETH");
-          const tp = coinOrders.find(o => o.tpsl === "tp");
-          const sl = coinOrders.find(o => o.tpsl === "sl");
-          const tpPx = tp?.triggerPx ?? null;
-          const slPx = sl?.triggerPx ?? null;
-          let exitPx = ethShort.markPx;
-          if (tpPx !== null && slPx !== null)
-            exitPx = Math.abs(ethShort.markPx - tpPx) <= Math.abs(ethShort.markPx - slPx) ? tpPx : slPx;
-          else if (tpPx !== null) exitPx = tpPx;
-          else if (slPx !== null) exitPx = slPx;
-          return exitPx * ethShort.szi * 0.0005;
-        })();
-        const hlTotal2 = hlData2 ? hlData2.accountValue - hlCloseFees2 : 0;
-        const hlPrice2 = (() => {
-          const s = hlData2?.positions?.find(p => p.coin === "ETH" && p.side === "short");
-          return s?.markPx ?? 0;
-        })();
-
         const total2 = pos2
           ? pos2.reduce((s, p) => {
               const aeroFees    = parseFloat(p.aeroRevenueUSD ?? "0");
               const tradingFees = (p.fees ?? []).reduce((a, f) => a + parseFloat(f.usd || "0"), 0);
-              const wethBal     = parseFloat(p.pool[0]?.balance ?? 0);
-              const usdcBal     = parseFloat(p.pool[1]?.usd ?? 0);
-              const poolUSD     = hlPrice2 > 0 ? wethBal * hlPrice2 + usdcBal : parseFloat(p.totalPoolUSD ?? "0");
-              return s + poolUSD + aeroFees + tradingFees;
+              return s + parseFloat(p.totalPoolUSD ?? "0") + aeroFees + tradingFees;
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
-            + hlTotal2
           : null;
-        const delta2 = total2 !== null && openingTotal2 !== null && hlData2 !== null ? total2 - openingTotal2 : null;
+        const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
         return (
           <>
             <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} openingTotal={openingTotal2} mt />
@@ -135,7 +103,7 @@ export default function ProfilePage() {
             {pos2 && pos2.length === 0 && !loading2 && (
               <>
                 <Empty />
-                {(parseFloat(usdcWallet2 || 0) > 0 || parseFloat(wethWallet2 || 0) > 0 || hlTotal2 > 0) && (
+                {(parseFloat(usdcWallet2 || 0) > 0 || parseFloat(wethWallet2 || 0) > 0) && (
                   <div style={{ background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
                     <Section label="Solde non utilisé">
                       {parseFloat(usdcWallet2 || 0) > 0 && (
@@ -144,15 +112,12 @@ export default function ProfilePage() {
                       {parseFloat(wethWallet2 || 0) > 0 && (
                         <TokenRow token={{ symbol: "WETH", balance: wethWallet2, usd: wethWalletUSD2 ?? "0.00" }} accent="#627eea" />
                       )}
-                      {hlTotal2 > 0 && (
-                        <TokenRow token={{ symbol: "Hyperliquid", balance: hlTotal2.toFixed(2), usd: hlTotal2.toFixed(2) }} accent="#00c2ff" />
-                      )}
                     </Section>
                   </div>
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} hlData={hlData2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} greenTotal={total2} cronWeth={cronWeth2} edgeStreak={edgeStreak2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -316,22 +281,11 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, hlData = null, openingDelta = null, openingTotal = null, openingLp = null }) {
-  const aeroUSD       = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, greenTotal, cronWeth = [], edgeStreak = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+  const aeroUSD        = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const tradingFeesUSD = (pos.fees ?? []).reduce((s, f) => s + parseFloat(f.usd || "0"), 0);
-  const totalRevUSD   = aeroUSD + tradingFeesUSD;
-
-  // Oracle HL pour valoriser le WETH du pool (même référence que le PnL short)
-  const hlEthPrice = (() => {
-    const s = hlData?.positions?.find(p => p.coin === "ETH" && p.side === "short");
-    return s?.markPx ?? 0;
-  })();
-  const adjustedPoolUSD = (() => {
-    if (!hlEthPrice) return parseFloat(pos.totalPoolUSD ?? 0);
-    const wethBal = parseFloat(pos.pool[0]?.balance ?? 0);
-    const usdcBal = parseFloat(pos.pool[1]?.usd ?? 0);
-    return wethBal * hlEthPrice + usdcBal;
-  })();
+  const totalRevUSD    = aeroUSD + tradingFeesUSD;
+  const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
   const feePct      = showFeePercent && pos.openTimestamp && openingDelta !== null
     ? (() => {
@@ -451,12 +405,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
 
       {/* Pool amounts */}
       <Section label="En pool">
-        {pos.pool.map((t) => {
-          const tok = (t.symbol === "WETH" && hlEthPrice > 0)
-            ? { ...t, usd: (parseFloat(t.balance) * hlEthPrice).toFixed(2) }
-            : t;
-          return <TokenRow key={t.symbol} token={tok} accent="#eaf6ff" />;
-        })}
+        {pos.pool.map((t) => <TokenRow key={t.symbol} token={t} accent="#eaf6ff" />)}
         {openingLp != null && (() => {
           const lpRef   = openingLp;
           const lpDelta = adjustedPoolUSD + parseFloat(usdcWallet ?? 0) + parseFloat(wethWalletUSD ?? 0) - lpRef;
@@ -475,60 +424,6 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         })()}
         <TotalRow label="Total pool" value={`$${adjustedPoolUSD.toFixed(2)}`} />
       </Section>
-
-      {/* Hyperliquid — pool 2 uniquement */}
-      {poolNum === 2 && (
-        <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{
-            padding: "7px 18px",
-            fontSize: "0.7rem", fontFamily: "monospace", letterSpacing: "1.5px",
-            textTransform: "uppercase", color: "#9988cc", fontWeight: 600,
-            background: "rgba(124,77,255,0.08)",
-          }}>
-            Hyperliquid
-          </div>
-          {!hlData ? (
-            <div style={{ padding: "9px 18px", fontFamily: "monospace", fontSize: "0.78rem", color: "#555577" }}>
-              — indisponible —
-            </div>
-          ) : (() => {
-            const ethShort = hlData.positions?.find(p => p.coin === "ETH" && p.side === "short");
-            const closeFees = ethShort ? ethShort.markPx * ethShort.szi * 0.0005 : 0;
-            const hlOpeningValue  = openingTotal != null && openingLp != null ? openingTotal - openingLp : null;
-            const hlDeltaFromOpen = hlOpeningValue != null ? (hlData.accountValue - closeFees) - hlOpeningValue : null;
-            const totalHl = hlData.accountValue - closeFees;
-            return (
-              <>
-                {ethShort ? (() => {
-                  const hlDeltaColor = hlDeltaFromOpen == null ? "#eaf6ff" : hlDeltaFromOpen >= 0 ? "#00e5a0" : "#c97070";
-                  const hlDeltaStr   = hlDeltaFromOpen != null ? (hlDeltaFromOpen >= 0 ? "+" : "") + hlDeltaFromOpen.toFixed(2) + " $" : "—";
-                  return (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                        <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Entry Price</span>
-                        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#eaf6ff" }}>${ethShort.entryPx.toFixed(1)}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                        <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>HL depuis ouverture</span>
-                        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: hlDeltaColor }}>{hlDeltaStr}</span>
-                      </div>
-                    </>
-                  );
-                })() : (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#c97070", fontSize: "0.88rem" }}>Short</span>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#c97070" }}>Pas de short actif</span>
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 18px" }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#eaf6ff", fontSize: "0.88rem" }}>Total Hyperliquid</span>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.88rem", color: "#a78bfa" }}>${totalHl.toFixed(2)}</span>
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      )}
 
       {/* Solde non utilisé */}
       {(usdcWallet !== null || wethWallet !== null) && (
