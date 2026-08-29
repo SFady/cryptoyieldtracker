@@ -282,17 +282,16 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
-  // Total revenus = variation pool depuis ouverture + AERO non collectés + WETH résiduel wallet
+  // Total revenus = pool + WETH wallet + AERO (valeur absolue)
   const wethWalletUSDFloat = parseFloat(wethWalletUSD || 0);
-  const totalRevenus = openingLp != null
-    ? adjustedPoolUSD + aeroUSD + wethWalletUSDFloat - openingLp
-    : openingDelta;
+  const totalRevenus = adjustedPoolUSD + aeroUSD + wethWalletUSDFloat;
+  const totalRevenusDelta = openingLp != null ? totalRevenus - openingLp : openingDelta;
 
-  const feePct      = showFeePercent && pos.openTimestamp && totalRevenus != null
+  const feePct      = showFeePercent && pos.openTimestamp && totalRevenusDelta != null
     ? (() => {
         const base  = (openingLp ?? parseFloat(pos.totalPoolUSD)) || 1;
         const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
-        return ((totalRevenus / base) / hours * 24 * 30 * 100).toFixed(2);
+        return ((totalRevenusDelta / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
     : null;
   const aeroPct     = showFeePercent && pos.openTimestamp && aeroUSD > 0.001

@@ -78,7 +78,7 @@ export async function POST() {
     const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
       ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
       : null;
-    const rangePct = parseFloat(Math.max(2, p24h !== null ? p24h : 10).toFixed(2));
+    const rangePct = parseFloat((p24h !== null ? p24h : 10).toFixed(2));
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));
