@@ -287,11 +287,16 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const totalRevUSD    = aeroUSD + tradingFeesUSD;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
-  const feePct      = showFeePercent && pos.openTimestamp && openingDelta !== null
+  // Total revenus = variation pool depuis ouverture + AERO non collectés
+  const totalRevenus = openingLp != null
+    ? adjustedPoolUSD + aeroUSD - openingLp
+    : openingDelta;
+
+  const feePct      = showFeePercent && pos.openTimestamp && totalRevenus != null
     ? (() => {
-        const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
+        const base  = (openingLp ?? parseFloat(pos.totalPoolUSD)) || 1;
         const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
-        return ((openingDelta / base) / hours * 24 * 30 * 100).toFixed(2);
+        return ((totalRevenus / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
     : null;
   const aeroPct     = showFeePercent && pos.openTimestamp && aeroUSD > 0.001
@@ -445,7 +450,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" badge={aeroPct ? `${aeroPct}%/mois` : null} />
         )}
-        <TotalRow label="Total revenus" value={`$${(openingDelta ?? 0).toFixed(2)}`} highlight percent={feePct} percentSuffix="%/mois" />
+        <TotalRow label="Total revenus" value={totalRevenus != null ? `$${totalRevenus.toFixed(2)}` : "—"} highlight percent={feePct} percentSuffix="%/mois" />
       </Section>
 
       {/* Footer */}
