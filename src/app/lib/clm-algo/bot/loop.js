@@ -211,10 +211,11 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // 1. État LP + config runtime (en parallèle)
-  const [lpState, rtConfig] = await Promise.all([
+  // 1. État LP + config runtime + timer OOR (en parallèle)
+  const [lpState, rtConfig, oorSince] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
+    kv.get(REDIS_KEYS.OOR_SINCE),
   ]);
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
@@ -242,16 +243,32 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1 : hors range → ratio selon tendance + collect AERO + fermer + rouvrir
+  // Règle 1 : hors range → temporiser 10 min, puis ratio tendance + rebalance
   if (isOOR) {
+    if (!oorSince) {
+      // Premier tick OOR : démarrer le timer
+      await kv.set(REDIS_KEYS.OOR_SINCE, Date.now(), { ex: 30 * 86400 });
+      result.action = 'oor_waiting';
+      result.oorElapsedMin = 0;
+      await logBotTick(kv, result);
+      return result;
+    }
+    const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
+    result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
+    if (elapsedMin < 10) {
+      // Encore en attente
+      result.action = 'oor_waiting';
+      await logBotTick(kv, result);
+      return result;
+    }
+    // 10 min OOR confirmées → rebalance avec ratio tendance
     const anchor = await readPriceAnchor7d();
     let targetRatio = 0.5;
     if (anchor) {
       const r        = price / anchor;
-      const isOORLow = price < rMin; // OOR à Pa : ETH a baissé
-      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.60; // haussier
-      else if (r < 0.97) targetRatio = isOORLow ? 0.30 : 0.20; // baissier
-      // neutre → 0.50
+      const isOORLow = price < rMin;
+      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.60;
+      else if (r < 0.97) targetRatio = isOORLow ? 0.30 : 0.20;
     }
     result.anchor      = anchor ? parseFloat(anchor) : null;
     result.targetRatio = targetRatio;
@@ -260,6 +277,9 @@ export async function botLoop({ base, price }) {
     await logBotTick(kv, result);
     return result;
   }
+
+  // Prix revenu en range → annuler le timer OOR si actif
+  if (oorSince) await kv.del(REDIS_KEYS.OOR_SINCE);
 
   // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (50/50)
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
