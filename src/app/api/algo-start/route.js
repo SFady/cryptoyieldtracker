@@ -86,7 +86,7 @@ export async function POST() {
     const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
       ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
       : null;
-    const rangePct = parseFloat(Math.max(2, Math.min(15, p24h !== null ? 3 * p24h : 10)).toFixed(2));
+    const rangePct = parseFloat(Math.max(2, p24h !== null ? 2 * p24h : 10).toFixed(2));
     const halfFrac = rangePct / 200;
     const minPrice = parseFloat((livePrice / (1 + halfFrac)).toFixed(2));
     const maxPrice = parseFloat((livePrice * (1 + halfFrac)).toFixed(2));
@@ -135,34 +135,31 @@ export async function POST() {
     const P0_lp    = Math.sqrt(Pa * Pb);
     const L        = capital / (2 * Math.sqrt(P0_lp) - P0_lp / sqrtPb - sqrtPa);
     const leverage  = 4;
-    const targetSizeEth  = capital / P0_hl;
-    const maxFromMargin  = hlAccountValue > 0 ? hlAccountValue * leverage / P0_hl : targetSizeEth;
-    const ethAtOpen      = parseFloat(Math.min(targetSizeEth, maxFromMargin).toFixed(4));
-    const shortWarning   = ethAtOpen < targetSizeEth - 0.0001
-      ? `marge HL insuffisante : ${ethAtOpen} ETH sur ${parseFloat(targetSizeEth.toFixed(4))} visés — ajouter $${parseFloat(((targetSizeEth - ethAtOpen) * P0_hl / leverage).toFixed(2))} dans HL`
+    const S_star    = capital / (2 * P0_hl);
+    const maxFromMargin  = hlAccountValue > 0 ? hlAccountValue * leverage / P0_hl : S_star;
+    const ethAtOpen      = parseFloat(Math.min(S_star, maxFromMargin).toFixed(4));
+    const shortWarning   = ethAtOpen < S_star - 0.0001
+      ? `marge HL insuffisante : ${ethAtOpen} ETH sur ${parseFloat(S_star.toFixed(4))} visés — ajouter $${parseFloat(((S_star - ethAtOpen) * P0_hl / leverage).toFixed(2))} dans HL`
       : null;
-    steps.push(`Short 100% pool : ${ethAtOpen} ETH · levier ×${leverage} · SL $${Pb}${shortWarning ? ` · ⚠ ${shortWarning}` : ''}`);
+    steps.push(`Short S* (delta-neutre) : ${ethAtOpen} ETH · levier ×${leverage}${shortWarning ? ` · ⚠ ${shortWarning}` : ''}`);
 
-    // 8. Ouvrir le short avec SL trigger à centre+0.5% (pas à Pb)
-    const centrePrice = parseFloat(P0_lp.toFixed(2));
-    const slAtDelta   = parseFloat((centrePrice * 1.005).toFixed(2));
+    // 8. Ouvrir le short fixe S* (sans SL trigger)
     const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: slAtDelta }),
+      body:    JSON.stringify({ sizeEth: ethAtOpen, leverage }),
       signal:  AbortSignal.timeout(30000),
     });
     const short = await shortRes.json();
     if (!short.ok) return Response.json({ error: `hyperliquid-short : ${short.error}`, steps }, { status: 500 });
     const avgPx = parseFloat(short.ioStatus?.filled?.avgPx ?? short.ethPrice ?? P0_hl);
-    steps.push(`Short @ $${avgPx} ✓ · SL trigger $${slAtDelta} (centre+0.5%)`);
+    steps.push(`Short S* @ $${avgPx} ✓ (delta-neutre, sans SL trigger)`);
 
     // 9. Initialiser l'état Redis du bot
     await Promise.all([
       kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
         capital, leverage, shortSizeEth: ethAtOpen, rangePct,
         liquidityL: L, tickUpperPrice: Pb,
-        centrePrice, closeDelta: 0.005,
         startedAt: new Date().toISOString(),
       }, { ex: 30 * 86400 }),
       kv.del(REDIS_KEYS.POSITION_STATE),

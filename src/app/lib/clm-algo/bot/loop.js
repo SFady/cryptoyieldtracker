@@ -143,7 +143,7 @@ async function autoStart({ base, price }) {
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  const rangePct = parseFloat(Math.max(2, Math.min(15, p24h !== null ? 3 * p24h : 10)).toFixed(2));
+  const rangePct = parseFloat(Math.max(2, p24h !== null ? 2 * p24h : 10).toFixed(2));
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
@@ -199,36 +199,32 @@ async function autoStart({ base, price }) {
   const sqrtPb   = Math.sqrt(Pb);
   const P0_lp    = Math.sqrt(Pa * Pb);
   const L        = capital / (2 * Math.sqrt(P0_lp) - P0_lp / sqrtPb - sqrtPa);
-  const leverage = 4;
-  const targetSizeEth = capital / P0_hl;
-  const maxFromMargin = hlAccountValue > 0 ? hlAccountValue * leverage / P0_hl : targetSizeEth;
-  const ethAtOpen     = parseFloat(Math.min(targetSizeEth, maxFromMargin).toFixed(4));
-  if (ethAtOpen < targetSizeEth - 0.0001) {
-    const missingUsd = parseFloat(((targetSizeEth - ethAtOpen) * P0_hl / leverage).toFixed(2));
-    result.shortWarning = `marge HL insuffisante : ${ethAtOpen} ETH sur ${parseFloat(targetSizeEth.toFixed(4))} visés — ajouter $${missingUsd} dans HL`;
+  const leverage  = 4;
+  const S_star    = capital / (2 * P0_hl);
+  const maxFromMargin = hlAccountValue > 0 ? hlAccountValue * leverage / P0_hl : S_star;
+  const ethAtOpen = parseFloat(Math.min(S_star, maxFromMargin).toFixed(4));
+  if (ethAtOpen < S_star - 0.0001) {
+    const missingUsd = parseFloat(((S_star - ethAtOpen) * P0_hl / leverage).toFixed(2));
+    result.shortWarning = `marge HL insuffisante : ${ethAtOpen} ETH sur ${parseFloat(S_star.toFixed(4))} visés — ajouter $${missingUsd} dans HL`;
   }
   result.ethAtOpen      = ethAtOpen;
-  result.targetEthShort = parseFloat(targetSizeEth.toFixed(4));
+  result.targetEthShort = parseFloat(S_star.toFixed(4));
 
-  // 6. Ouvrir le short avec SL trigger à centre+0.5% (pas à Pb)
-  const centreAtOpen = parseFloat(P0_lp.toFixed(2));
-  const slAtDelta    = parseFloat((centreAtOpen * 1.005).toFixed(2));
+  // 6. Ouvrir le short fixe S* (sans SL trigger)
   const shortRes = await fetch(`${base}/api/hyperliquid-short`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ sizeEth: ethAtOpen, leverage, slPriceTrigger: slAtDelta }),
+    body:    JSON.stringify({ sizeEth: ethAtOpen, leverage }),
     signal:  AbortSignal.timeout(30000),
   });
   const short = await shortRes.json();
   if (!short.ok) return { ...result, error: `hyperliquid-short : ${short.error}` };
-  result.shortEntry     = short.ethPrice;
-  result.slAtDelta      = slAtDelta;
+  result.shortEntry = short.ethPrice;
 
   // 7. Sauvegarder la config runtime
   await kv.set(REDIS_KEYS.RUNTIME_CONFIG, {
     capital, leverage, shortSizeEth: ethAtOpen, rangePct,
     liquidityL: L, tickUpperPrice: Pb,
-    centrePrice: centreAtOpen, closeDelta: 0.005,
     startedAt: new Date().toISOString(),
   }, { ex: 30 * 86400 });
   await kv.del(REDIS_KEYS.POSITION_STATE);
@@ -307,14 +303,14 @@ export async function botLoop({ base, price }) {
   }
 
   // Règle 1c : volatilité réduite → range trop large vs optimal, resserrer (seulement au-dessus du centre)
-  if (hasLP && centerPrice && price > centerPrice * (1 + (rtConfig?.closeDelta ?? 0.005)) && !isNaN(rMin) && !isNaN(rMax)) {
+  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
       : null;
     if (p24h !== null) {
       const rangePctActuel = rtConfig?.rangePct ?? ((rMax - rMin) / rMin * 100);
-      const optimalRange   = 3 * p24h;
+      const optimalRange   = 2 * p24h;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       if (optimalRange < rangePctActuel * 0.75) {
@@ -356,81 +352,21 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // Règle 4 : short dynamique — SL trigger ferme à centre+0.5%, entry trigger rouvre à centre
-  if (centerPrice) {
-    const closeDelta     = rtConfig?.closeDelta ?? 0.005;
-    const closeThreshold = parseFloat((centerPrice * (1 + closeDelta)).toFixed(2));
-
-    // Lire les ordres ouverts HL pour vérifier si les triggers sont en place
-    let hlOpenOrders = [];
-    try {
-      const statusRes  = await fetch(`${base}/api/hyperliquid-status`, { signal: AbortSignal.timeout(8000) });
-      const statusData = await statusRes.json();
-      hlOpenOrders = statusData.openOrders ?? [];
-    } catch (_) {}
-
-    // SL trigger : ordre buy à ~centre+δ (ferme le short si prix monte)
-    const hasCloseTrigger = hlOpenOrders.some(o =>
-      o.coin === 'ETH' && o.side === 'buy' &&
-      o.triggerPx != null && Math.abs((o.triggerPx - closeThreshold) / closeThreshold) < 0.003
-    );
-    // Entry trigger : ordre sell à ~centre (ouvre un short si prix descend)
-    const hasEntryTrigger = hlOpenOrders.some(o =>
-      o.coin === 'ETH' && o.side === 'sell' &&
-      o.triggerPx != null && Math.abs((o.triggerPx - centerPrice) / centerPrice) < 0.003
-    );
-
-    result.closeThreshold  = closeThreshold;
-    result.hasCloseTrigger = hasCloseTrigger;
-    result.hasEntryTrigger = hasEntryTrigger;
-
-    const sizeEth  = rtConfig?.shortSizeEth ?? currentShortEth ?? 0;
+  // Règle 4 : short fixe S* — si absent, rouvrir au marché sans trigger
+  if (!hasShort) {
+    result.action = 'reopen_short_fixed';
+    const sizeEth  = rtConfig?.shortSizeEth ?? 0;
     const leverage = rtConfig?.leverage ?? 4;
-
-    if (hasShort && !hasCloseTrigger) {
-      // Short ouvert sans SL à centre+δ → le replacer via hyperliquid-tpsl
-      result.action = 'place_close_trigger';
-      if (sizeEth > 0) {
-        try {
-          const r = await fetch(`${base}/api/hyperliquid-tpsl`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ slPrice: closeThreshold, size: sizeEth }),
-            signal:  AbortSignal.timeout(15000),
-          });
-          result.closeTrigger = await r.json();
-        } catch (e) { result.closeTriggerError = e.message; }
-      }
-    } else if (!hasShort && price <= centerPrice && !hasEntryTrigger) {
-      // Prix déjà sous centre, pas de trigger en attente → ouvrir short au marché avec SL à centre+δ
-      result.action = 'reopen_short_below_center';
-      if (sizeEth > 0) {
-        try {
-          const r = await fetch(`${base}/api/hyperliquid-short`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ sizeEth, leverage, slPriceTrigger: closeThreshold }),
-            signal:  AbortSignal.timeout(30000),
-          });
-          result.reopenShort = await r.json();
-        } catch (e) { result.reopenShortError = e.message; }
-      }
-    } else if (!hasShort && price > centerPrice && !hasEntryTrigger) {
-      // Prix au-dessus centre, pas de trigger → placer stop-sell à centre
-      result.action = 'place_entry_trigger';
-      if (sizeEth > 0) {
-        try {
-          const r = await fetch(`${base}/api/hyperliquid-trigger-entry`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ triggerPx: centerPrice, sizeEth, leverage }),
-            signal:  AbortSignal.timeout(30000),
-          });
-          result.entryTrigger = await r.json();
-        } catch (e) { result.entryTriggerError = e.message; }
-      }
-    } else {
-      result.action = 'in_range_ok';
+    if (sizeEth > 0) {
+      try {
+        const r = await fetch(`${base}/api/hyperliquid-short`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ sizeEth, leverage }),
+          signal:  AbortSignal.timeout(30000),
+        });
+        result.reopenShort = await r.json();
+      } catch (e) { result.reopenShortError = e.message; }
     }
   } else {
     result.action = 'in_range_ok';
