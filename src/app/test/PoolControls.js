@@ -7,6 +7,7 @@ export default function PoolControls() {
   const [confirming, setConfirming] = React.useState(null);
   const [running, setRunning]       = React.useState(null);
   const [result, setResult]         = React.useState(null);
+  const [oldPosId, setOldPosId]     = React.useState('');
   const timerRef = React.useRef(null);
 
   function handleClick(action) {
@@ -77,6 +78,19 @@ export default function PoolControls() {
         const data = await res.json();
         if (!res.ok) { setResult({ ok: false, msg: data.error ?? JSON.stringify(data) }); return; }
         setResult({ ok: true, msg: `AERO réclamé ✓ — tokenId ${data.tokenId} · wallet AERO: ${data.aeroWallet}` });
+      } else if (action === "closeOld") {
+        const body = { poolNum: 2, noTransfer: true, keepWeth: true, skipActiveToken: true };
+        const tid  = oldPosId.trim();
+        if (tid) body.targetTokenIds = [parseInt(tid)];
+        const res  = await fetch("/api/closePositions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) { setResult({ ok: false, msg: data.error ?? JSON.stringify(data) }); return; }
+        const n = data.collected?.length ?? 0;
+        setResult({ ok: true, msg: `${n} vieille(s) fermée(s) · USDC: $${data.finalUsdc}${tid ? ` · ID ${tid}` : ''}` });
       } else if (action === "closeLpQuick") {
         const res  = await fetch("/api/close-lp-quick", {
           method: "POST",
@@ -164,6 +178,26 @@ export default function PoolControls() {
           <button onClick={() => handleClick("rebalance")} disabled={!!running} style={btnStyle("rebalance", "167,139,250")}>
             {running === "rebalance" ? "En cours… (3–5 min)" : confirming === "rebalance" ? "⚠ CONFIRMER ?" : "↺ Rebalance"}
           </button>
+        )}
+        {poolNum === 2 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              type="text"
+              value={oldPosId}
+              onChange={e => setOldPosId(e.target.value)}
+              placeholder="ID (vide = toutes)"
+              style={{
+                fontFamily: "monospace", fontSize: "0.72rem",
+                padding: "4px 8px", borderRadius: 5,
+                background: "rgba(20,26,36,0.9)",
+                border: "1px solid rgba(255,100,80,0.25)",
+                color: "#ccaaaa", width: 140, outline: "none",
+              }}
+            />
+            <button onClick={() => handleClick("closeOld")} disabled={!!running} style={btnStyle("closeOld", "255,100,80")}>
+              {running === "closeOld" ? "En cours…" : confirming === "closeOld" ? "⚠ CONFIRMER ?" : "Fermer vieilles"}
+            </button>
+          </div>
         )}
         {poolNum === 2 && (
           <button onClick={() => handleClick("claimAero")} disabled={!!running} style={btnStyle("claimAero", "255,140,200")}>

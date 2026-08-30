@@ -229,10 +229,28 @@ export async function POST(req) {
   const allFees            = body.allFees === true;
   const transferUsdcFees   = body.transferUsdcFees === true;
   const noTransfer         = body.noTransfer === true;
+  const skipActiveToken    = body.skipActiveToken === true;
+  const targetTokenIds     = Array.isArray(body.targetTokenIds) && body.targetTokenIds.length > 0
+    ? new Set(body.targetTokenIds.map(id => BigInt(id)))
+    : null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
     const POOL = getPoolAddress(poolNum);
+
+    // Positions à exclure (active en cours) et/ou à cibler spécifiquement
+    const skipTokenIds = new Set();
+    if (skipActiveToken) {
+      try {
+        const rows = await sql`
+          SELECT token_id FROM lp_events
+          WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+            AND COALESCE(pool_num, 2) = ${poolNum}
+          ORDER BY id DESC LIMIT 1
+        `;
+        if (rows[0]?.token_id) skipTokenIds.add(BigInt(rows[0].token_id));
+      } catch (_) {}
+    }
 
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -267,6 +285,8 @@ export async function POST(req) {
     try {
       const [stakedIds] = await view(gaugeAddr, GAUGE_IFACE, 'stakedValues', [wallet.address]);
       for (const tokenId of stakedIds) {
+        if (skipTokenIds.has(tokenId)) continue;
+        if (targetTokenIds && !targetTokenIds.has(tokenId)) continue;
         // Claim rewards AERO (silencieux)
         try {
           const tx = await sendTx(wallet, {
@@ -379,6 +399,8 @@ export async function POST(req) {
       const tokenIds = [...tokenIdSet];
 
       for (const tokenId of tokenIds) {
+        if (skipTokenIds.has(tokenId)) continue;
+        if (targetTokenIds && !targetTokenIds.has(tokenId)) continue;
         let pos;
         try {
           pos = await view(nfpm, NFPM_IFACE, "positions", [tokenId]);
