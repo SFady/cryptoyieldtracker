@@ -282,9 +282,9 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
-  // Total revenus = pool + AERO − ouverture
+  // Total revenus = pool + AERO + USDC wallet − ouverture (le résiduel USDC fait partie du capital)
   const totalRevenus = openingLp != null
-    ? adjustedPoolUSD + aeroUSD - openingLp
+    ? adjustedPoolUSD + aeroUSD + parseFloat(usdcWallet || 0) - openingLp
     : openingDelta;
 
   const feePct      = showFeePercent && pos.openTimestamp && totalRevenus != null
