@@ -457,12 +457,11 @@ export async function POST(req) {
 
         // Rien Ã  faire : position vide et sans fees
         if (pos.liquidity === 0n && pos.tokensOwed0 === 0n && pos.tokensOwed1 === 0n) {
+          // Fire-and-forget : on envoie le burn sans attendre la confirmation
+          // (évite le timeout sur N positions — burn se règle on-chain dans les ~30s)
           try {
             const burnData = NFPM_IFACE.encodeFunctionData('burn', [tokenId]);
-            let burnGas = 100000n;
-            try { const est = await provider.estimateGas({ to: posNfpm, from: wallet.address, data: burnData }); burnGas = est * 3n / 2n; } catch (_) {}
-            const txBurn = await sendTx(wallet, { to: posNfpm, data: burnData, gasLimit: burnGas });
-            await waitForTx(provider, txBurn);
+            await sendTx(wallet, { to: posNfpm, data: burnData, gasLimit: 150000n });
           } catch (_) {}
           collectedList.push(tokenId.toString());
           continue;
