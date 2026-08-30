@@ -295,11 +295,11 @@ export async function botLoop({ base, price }) {
 
     // Rebalance effectif
     const anchor = await readPriceAnchor7d();
-    let targetRatio = 0.5;
+    let targetRatio = isOORLow ? 0.70 : 0.30;
     if (anchor) {
       const r = price / anchor;
-      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.60;
-      else if (r < 0.97) targetRatio = isOORLow ? 0.30 : 0.20;
+      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.40;
+      else if (r < 0.97) targetRatio = isOORLow ? 0.60 : 0.20;
     }
     result.anchor      = anchor ? parseFloat(anchor) : null;
     result.targetRatio = targetRatio;
