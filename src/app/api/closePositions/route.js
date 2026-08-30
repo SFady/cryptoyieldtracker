@@ -238,9 +238,9 @@ export async function POST(req) {
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
     const POOL = getPoolAddress(poolNum);
 
-    // Positions à exclure (active en cours) et/ou à cibler spécifiquement
+    // Positions à exclure (active en cours) — seulement si pas de ciblage explicite
     const skipTokenIds = new Set();
-    if (skipActiveToken) {
+    if (skipActiveToken && !targetTokenIds) {
       try {
         const rows = await sql`
           SELECT token_id FROM lp_events
