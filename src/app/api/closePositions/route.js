@@ -308,6 +308,39 @@ export async function POST(req) {
         }
       }
 
+      // Fallback ownerOf : pour les targetTokenIds absents de ce gauge (position dans un autre gauge/pool)
+      if (targetTokenIds) {
+        for (const targetId of targetTokenIds) {
+          if (unstakedList.includes(targetId.toString())) continue;
+          let ownerAddr = null;
+          for (const tryNfpm of [nfpm, nfpm === NFPM_NEW ? NFPM : NFPM_NEW]) {
+            try {
+              const [o] = await view(tryNfpm, NFPM_IFACE, 'ownerOf', [targetId]);
+              if (o && o !== ethers.ZeroAddress) { ownerAddr = o; break; }
+            } catch (_) {}
+          }
+          if (!ownerAddr) continue;
+          if (ownerAddr.toLowerCase() === wallet.address.toLowerCase()) {
+            unstakedList.push(targetId.toString());
+          } else {
+            try {
+              const txR = await sendTx(wallet, { to: ownerAddr, data: GAUGE_IFACE.encodeFunctionData('getReward', [targetId]) });
+              await waitForTx(provider, txR);
+            } catch (_) {}
+            try {
+              const wdData = GAUGE_IFACE.encodeFunctionData('withdraw', [targetId]);
+              let wdGas = 300000n;
+              try { const est = await provider.estimateGas({ to: ownerAddr, from: wallet.address, data: wdData }); wdGas = est * 3n / 2n; } catch (_) {}
+              const txW = await sendTx(wallet, { to: ownerAddr, data: wdData, gasLimit: wdGas });
+              await waitForTx(provider, txW);
+              unstakedList.push(targetId.toString());
+            } catch (e) {
+              unstakeErrors.push(`[ownerOf-gauge tokenId=${targetId}] ${e.shortMessage ?? e.message}`);
+            }
+          }
+        }
+      }
+
       // Fallback DB : si stakedValues retourne vide, chercher le tokenId en base
       // (CREATE_OK non-clôturé OU CREATE_ERR avec tokenId — cas d'un mint réussi suivi d'un gauge revert)
       if (stakedIds.length === 0) {
@@ -387,24 +420,33 @@ export async function POST(req) {
       // tokenOfOwnerByIndex peut ne pas refléter immédiatement un NFT fraîchement transféré depuis le gauge
       const tokenIdSet = new Set();
       for (const id of unstakedList) tokenIdSet.add(BigInt(id));
-      try {
-        const [count] = await view(nfpm, NFPM_IFACE, "balanceOf", [wallet.address]);
-        for (let i = 0n; i < count; i++) {
-          try {
-            const [tid] = await view(nfpm, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
-            tokenIdSet.add(tid);
-          } catch (_) { break; }
-        }
-      } catch (_) {}
+      for (const scanNfpm of [nfpm, nfpm === NFPM_NEW ? NFPM : NFPM_NEW]) {
+        try {
+          const [count] = await view(scanNfpm, NFPM_IFACE, "balanceOf", [wallet.address]);
+          for (let i = 0n; i < count; i++) {
+            try {
+              const [tid] = await view(scanNfpm, NFPM_IFACE, "tokenOfOwnerByIndex", [wallet.address, i]);
+              tokenIdSet.add(tid);
+            } catch (_) { break; }
+          }
+        } catch (_) {}
+      }
       const tokenIds = [...tokenIdSet];
 
       for (const tokenId of tokenIds) {
         if (skipTokenIds.has(tokenId)) continue;
         if (targetTokenIds && !targetTokenIds.has(tokenId)) continue;
         let pos;
+        let posNfpm = nfpm;
         try {
           pos = await view(nfpm, NFPM_IFACE, "positions", [tokenId]);
-        } catch (_) { continue; } // position brûlée ou tokenId invalide → ignorer
+        } catch (_) {
+          const altNfpm = nfpm === NFPM_NEW ? NFPM : NFPM_NEW;
+          try {
+            pos = await view(altNfpm, NFPM_IFACE, "positions", [tokenId]);
+            posNfpm = altNfpm;
+          } catch (_) { continue; }
+        }
 
         // Filtrer : seulement les positions de ce pool
         if (
@@ -413,7 +455,10 @@ export async function POST(req) {
         ) continue;
 
         // Rien Ã  faire : position vide et sans fees
-        if (pos.liquidity === 0n && pos.tokensOwed0 === 0n && pos.tokensOwed1 === 0n) continue;
+        if (pos.liquidity === 0n && pos.tokensOwed0 === 0n && pos.tokensOwed1 === 0n) {
+          collectedList.push(tokenId.toString());
+          continue;
+        }
 
         // Fees exactes = calcFees (identique a l'affichage dans pools -> frais non collectes)
         const tickLower = Number(pos.tickLower);
@@ -452,7 +497,7 @@ export async function POST(req) {
           // Simulation pour avoir le vrai revert + capturer le principal (amount0/amount1 sans fees)
           try {
             const dlSimHex = await provider.call({
-              to: nfpm, from: wallet.address,
+              to: posNfpm, from: wallet.address,
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
             });
             try {
@@ -468,12 +513,12 @@ export async function POST(req) {
           }
           let gasLimit = 400000n;
           try {
-            const est = await provider.estimateGas({ to: nfpm, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]) });
+            const est = await provider.estimateGas({ to: posNfpm, from: wallet.address, data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]) });
             gasLimit = est * 3n / 2n;
           } catch (_) {}
           try {
             const tx = await sendTx(wallet, {
-              to: nfpm,
+              to: posNfpm,
               data: NFPM_IFACE.encodeFunctionData("decreaseLiquidity", [dlParams]),
               gasLimit,
             });
@@ -487,7 +532,7 @@ export async function POST(req) {
 
           // Simulation pour obtenir le vrai revert avant d'envoyer la tx
           try {
-            await provider.call({ to: nfpm, from: wallet.address, data: collectData });
+            await provider.call({ to: posNfpm, from: wallet.address, data: collectData });
           } catch (simErr) {
             const simMsg = simErr.shortMessage ?? simErr.message ?? "";
             if (simMsg && !simMsg.includes("missing revert data"))
@@ -495,8 +540,8 @@ export async function POST(req) {
           }
 
           let collectGas = 400000n;
-          try { const est = await provider.estimateGas({ to: nfpm, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
-          const tx = await sendTx(wallet, { to: nfpm, data: collectData, gasLimit: collectGas });
+          try { const est = await provider.estimateGas({ to: posNfpm, from: wallet.address, data: collectData }); collectGas = est * 3n / 2n; } catch (_) {}
+          const tx = await sendTx(wallet, { to: posNfpm, data: collectData, gasLimit: collectGas });
 
           try {
             await waitForTx(provider, tx);
