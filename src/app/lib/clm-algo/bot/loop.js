@@ -243,31 +243,57 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1 : hors range
-  //   OOR bas  → rebalance immédiat (WETH exposé à la baisse, pas de délai)
-  //   OOR haut → temporiser 10 min (USDC stable, prix peut revenir)
+  // Règle 1 : hors range → temporiser 10 min avant rebalance (haut et bas)
   if (isOOR) {
     const isOORLow = price < rMin;
 
-    if (!isOORLow) {
-      // OOR haut : démarrer ou vérifier le timer 10 min
-      if (!oorSince) {
-        await kv.set(REDIS_KEYS.OOR_SINCE, Date.now(), { ex: 30 * 86400 });
-        result.action = 'oor_waiting';
-        result.oorElapsedMin = 0;
-        await logBotTick(kv, result);
-        return result;
-      }
-      const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
-      result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
-      if (elapsedMin < 10) {
-        result.action = 'oor_waiting';
+    if (!oorSince) {
+      await kv.set(REDIS_KEYS.OOR_SINCE, Date.now(), { ex: 30 * 86400 });
+      result.action = 'oor_waiting';
+      result.oorElapsedMin = 0;
+      await logBotTick(kv, result);
+      return result;
+    }
+    const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
+    result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
+    if (elapsedMin < 10) {
+      result.action = 'oor_waiting';
+      await logBotTick(kv, result);
+      return result;
+    }
+
+    // Rebalance après 10 min — vérifier cooldown (A) et streak (B)
+    const oorDir = isOORLow ? 'low' : 'high';
+    const [lastRebTs, streak] = await Promise.all([
+      kv.get('p2_last_rebalance_ts').catch(() => null),
+      kv.get('p2_oor_streak').catch(() => null),
+    ]);
+
+    // A — Cooldown 30 min entre rebalances (anti-chasing immédiat)
+    if (lastRebTs) {
+      const cooldownMin = (Date.now() - Number(lastRebTs)) / 60000;
+      result.cooldownMin = parseFloat(cooldownMin.toFixed(1));
+      if (cooldownMin < 30) {
+        result.action = 'oor_cooldown';
         await logBotTick(kv, result);
         return result;
       }
     }
 
-    // Rebalance : immédiat si OOR bas, après 10 min si OOR haut
+    // B — Streak : pause 2h après 2 rebalances consécutifs dans la même direction
+    if (streak && streak.direction === oorDir && streak.count >= 2) {
+      const streakAgeMin = (Date.now() - Number(streak.lastTs)) / 60000;
+      result.streakCount = streak.count;
+      result.streakDir   = oorDir;
+      if (streakAgeMin < 120) {
+        result.action         = 'oor_streak_pause';
+        result.streakPauseMin = parseFloat((120 - streakAgeMin).toFixed(1));
+        await logBotTick(kv, result);
+        return result;
+      }
+    }
+
+    // Rebalance effectif
     const anchor = await readPriceAnchor7d();
     let targetRatio = 0.5;
     if (anchor) {
@@ -277,8 +303,16 @@ export async function botLoop({ base, price }) {
     }
     result.anchor      = anchor ? parseFloat(anchor) : null;
     result.targetRatio = targetRatio;
-    result.action  = 'oor_rebalance';
-    result.collect = await runCollect(base, price, targetRatio);
+    result.action      = 'oor_rebalance';
+    result.collect     = await runCollect(base, price, targetRatio);
+
+    // Mise à jour cooldown (A) + streak (B) après rebalance effectif
+    const newCount = (streak && streak.direction === oorDir) ? streak.count + 1 : 1;
+    await Promise.all([
+      kv.set('p2_last_rebalance_ts', Date.now(), { ex: 30 * 86400 }),
+      kv.set('p2_oor_streak', { direction: oorDir, count: newCount, lastTs: Date.now() }, { ex: 30 * 86400 }),
+    ]);
+
     await logBotTick(kv, result);
     return result;
   }

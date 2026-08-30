@@ -49,12 +49,36 @@ async function handle(req) {
   if (!checkAuth(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const ranAt = new Date().toISOString();
 
-  // 1. Enregistrement du prix
+  // 1. Prix on-chain (sans Redis)
   let price = null;
-  try {
-    price = await getPoolWethPrice();
+  try { price = await getPoolWethPrice(); } catch (_) {}
 
-    // Vérification variation brutale : rejet si écart > 30% par rapport au dernier prix connu (Redis)
+  // 2. Tick léger : 2 lectures Redis pour décider si travail complet nécessaire
+  const [lastFullTick, liveRange] = await Promise.all([
+    kv.get('p2_last_full_tick').catch(() => null),
+    kv.get('p2_live_range').catch(() => null),
+  ]);
+  const elapsedMin = lastFullTick ? (Date.now() - Number(lastFullTick)) / 60000 : 999;
+  const isFullTick = elapsedMin >= 5;
+
+  // Détection OOR rapide (sans lecture Redis supplémentaire)
+  let quickOOR = false;
+  if (!isFullTick && price && liveRange?.min && liveRange?.max) {
+    const rMin = parseFloat(liveRange.min);
+    const rMax = parseFloat(liveRange.max);
+    const center = (rMin + rMax) / 2;
+    if (Math.abs(price - center) / center < 0.3) {
+      quickOOR = price < rMin || price > rMax;
+    }
+  }
+
+  // Ni OOR ni heure du tick complet → rien à faire
+  if (!isFullTick && !quickOOR) {
+    return Response.json({ ok: true, ranAt, weth: price, skipped: true, nextFullTickIn: Math.round(5 - elapsedMin) });
+  }
+
+  // 3. Tick complet (toutes les 5 min) ou OOR détecté → écriture prix + bot
+  try {
     if (price) {
       try {
         const last = await getLastTwoPrices();
@@ -64,14 +88,16 @@ async function handle(req) {
           price = null;
         }
       } catch (_) {}
+      if (price) await writeCronPrice(price);
     }
-
-    if (price) await writeCronPrice(price);
+    if (isFullTick) {
+      try { await kv.set('p2_last_full_tick', Date.now(), { ex: 3600 }); } catch (_) {}
+    }
   } catch (e) {
     return Response.json({ ok: false, ranAt, kvError: e.message }, { status: 500 });
   }
 
-  // 2. Rebalance — détermine le cas pertinent via 1 lecture DB, puis appel ciblé
+  // 4. Rebalance — détermine le cas pertinent via 1 lecture DB, puis appel ciblé
   const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const rebalanceResults = {};
 
