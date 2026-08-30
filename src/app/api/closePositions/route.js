@@ -854,9 +854,11 @@ export async function POST(req) {
                         closed_at     = NOW()
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
-        const prevState = await readLpState(poolNum) ?? {};
-        await writeLpState(poolNum, { ...prevState, action1: "CREATE_OK", action2: "CLOSE_OK" });
-        await writeErrorState(poolNum, false);
+        if (!skipActiveToken) {
+          const prevState = await readLpState(poolNum) ?? {};
+          await writeLpState(poolNum, { ...prevState, action1: "CREATE_OK", action2: "CLOSE_OK" });
+          await writeErrorState(poolNum, false);
+        }
       } catch (_) {}
     }
 

@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -350,6 +350,22 @@ export async function botLoop({ base, price }) {
 
   // Règle 2 : aucune position → auto-start
   if (!hasLP) {
+    // Vérifier si Redis est désynchronisé (position active en DB, Redis dit CLOSE_OK)
+    try {
+      const sqlCheck = neon(process.env.DATABASE_URL);
+      const dbRows = await sqlCheck`
+        SELECT * FROM lp_events
+        WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND token_id IS NOT NULL
+          AND COALESCE(pool_num, 2) = ${ALGO_CONFIG.POOL_NUM}
+        ORDER BY id DESC LIMIT 1
+      `;
+      if (dbRows[0]?.token_id) {
+        await writeLpState(ALGO_CONFIG.POOL_NUM, dbRows[0]);
+        result.action = 'redis_restored';
+        await logBotTick(kv, result);
+        return result;
+      }
+    } catch (_) {}
     result.autoStart = await autoStart({ base, price });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
