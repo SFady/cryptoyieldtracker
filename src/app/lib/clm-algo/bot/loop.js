@@ -145,7 +145,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
       rangePercent: rangePct,
       targetRatio,
       poolNum:      ALGO_CONFIG.POOL_NUM,
-      exactBounds:  true,
+      exactBounds:  false,
     }),
     signal: AbortSignal.timeout(180000),
   });
@@ -295,11 +295,11 @@ export async function botLoop({ base, price }) {
 
     // Rebalance effectif
     const anchor = await readPriceAnchor7d();
-    let targetRatio = isOORLow ? 0.70 : 0.30;
+    let targetRatio = 0.5;
     if (anchor) {
       const r = price / anchor;
-      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.40;
-      else if (r < 0.97) targetRatio = isOORLow ? 0.60 : 0.20;
+      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.60;
+      else if (r < 0.97) targetRatio = isOORLow ? 0.30 : 0.20;
     }
     result.anchor      = anchor ? parseFloat(anchor) : null;
     result.targetRatio = targetRatio;
