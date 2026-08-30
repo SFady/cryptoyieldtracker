@@ -713,7 +713,7 @@ export async function POST(req) {
       : usdcBeforeSwaps;
 
     // Solde USDC total avant AERO (principal LP + wallet existant, sans AERO)
-    const stableBalLp   = await readBal(stablecoin, wallet.address);
+    const stableBalLp   = await readBal(stablecoin, wallet.address).catch(() => 0n);
     const lpUsdcRaw     = Number(ethers.formatUnits(stableBalLp, 6)).toFixed(2);
     // Principal = WETH principal converti au prix spot + USDC principal (depuis la sim decreaseLiquidity)
     const principalUsdc = (
@@ -836,7 +836,7 @@ export async function POST(req) {
     }
 
     // 5. Solde stablecoin final
-    const stableBal    = await readBal(stablecoin, wallet.address);
+    const stableBal    = await readBal(stablecoin, wallet.address).catch(() => 0n);
     const finalUsdc    = Number(ethers.formatUnits(stableBal, 6)).toLocaleString("en-US", { minimumFractionDigits: 2 });
     const finalUsdcRaw = Number(ethers.formatUnits(stableBal, 6)).toFixed(2);
     let wethFinalBal = 0n;

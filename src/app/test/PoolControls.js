@@ -87,8 +87,9 @@ export default function PoolControls() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const data = await res.json();
-        if (!res.ok) { setResult({ ok: false, msg: data.error ?? JSON.stringify(data) }); return; }
+        let data;
+        try { data = await res.json(); } catch (_) { data = {}; }
+        if (!res.ok) { setResult({ ok: false, msg: data.error ?? `Erreur serveur ${res.status}` }); return; }
         const n = data.collected?.length ?? 0;
         setResult({ ok: true, msg: `${n} vieille(s) fermée(s) · USDC: $${data.finalUsdc}${tid ? ` · ID ${tid}` : ''}` });
       } else if (action === "closeLpQuick") {
