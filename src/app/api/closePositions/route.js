@@ -68,6 +68,7 @@ const NFPM_IFACE = new ethers.Interface([
   "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
   "function decreaseLiquidity((uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint256 amount0, uint256 amount1)",
   "function collect((uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
+  "function burn(uint256 tokenId)",
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
@@ -456,6 +457,13 @@ export async function POST(req) {
 
         // Rien Ã  faire : position vide et sans fees
         if (pos.liquidity === 0n && pos.tokensOwed0 === 0n && pos.tokensOwed1 === 0n) {
+          try {
+            const burnData = NFPM_IFACE.encodeFunctionData('burn', [tokenId]);
+            let burnGas = 100000n;
+            try { const est = await provider.estimateGas({ to: posNfpm, from: wallet.address, data: burnData }); burnGas = est * 3n / 2n; } catch (_) {}
+            const txBurn = await sendTx(wallet, { to: posNfpm, data: burnData, gasLimit: burnGas });
+            await waitForTx(provider, txBurn);
+          } catch (_) {}
           collectedList.push(tokenId.toString());
           continue;
         }
@@ -558,6 +566,15 @@ export async function POST(req) {
           }
 
           collectedList.push(tokenId.toString());
+
+          // Brûler le NFT vide pour le faire disparaître de l'UI Aerodrome
+          try {
+            const burnData = NFPM_IFACE.encodeFunctionData('burn', [tokenId]);
+            let burnGas = 100000n;
+            try { const est = await provider.estimateGas({ to: posNfpm, from: wallet.address, data: burnData }); burnGas = est * 3n / 2n; } catch (_) {}
+            const txBurn = await sendTx(wallet, { to: posNfpm, data: burnData, gasLimit: burnGas });
+            await waitForTx(provider, txBurn);
+          } catch (_) {}
         } catch (e) {
           throw new Error(`[collect tokenId=${tokenId}] ${e.shortMessage ?? e.message}`);
         }
