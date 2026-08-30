@@ -327,7 +327,7 @@ export async function botLoop({ base, price }) {
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
       : null;
     if (p24h !== null) {
-      const rangePctActuel = rtConfig?.rangePct ?? ((rMax - rMin) / rMin * 100);
+      const rangePctActuel = (rMax - rMin) / rMin * 100;
       const optimalRange   = p24h;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
