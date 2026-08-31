@@ -256,7 +256,7 @@ export async function botLoop({ base, price }) {
     }
     const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
     result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
-    if (elapsedMin < 10) {
+    if (elapsedMin < 20) {
       result.action = 'oor_waiting';
       await logBotTick(kv, result);
       return result;
@@ -281,7 +281,7 @@ export async function botLoop({ base, price }) {
     }
 
     // B — Streak : pause 2h après 2 rebalances consécutifs dans la même direction
-    if (streak && streak.direction === oorDir && streak.count >= 2) {
+    if (streak && streak.direction === oorDir && streak.count >= 1) {
       const streakAgeMin = (Date.now() - Number(streak.lastTs)) / 60000;
       result.streakCount = streak.count;
       result.streakDir   = oorDir;
@@ -338,13 +338,13 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen = rangePctActuel;
-      if (p24h < p24hAtOpen - 1.5) {
+      if (p24h < p24hAtOpen - 3) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
         result.collect = await runCollect(base, price, 0.5);
         await logBotTick(kv, result);
         return result;
-      } else if (p24h > p24hAtOpen + 1.5) {
+      } else if (p24h > p24hAtOpen + 3) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
         result.collect = await runCollect(base, price, 0.5);
