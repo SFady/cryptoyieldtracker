@@ -295,11 +295,11 @@ export async function botLoop({ base, price }) {
 
     // Rebalance effectif
     const anchor = await readPriceAnchor7d();
-    let targetRatio = 0.5;
+    let targetRatio = isOORLow ? 0.70 : 0.30;
     if (anchor) {
       const r = price / anchor;
-      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.60;
-      else if (r < 0.97) targetRatio = isOORLow ? 0.30 : 0.20;
+      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.40;
+      else if (r < 0.97) targetRatio = isOORLow ? 0.60 : 0.20;
     }
     result.anchor      = anchor ? parseFloat(anchor) : null;
     result.targetRatio = targetRatio;
@@ -318,10 +318,16 @@ export async function botLoop({ base, price }) {
   }
 
   // Prix revenu en range → annuler le timer OOR si actif
-  if (oorSince) await kv.del(REDIS_KEYS.OOR_SINCE);
+  if (oorSince) {
+    await kv.del(REDIS_KEYS.OOR_SINCE);
+    await kv.set('p2_last_oor_exit', Date.now(), { ex: 3600 });
+  }
 
   // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (50/50)
-  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
+  // Cooldown 30 min après retour en range (évite de rebalancer sur faux retour)
+  const lastOorExit = await kv.get('p2_last_oor_exit').catch(() => null);
+  const oorExitMin  = lastOorExit ? (Date.now() - Number(lastOorExit)) / 60000 : 999;
+  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax) && oorExitMin >= 30) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
