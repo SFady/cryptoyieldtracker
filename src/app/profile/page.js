@@ -593,43 +593,50 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
   const color  = inRange ? "#00e5a0" : "#c97070";
   const center = Math.sqrt(lo * hi);
   const Pc     = center - (hi - lo) / 4;
-  const clamp  = (v) => Math.max(5, Math.min(95, 5 + v * 90));
+  // Track : 6% → 94% de la zone barre (endpoints cohérents avec clamp)
+  const TS = 6, TE = 94;
+  const clamp = (v) => Math.max(TS, Math.min(TE, TS + v * (TE - TS)));
   const dotLeft   = clamp(pct);
   const dotLeftPc = clamp((Pc - lo) / (hi - lo));
   const dotLeftC  = clamp((center - lo) / (hi - lo));
   return (
     <div style={{ width: "100%" }}>
-      {/* Ligne barre + IN/OUT */}
-      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 4 }}>
+        {/* Barre */}
         <div style={{ flex: 1, position: "relative" }}>
-          <div style={{
-            position: "absolute", left: "5%", right: "2%",
-            top: "50%", transform: "translateY(-50%)",
-            height: 2, borderRadius: 1,
-            background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
-          }} />
+          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: "50%", transform: "translateY(-50%)", height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
           <div style={{ position: "absolute", left: `${dotLeftC}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(120,120,200,0.5)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPc}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(240,180,40,0.55)" }} />
           <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
           <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
-          <span style={{ position: "absolute", left: "5%", bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
-          <span style={{ position: "absolute", left: "97%", bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${TE}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
         </div>
-        <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px", alignSelf: "center" }}>
-          {inRange ? "● IN" : "● OUT"}
-        </span>
-      </div>
-      {/* Ligne dots en dessous */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 3 }}>
-        <div style={{ display: "flex", gap: 2 }}>
-          {Array.from({ length: 10 }, (_, i) => (
-            <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 2 }}>
-          {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: i < oorCount ? "#c97070" : "rgba(255,255,255,0.12)" }} />
-          ))}
+        {/* Panel droit : 10 dots + IN/OUT + 3 dots */}
+        <div style={{ flexShrink: 0, width: 36, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 1, paddingBottom: 2 }}>
+          {/* 10 dots Rule 1B en 2 rangées */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end" }}>
+            <div style={{ display: "flex", gap: 1 }}>
+              {Array.from({ length: 5 }, (_, i) => (
+                <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 1 }}>
+              {Array.from({ length: 5 }, (_, i) => (
+                <div key={i + 5} style={{ width: 3, height: 3, borderRadius: "50%", background: (i + 5) < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
+              ))}
+            </div>
+          </div>
+          {/* IN / OUT */}
+          <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
+            {inRange ? "● IN" : "● OUT"}
+          </span>
+          {/* 3 dots Rule 1A */}
+          <div style={{ display: "flex", gap: 1 }}>
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < oorCount ? "#c97070" : "rgba(255,255,255,0.12)" }} />
+            ))}
+          </div>
         </div>
       </div>
     </div>
