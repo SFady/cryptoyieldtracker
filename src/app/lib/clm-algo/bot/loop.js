@@ -8,7 +8,7 @@ import { logBotTick }       from './metrics.js';
 
 // Module 7 — Orchestrateur cron pool 2 (stratégie mean-reversion)
 // Règles :
-//   1A. OOR 2 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
+//   1A. OOR 3 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
 //   1B. Zone basse (Pa<prix<Pc) 5/10 ticks → fermer + rouvrir (mean-reversion)
 //   1c. Volatilité ±2pt → resserrer/élargir le range (50/50)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start
@@ -283,13 +283,13 @@ export async function botLoop({ base, price }) {
     result.oorCount = newCount;
     result.isOORLow = isOORLow;
 
-    if (newCount < 2) {
+    if (newCount < 3) {
       result.action = 'oor_waiting';
       await logBotTick(kv, result);
       return result;
     }
 
-    // 2 ticks OOR consécutifs → fermer LP + swap WETH→USDC si OOR bas
+    // 3 ticks OOR consécutifs → fermer LP + swap WETH→USDC si OOR bas
     result.action      = 'oor_close';
     result.closeResult = await closeAndSwap(base, isOORLow);
     await logBotTick(kv, result);
