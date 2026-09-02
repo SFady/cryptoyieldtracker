@@ -12,6 +12,14 @@ export async function writeCronPrice(price) {
   await kv.set(KEY_LAST_RUN, now);
 }
 
+// N derniers prix CRON (scores les plus hauts = timestamps les plus récents)
+export async function getLastNPrices(n) {
+  try {
+    const entries = await kv.zrange(KEY, 0, n - 1, { rev: true });
+    return entries.map(Number).filter(v => v > 0);
+  } catch (_) { return []; }
+}
+
 // 3 derniers prix CRON (scores les plus hauts = timestamps les plus récents)
 export async function getLastTwoPrices() {
   try {

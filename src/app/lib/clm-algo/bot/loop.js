@@ -2,15 +2,16 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
-// Module 7 — Orchestrateur cron pool 2 (stratégie tendance sans short)
+// Module 7 — Orchestrateur cron pool 2 (stratégie mean-reversion)
 // Règles :
-//   1.  OOR           → collect AERO + fermer LP + rouvrir (ratio selon tendance)
-//   1c. Volatilité ±1.5pt → resserrer/élargir le range (50/50)
-//   2.  Aucune pos.   → auto-start LP 50/50
+//   1A. OOR 2 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
+//   1B. Zone basse (Pa<prix<Pc) 5/10 ticks → fermer + rouvrir (mean-reversion)
+//   1c. Volatilité ±2pt → resserrer/élargir le range (50/50)
+//   2.  Aucune pos.   → spread check 20 prix → auto-start
 //   3.  En range      → rien
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
@@ -67,7 +68,38 @@ async function clearAlgoState() {
     kv.del(REDIS_KEYS.OOR_SINCE),
     kv.del('p2_edge_streak'),
     kv.del('p2_live_range'),
+    kv.del('p2_oor_count'),
+    kv.del('p2_low_zone_hist'),
   ]);
+}
+
+async function closeAndSwap(base, isOORLow) {
+  const out = {};
+
+  for (const step of [1, 2]) {
+    try {
+      const r = await fetch(`${base}/api/collectFees`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ step, poolNum: 2 }),
+        signal:  AbortSignal.timeout(120000),
+      });
+      out[`step${step}`] = await r.json();
+    } catch (e) { out[`step${step}Error`] = e.message; }
+  }
+
+  try   { out.closeLP = await closeLP(base); }
+  catch (e) { out.closeLPError = e.message; }
+
+  if (isOORLow) {
+    try {
+      const r = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
+      out.swapToUsdc = await r.json();
+    } catch (e) { out.swapError = e.message; }
+  }
+
+  await clearAlgoState();
+  return out;
 }
 
 /**
@@ -211,11 +243,11 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // 1. État LP + config runtime + timer OOR (en parallèle)
-  const [lpState, rtConfig, oorSince] = await Promise.all([
+  // 1. État LP + config runtime + compteur OOR (en parallèle)
+  const [lpState, rtConfig, oorCountRaw] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
-    kv.get(REDIS_KEYS.OOR_SINCE),
+    kv.get('p2_oor_count').catch(() => null),
   ]);
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
@@ -243,69 +275,63 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1 : hors range → temporiser 10 min avant rebalance (haut et bas)
+  // Règle 1A : hors range → 2 ticks consécutifs → fermer LP
   if (isOOR) {
     const isOORLow = price < rMin;
+    const newCount = (parseInt(oorCountRaw) || 0) + 1;
+    await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
+    result.oorCount = newCount;
+    result.isOORLow = isOORLow;
 
-    if (!oorSince) {
-      await kv.set(REDIS_KEYS.OOR_SINCE, Date.now(), { ex: 30 * 86400 });
-      result.action = 'oor_waiting';
-      result.oorElapsedMin = 0;
-      await logBotTick(kv, result);
-      return result;
-    }
-    const elapsedMin = (Date.now() - Number(oorSince)) / 60000;
-    result.oorElapsedMin = parseFloat(elapsedMin.toFixed(1));
-    if (elapsedMin < 20) {
+    if (newCount < 2) {
       result.action = 'oor_waiting';
       await logBotTick(kv, result);
       return result;
     }
 
-    // Rebalance après 20 min — vérifier cooldown 30 min (anti-chasing)
-    const lastRebTs = await kv.get('p2_last_rebalance_ts').catch(() => null);
-
-    if (lastRebTs) {
-      const cooldownMin = (Date.now() - Number(lastRebTs)) / 60000;
-      result.cooldownMin = parseFloat(cooldownMin.toFixed(1));
-      if (cooldownMin < 30) {
-        result.action = 'oor_cooldown';
-        await logBotTick(kv, result);
-        return result;
-      }
-    }
-
-    // Rebalance effectif
-    const anchor = await readPriceAnchor7d();
-    let targetRatio = isOORLow ? 0.70 : 0.30;
-    if (anchor) {
-      const r = price / anchor;
-      if      (r > 1.03) targetRatio = isOORLow ? 0.80 : 0.40;
-      else if (r < 0.97) targetRatio = isOORLow ? 0.60 : 0.20;
-    }
-    result.anchor      = anchor ? parseFloat(anchor) : null;
-    result.targetRatio = targetRatio;
-    result.action      = 'oor_rebalance';
-    result.collect     = await runCollect(base, price, targetRatio);
-
-    // Mise à jour cooldown après rebalance effectif
-    await kv.set('p2_last_rebalance_ts', Date.now(), { ex: 30 * 86400 });
-
+    // 2 ticks OOR consécutifs → fermer LP + swap WETH→USDC si OOR bas
+    result.action      = 'oor_close';
+    result.closeResult = await closeAndSwap(base, isOORLow);
     await logBotTick(kv, result);
     return result;
   }
 
-  // Prix revenu en range → annuler le timer OOR si actif
-  if (oorSince) {
-    await kv.del(REDIS_KEYS.OOR_SINCE);
-    await kv.set('p2_last_oor_exit', Date.now(), { ex: 3600 });
+  // Prix revenu en range → reset compteur OOR
+  if (oorCountRaw) await kv.del('p2_oor_count');
+
+  // Règle 1B : zone basse (Pa < prix < Pc) — 5 des 10 derniers ticks → fermer et rouvrir
+  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
+    const Pc = centerPrice - (rMax - rMin) / 4;
+    const inLowZone = price > rMin && price < Pc;
+    result.inLowZone = inLowZone;
+    result.Pc = parseFloat(Pc.toFixed(2));
+
+    await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
+    await kv.ltrim('p2_low_zone_hist', 0, 9);
+    const hist = await kv.lrange('p2_low_zone_hist', 0, 9).catch(() => []);
+    const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
+    result.lowZoneHits = lowZoneHits;
+
+    if (lowZoneHits >= 5) {
+      const anchor = await readPriceAnchor7d();
+      let targetRatio = 0.70;
+      if (anchor) {
+        const r = price / anchor;
+        if      (r > 1.03) targetRatio = 0.80;
+        else if (r < 0.97) targetRatio = 0.60;
+      }
+      result.anchor      = anchor ? parseFloat(anchor) : null;
+      result.targetRatio = targetRatio;
+      result.action      = 'low_zone_rebalance';
+      result.collect     = await runCollect(base, price, targetRatio);
+      await kv.del('p2_low_zone_hist');
+      await logBotTick(kv, result);
+      return result;
+    }
   }
 
-  // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (50/50)
-  // Cooldown 30 min après retour en range (évite de rebalancer sur faux retour)
-  const lastOorExit = await kv.get('p2_last_oor_exit').catch(() => null);
-  const oorExitMin  = lastOorExit ? (Date.now() - Number(lastOorExit)) / 60000 : 999;
-  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax) && oorExitMin >= 30) {
+  // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
+  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
@@ -350,6 +376,22 @@ export async function botLoop({ base, price }) {
         return result;
       }
     } catch (_) {}
+
+    // Spread check : marché trop agité → attendre
+    const recentPrices = await getLastNPrices(20);
+    if (recentPrices.length >= 10) {
+      const minP   = Math.min(...recentPrices);
+      const maxP   = Math.max(...recentPrices);
+      const mid    = (minP + maxP) / 2;
+      const spread = (maxP - minP) / mid * 100;
+      result.spread = parseFloat(spread.toFixed(2));
+      if (spread > 1.5) {
+        result.action = 'auto_start_spread_skip';
+        await logBotTick(kv, result);
+        return result;
+      }
+    }
+
     result.autoStart = await autoStart({ base, price });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
