@@ -651,7 +651,7 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         }}>${hi.toFixed(0)}</span>
       </div>
       {/* Panel droit : dots Rule 1B + IN/OUT + dots Rule 1A */}
-      <div style={{ width: 80, display: "flex", flexDirection: "column", alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 4, paddingTop: 2 }}>
+      <div style={{ width: 80, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingBottom: 4, paddingTop: 2 }}>
         <div style={{ display: "flex", gap: 2 }}>
           {Array.from({ length: 10 }, (_, i) => (
             <div key={i} style={{
