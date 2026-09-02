@@ -591,6 +591,11 @@ function RangeBar({ low, high, current, inRange, edgeStreak = null }) {
   // Track goes from 15% to 65% (right: 35%); dot uses same bounds
   const dotLeft = Math.max(15, Math.min(65, 15 + pct * 50));
   const color   = inRange ? "#00e5a0" : "#c97070";
+  // Pc = centre géométrique − range/4 (limite zone basse Rule 1B)
+  const center   = Math.sqrt(lo * hi);
+  const Pc       = center - (hi - lo) / 4;
+  const pctPc    = (Pc - lo) / (hi - lo);
+  const dotLeftPc = Math.max(15, Math.min(65, 15 + pctPc * 50));
   return (
     <div style={{ position: "relative", width: "100%", height: 34 }}>
       {/* Track — se termine à 65% pour laisser place au label IN/OUT */}
@@ -599,6 +604,13 @@ function RangeBar({ low, high, current, inRange, edgeStreak = null }) {
         top: "55%", transform: "translateY(-50%)",
         height: 2, borderRadius: 1,
         background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
+      }} />
+      {/* Pc marker — limite zone basse */}
+      <div style={{
+        position: "absolute", left: `${dotLeftPc}%`, top: "25%",
+        transform: "translateX(-50%)",
+        width: 1, height: "55%",
+        background: "rgba(240,180,40,0.55)",
       }} />
       {/* Low label */}
       <span style={{
