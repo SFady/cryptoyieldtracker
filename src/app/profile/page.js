@@ -22,6 +22,8 @@ export default function ProfilePage() {
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [nextCronAt2, setNextCronAt2] = useState(null);
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
+  const [oorCount2, setOorCount2]     = useState(0);
+  const [lowZoneHits2, setLowZoneHits2] = useState(0);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
   const [openingTotal2, setOpeningTotal2] = useState(null);
@@ -46,7 +48,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setLowZoneHits2(d.lowZoneHits ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -115,7 +117,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} lowZoneHits={lowZoneHits2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -278,7 +280,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, lowZoneHits = 0, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -399,7 +401,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} edgeStreak={edgeStreak} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} lowZoneHits={lowZoneHits} />
         )}
       </div>
 
@@ -583,35 +585,82 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, edgeStreak = null }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }) {
   const lo  = parseFloat(low);
   const hi  = parseFloat(high);
   const cur = parseFloat(current);
-  const pct = (cur - lo) / (hi - lo); // <0 = below, >1 = above
-  // Track goes from 15% to 65% (right: 35%); dot uses same bounds
+  const pct = (cur - lo) / (hi - lo);
   const dotLeft = Math.max(15, Math.min(65, 15 + pct * 50));
   const color   = inRange ? "#00e5a0" : "#c97070";
-  // Pc = centre géométrique − range/4 (limite zone basse Rule 1B)
   const center   = Math.sqrt(lo * hi);
   const Pc       = center - (hi - lo) / 4;
   const pctPc    = (Pc - lo) / (hi - lo);
   const dotLeftPc = Math.max(15, Math.min(65, 15 + pctPc * 50));
   return (
-    <div style={{ position: "relative", width: "100%", height: 34 }}>
-      {/* Track — se termine à 65% pour laisser place au label IN/OUT */}
+    <div style={{ position: "relative", width: "100%", height: 52 }}>
+      {/* Rule 1B — 10 dots zone basse (au-dessus du track) */}
+      <div style={{ position: "absolute", left: "15%", top: 2, display: "flex", gap: 3 }}>
+        {Array.from({ length: 10 }, (_, i) => (
+          <div key={i} style={{
+            width: 4, height: 4, borderRadius: "50%",
+            background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)",
+          }} />
+        ))}
+      </div>
+      {/* Track */}
       <div style={{
         position: "absolute", left: "15%", right: "35%",
-        top: "55%", transform: "translateY(-50%)",
+        top: "50%", transform: "translateY(-50%)",
         height: 2, borderRadius: 1,
         background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
       }} />
-      {/* Pc marker — limite zone basse */}
+      {/* Centre marker */}
+      {(() => { const pctC = (center - lo) / (hi - lo); const dlC = Math.max(15, Math.min(65, 15 + pctC * 50)); return (
+        <div style={{
+          position: "absolute", left: `${dlC}%`, top: "33%",
+          transform: "translateX(-50%)",
+          width: 1, height: "33%",
+          background: "rgba(120,120,200,0.5)",
+        }} />
+      ); })()}
+      {/* Pc marker */}
       <div style={{
-        position: "absolute", left: `${dotLeftPc}%`, top: "25%",
+        position: "absolute", left: `${dotLeftPc}%`, top: "33%",
         transform: "translateX(-50%)",
-        width: 1, height: "55%",
+        width: 1, height: "33%",
         background: "rgba(240,180,40,0.55)",
       }} />
+      {/* Current price label */}
+      <span style={{
+        position: "absolute", left: `${dotLeft}%`, top: 10,
+        transform: "translateX(-50%)",
+        fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700,
+        color, whiteSpace: "nowrap",
+      }}>${cur.toFixed(0)}</span>
+      {/* Dot */}
+      <div style={{
+        position: "absolute", left: `${dotLeft}%`, top: "50%",
+        transform: "translate(-50%, -50%)",
+        width: 7, height: 7, borderRadius: "50%",
+        background: color, boxShadow: `0 0 5px ${color}`,
+      }} />
+      {/* IN / OUT label */}
+      <span style={{
+        position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)",
+        fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700,
+        color, whiteSpace: "nowrap", letterSpacing: "0.5px",
+      }}>
+        {inRange ? "● IN" : "● OUT"}
+      </span>
+      {/* Rule 1A — 3 dots OOR consécutifs (en-dessous du track) */}
+      <div style={{ position: "absolute", left: "15%", bottom: 10, display: "flex", gap: 3 }}>
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} style={{
+            width: 4, height: 4, borderRadius: "50%",
+            background: i < oorCount ? "#c97070" : "rgba(255,255,255,0.12)",
+          }} />
+        ))}
+      </div>
       {/* Low label */}
       <span style={{
         position: "absolute", left: "15%", bottom: 1,
@@ -624,37 +673,6 @@ function RangeBar({ low, high, current, inRange, edgeStreak = null }) {
         transform: "translateX(-50%)",
         fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
       }}>${hi.toFixed(0)}</span>
-      {/* Current price label */}
-      <span style={{
-        position: "absolute", left: `${dotLeft}%`, top: 0,
-        transform: "translateX(-50%)",
-        fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700,
-        color, whiteSpace: "nowrap",
-      }}>${cur.toFixed(0)}</span>
-      {/* Dot */}
-      <div style={{
-        position: "absolute", left: `${dotLeft}%`, top: "55%",
-        transform: "translate(-50%, -50%)",
-        width: 7, height: 7, borderRadius: "50%",
-        background: color, boxShadow: `0 0 5px ${color}`,
-      }} />
-      {/* IN / OUT + cron dots à droite de la barre */}
-      <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", gap: 5 }}>
-        <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
-          {inRange ? "● IN" : "● OUT"}
-        </span>
-        <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-          {[0, 1, 2].map((i) => {
-            const streakCount = edgeStreak?.count ?? 0;
-            // dot 0 = plus récent, dot 2 = plus ancien
-            // orange si ce cron fait partie du streak actuel
-            const dotColor = !inRange        ? "#c97070"
-                           : streakCount > i ? "#f0b429"
-                           :                   "#00e5a0";
-            return <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, opacity: 0.85 }} />;
-          })}
-        </div>
-      </div>
     </div>
   );
 }

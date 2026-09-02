@@ -296,8 +296,11 @@ export async function GET() {
         if (rows[0]?.total_at_open) openingTotal = parseFloat(rows[0].total_at_open);
       } catch (_) {}
     }
-    const openingLp      = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp });
+    const openingLp   = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
+    const oorCount    = parseInt(await kv.get('p2_oor_count').catch(() => null)) || 0;
+    const lowZoneHist = await kv.lrange('p2_low_zone_hist', 0, 9).catch(() => []);
+    const lowZoneHits = lowZoneHist.filter(v => v === '1' || v === 1).length;
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, lowZoneHits });
   }
 
   try {
@@ -513,8 +516,11 @@ export async function GET() {
         if (rows[0]?.total_at_open) openingTotal = parseFloat(rows[0].total_at_open);
       } catch (_) {}
     }
-    const openingLp     = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp };
+    const openingLp   = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
+    const oorCount    = parseInt(await kv.get('p2_oor_count').catch(() => null)) || 0;
+    const lowZoneHist = await kv.lrange('p2_low_zone_hist', 0, 9).catch(() => []);
+    const lowZoneHits = lowZoneHist.filter(v => v === '1' || v === 1).length;
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, lowZoneHits };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
