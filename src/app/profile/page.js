@@ -651,11 +651,11 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         }}>${hi.toFixed(0)}</span>
       </div>
       {/* Panel droit : dots Rule 1B + IN/OUT + dots Rule 1A */}
-      <div style={{ width: 80, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingBottom: 4, paddingTop: 2 }}>
-        <div style={{ display: "flex", gap: 2 }}>
+      <div style={{ width: 44, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingBottom: 4, paddingTop: 2 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "flex-end", width: 44 }}>
           {Array.from({ length: 10 }, (_, i) => (
             <div key={i} style={{
-              width: 4, height: 4, borderRadius: "50%",
+              width: 3, height: 3, borderRadius: "50%",
               background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)",
             }} />
           ))}
@@ -663,10 +663,10 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
           {inRange ? "● IN" : "● OUT"}
         </span>
-        <div style={{ display: "flex", gap: 2 }}>
+        <div style={{ display: "flex", gap: 1 }}>
           {Array.from({ length: 3 }, (_, i) => (
             <div key={i} style={{
-              width: 4, height: 4, borderRadius: "50%",
+              width: 3, height: 3, borderRadius: "50%",
               background: i < oorCount ? "#c97070" : "rgba(255,255,255,0.12)",
             }} />
           ))}
