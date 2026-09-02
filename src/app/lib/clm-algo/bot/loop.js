@@ -6,7 +6,7 @@ import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRang
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
-// Module 7 — Orchestrateur cron pool 2 (stratégie mean-reversion)
+// Module 7 — Orchestrateur cron pool 2 (stratégie 50/50)
 // Règles :
 //   1A. OOR 3 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
 //   1B. Zone basse (Pa<prix<Pc) 5/10 ticks → fermer + rouvrir (mean-reversion)
@@ -319,17 +319,8 @@ export async function botLoop({ base, price }) {
     result.lowZoneHits = lowZoneHits;
 
     if (lowZoneHits >= 7) {
-      const anchor = await readPriceAnchor7d();
-      let targetRatio = 0.70;
-      if (anchor) {
-        const r = price / anchor;
-        if      (r > 1.03) targetRatio = 0.80;
-        else if (r < 0.97) targetRatio = 0.60;
-      }
-      result.anchor      = anchor ? parseFloat(anchor) : null;
-      result.targetRatio = targetRatio;
-      result.action      = 'low_zone_rebalance';
-      result.collect     = await runCollect(base, price, targetRatio);
+      result.action  = 'low_zone_rebalance';
+      result.collect = await runCollect(base, price, 0.5);
       await kv.del('p2_low_zone_hist');
       await logBotTick(kv, result);
       return result;
