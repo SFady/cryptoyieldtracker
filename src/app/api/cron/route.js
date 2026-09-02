@@ -72,24 +72,16 @@ async function handle(req) {
     }
   }
 
+  // Stocker le prix à chaque minute (tick rapide inclus)
+  if (price) { try { await writeCronPrice(price); } catch (_) {} }
+
   // Ni OOR ni heure du tick complet → rien à faire
   if (!isFullTick && !quickOOR) {
     return Response.json({ ok: true, ranAt, weth: price, skipped: true, nextFullTickIn: Math.round(5 - elapsedMin) });
   }
 
-  // 3. Tick complet (toutes les 5 min) ou OOR détecté → écriture prix + bot
+  // 3. Tick complet (toutes les 5 min) ou OOR détecté → bot
   try {
-    if (price) {
-      try {
-        const last = await getLastTwoPrices();
-        const lastPrice = last[0] ?? null;
-        if (lastPrice && Math.abs(price - lastPrice) / lastPrice > 0.3) {
-          console.warn(`[cron] Prix suspect ignoré : ${price} (dernier : ${lastPrice})`);
-          price = null;
-        }
-      } catch (_) {}
-      if (price) await writeCronPrice(price);
-    }
     if (isFullTick) {
       try { await kv.set('p2_last_full_tick', Date.now(), { ex: 3600 }); } catch (_) {}
     }
