@@ -275,13 +275,19 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1A : hors range → 2 ticks consécutifs → fermer LP
+  // Règle 1A : hors range → 3 ticks consécutifs → fermer LP
   if (isOOR) {
     const isOORLow = price < rMin;
     const newCount = (parseInt(oorCountRaw) || 0) + 1;
     await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
     result.oorCount = newCount;
     result.isOORLow = isOORLow;
+
+    // Les ticks OOR bas comptent aussi pour Rule 1B (zone basse)
+    if (hasLP) {
+      await kv.lpush('p2_low_zone_hist', isOORLow ? '1' : '0');
+      await kv.ltrim('p2_low_zone_hist', 0, 9);
+    }
 
     if (newCount < 3) {
       result.action = 'oor_waiting';
@@ -312,7 +318,7 @@ export async function botLoop({ base, price }) {
     const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
     result.lowZoneHits = lowZoneHits;
 
-    if (lowZoneHits >= 5) {
+    if (lowZoneHits >= 7) {
       const anchor = await readPriceAnchor7d();
       let targetRatio = 0.70;
       if (anchor) {
