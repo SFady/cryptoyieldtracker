@@ -589,16 +589,15 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
   const lo  = parseFloat(low);
   const hi  = parseFloat(high);
   const cur = parseFloat(current);
-  const pct    = (cur - lo) / (hi - lo);
   const color  = inRange ? "#00e5a0" : "#c97070";
   const center = Math.sqrt(lo * hi);
   const Pc     = center - (hi - lo) / 4;
-  // Track : 6% → 94% de la zone barre (endpoints cohérents avec clamp)
-  const TS = 6, TE = 94;
-  const clamp = (v) => Math.max(TS, Math.min(TE, TS + v * (TE - TS)));
-  const dotLeft   = clamp(pct);
-  const dotLeftPc = clamp((Pc - lo) / (hi - lo));
-  const dotLeftC  = clamp((center - lo) / (hi - lo));
+  // Track : endpoints explicites, toutes les positions calculées depuis lo/hi
+  const TS = 8, TE = 92; // % dans la zone barre
+  const trackPct = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
+  const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));
+  const dotLeftPc = trackPct(Pc);   // toujours dans [TS,TE] par construction
+  const dotLeftC  = trackPct(center);
   return (
     <div style={{ width: "100%" }}>
       <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 4 }}>
@@ -614,18 +613,11 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         </div>
         {/* Panel droit : 10 dots + IN/OUT + 3 dots */}
         <div style={{ flexShrink: 0, width: 36, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 1, paddingBottom: 2 }}>
-          {/* 10 dots Rule 1B en 2 rangées */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end" }}>
-            <div style={{ display: "flex", gap: 1 }}>
-              {Array.from({ length: 5 }, (_, i) => (
-                <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 1 }}>
-              {Array.from({ length: 5 }, (_, i) => (
-                <div key={i + 5} style={{ width: 3, height: 3, borderRadius: "50%", background: (i + 5) < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
-              ))}
-            </div>
+          {/* 10 dots Rule 1B en une ligne */}
+          <div style={{ display: "flex", gap: 1 }}>
+            {Array.from({ length: 10 }, (_, i) => (
+              <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
+            ))}
           </div>
           {/* IN / OUT */}
           <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
