@@ -589,70 +589,69 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
   const lo  = parseFloat(low);
   const hi  = parseFloat(high);
   const cur = parseFloat(current);
-  const pct = (cur - lo) / (hi - lo);
-  const dotLeft = Math.max(15, Math.min(65, 15 + pct * 50));
-  const color   = inRange ? "#00e5a0" : "#c97070";
-  const center   = Math.sqrt(lo * hi);
-  const Pc       = center - (hi - lo) / 4;
-  const pctPc    = (Pc - lo) / (hi - lo);
-  const dotLeftPc = Math.max(15, Math.min(65, 15 + pctPc * 50));
+  const pct    = (cur - lo) / (hi - lo);
+  const color  = inRange ? "#00e5a0" : "#c97070";
+  const center = Math.sqrt(lo * hi);
+  const Pc     = center - (hi - lo) / 4;
+  // Positions dans la barre (de 15% à 95% de la zone barre)
+  const clamp  = (v) => Math.max(15, Math.min(95, 15 + v * 80));
+  const dotLeft   = clamp(pct);
+  const dotLeftPc = clamp((Pc - lo) / (hi - lo));
+  const dotLeftC  = clamp((center - lo) / (hi - lo));
   return (
-    <div style={{ position: "relative", width: "100%", height: 52 }}>
-      {/* Track */}
-      <div style={{
-        position: "absolute", left: "15%", right: "35%",
-        top: "50%", transform: "translateY(-50%)",
-        height: 2, borderRadius: 1,
-        background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
-      }} />
-      {/* Centre marker */}
-      {(() => { const pctC = (center - lo) / (hi - lo); const dlC = Math.max(15, Math.min(65, 15 + pctC * 50)); return (
+    <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 52, gap: 8 }}>
+      {/* Zone barre */}
+      <div style={{ flex: 1, position: "relative" }}>
+        {/* Track */}
         <div style={{
-          position: "absolute", left: `${dlC}%`, top: "33%",
+          position: "absolute", left: "15%", right: "5%",
+          top: "50%", transform: "translateY(-50%)",
+          height: 2, borderRadius: 1,
+          background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)",
+        }} />
+        {/* Centre marker */}
+        <div style={{
+          position: "absolute", left: `${dotLeftC}%`, top: "30%",
           transform: "translateX(-50%)",
-          width: 1, height: "33%",
+          width: 1, height: "40%",
           background: "rgba(120,120,200,0.5)",
         }} />
-      ); })()}
-      {/* Pc marker */}
-      <div style={{
-        position: "absolute", left: `${dotLeftPc}%`, top: "33%",
-        transform: "translateX(-50%)",
-        width: 1, height: "33%",
-        background: "rgba(240,180,40,0.55)",
-      }} />
-      {/* Current price label */}
-      <span style={{
-        position: "absolute", left: `${dotLeft}%`, top: 2,
-        transform: "translateX(-50%)",
-        fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700,
-        color, whiteSpace: "nowrap",
-      }}>${cur.toFixed(0)}</span>
-      {/* Dot */}
-      <div style={{
-        position: "absolute", left: `${dotLeft}%`, top: "50%",
-        transform: "translate(-50%, -50%)",
-        width: 7, height: 7, borderRadius: "50%",
-        background: color, boxShadow: `0 0 5px ${color}`,
-      }} />
-      {/* Low label */}
-      <span style={{
-        position: "absolute", left: "15%", bottom: 1,
-        transform: "translateX(-50%)",
-        fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
-      }}>${lo.toFixed(0)}</span>
-      {/* High label */}
-      <span style={{
-        position: "absolute", left: "65%", bottom: 1,
-        transform: "translateX(-50%)",
-        fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
-      }}>${hi.toFixed(0)}</span>
-      {/* Zone droite : dots Rule 1B (haut) + IN/OUT + dots Rule 1A (bas) */}
-      <div style={{
-        position: "absolute", right: 0, top: 0, bottom: 0,
-        width: "33%", display: "flex", flexDirection: "column",
-        alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 2,
-      }}>
+        {/* Pc marker */}
+        <div style={{
+          position: "absolute", left: `${dotLeftPc}%`, top: "30%",
+          transform: "translateX(-50%)",
+          width: 1, height: "40%",
+          background: "rgba(240,180,40,0.55)",
+        }} />
+        {/* Current price label */}
+        <span style={{
+          position: "absolute", left: `${dotLeft}%`, top: 2,
+          transform: "translateX(-50%)",
+          fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700,
+          color, whiteSpace: "nowrap",
+        }}>${cur.toFixed(0)}</span>
+        {/* Dot */}
+        <div style={{
+          position: "absolute", left: `${dotLeft}%`, top: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 7, height: 7, borderRadius: "50%",
+          background: color, boxShadow: `0 0 5px ${color}`,
+        }} />
+        {/* Low label */}
+        <span style={{
+          position: "absolute", left: "15%", bottom: 1,
+          transform: "translateX(-50%)",
+          fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
+        }}>${lo.toFixed(0)}</span>
+        {/* High label */}
+        <span style={{
+          position: "absolute", left: "95%", bottom: 1,
+          transform: "translateX(-50%)",
+          fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
+        }}>${hi.toFixed(0)}</span>
+      </div>
+      {/* Panel droit : dots Rule 1B + IN/OUT + dots Rule 1A */}
+      <div style={{ width: 80, display: "flex", flexDirection: "column", alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 4, paddingTop: 2 }}>
         <div style={{ display: "flex", gap: 2 }}>
           {Array.from({ length: 10 }, (_, i) => (
             <div key={i} style={{
