@@ -598,15 +598,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
   const dotLeftPc = Math.max(15, Math.min(65, 15 + pctPc * 50));
   return (
     <div style={{ position: "relative", width: "100%", height: 52 }}>
-      {/* Rule 1B — 10 dots zone basse (au-dessus du track) */}
-      <div style={{ position: "absolute", left: "15%", top: 2, display: "flex", gap: 3 }}>
-        {Array.from({ length: 10 }, (_, i) => (
-          <div key={i} style={{
-            width: 4, height: 4, borderRadius: "50%",
-            background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)",
-          }} />
-        ))}
-      </div>
       {/* Track */}
       <div style={{
         position: "absolute", left: "15%", right: "35%",
@@ -632,7 +623,7 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
       }} />
       {/* Current price label */}
       <span style={{
-        position: "absolute", left: `${dotLeft}%`, top: 10,
+        position: "absolute", left: `${dotLeft}%`, top: 2,
         transform: "translateX(-50%)",
         fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700,
         color, whiteSpace: "nowrap",
@@ -644,23 +635,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         width: 7, height: 7, borderRadius: "50%",
         background: color, boxShadow: `0 0 5px ${color}`,
       }} />
-      {/* IN / OUT label */}
-      <span style={{
-        position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)",
-        fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700,
-        color, whiteSpace: "nowrap", letterSpacing: "0.5px",
-      }}>
-        {inRange ? "● IN" : "● OUT"}
-      </span>
-      {/* Rule 1A — 3 dots OOR consécutifs (en-dessous du track) */}
-      <div style={{ position: "absolute", left: "15%", bottom: 10, display: "flex", gap: 3 }}>
-        {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} style={{
-            width: 4, height: 4, borderRadius: "50%",
-            background: i < oorCount ? "#c97070" : "rgba(255,255,255,0.12)",
-          }} />
-        ))}
-      </div>
       {/* Low label */}
       <span style={{
         position: "absolute", left: "15%", bottom: 1,
@@ -673,6 +647,32 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         transform: "translateX(-50%)",
         fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap",
       }}>${hi.toFixed(0)}</span>
+      {/* Zone droite : dots Rule 1B (haut) + IN/OUT + dots Rule 1A (bas) */}
+      <div style={{
+        position: "absolute", right: 0, top: 0, bottom: 0,
+        width: "33%", display: "flex", flexDirection: "column",
+        alignItems: "flex-start", justifyContent: "space-between", paddingBottom: 2,
+      }}>
+        <div style={{ display: "flex", gap: 2 }}>
+          {Array.from({ length: 10 }, (_, i) => (
+            <div key={i} style={{
+              width: 4, height: 4, borderRadius: "50%",
+              background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)",
+            }} />
+          ))}
+        </div>
+        <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
+          {inRange ? "● IN" : "● OUT"}
+        </span>
+        <div style={{ display: "flex", gap: 2 }}>
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} style={{
+              width: 4, height: 4, borderRadius: "50%",
+              background: i < oorCount ? "#c97070" : "rgba(255,255,255,0.12)",
+            }} />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
