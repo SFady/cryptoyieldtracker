@@ -9,7 +9,7 @@ import { logBotTick }       from './metrics.js';
 // Module 7 — Orchestrateur cron pool 2 (stratégie 50/50)
 // Règles :
 //   1A. OOR 3 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
-//   1B. Zone basse (Pa<prix<Pc) 5/10 ticks → fermer + rouvrir (mean-reversion)
+//   1B. Zone basse (Pa<prix<Pc) 10/15 ticks → fermer + rouvrir (mean-reversion)
 //   1c. Volatilité ±2pt → resserrer/élargir le range (50/50)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start
 //   3.  En range      → rien
@@ -286,7 +286,7 @@ export async function botLoop({ base, price }) {
     // Les ticks OOR bas comptent aussi pour Rule 1B (zone basse)
     if (hasLP) {
       await kv.lpush('p2_low_zone_hist', isOORLow ? '1' : '0');
-      await kv.ltrim('p2_low_zone_hist', 0, 9);
+      await kv.ltrim('p2_low_zone_hist', 0, 14);
     }
 
     if (newCount < 3) {
@@ -313,11 +313,11 @@ export async function botLoop({ base, price }) {
     result.Pc = parseFloat(Pc.toFixed(2));
 
     // Lire AVANT de pousser — évalue le seuil sur les quick ticks accumulés
-    const hist = await kv.lrange('p2_low_zone_hist', 0, 9).catch(() => []);
+    const hist = await kv.lrange('p2_low_zone_hist', 0, 14).catch(() => []);
     const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
     result.lowZoneHits = lowZoneHits;
 
-    if (lowZoneHits >= 7) {
+    if (lowZoneHits >= 10) {
       result.action  = 'low_zone_rebalance';
       result.collect = await runCollect(base, price, 0.5);
       await kv.del('p2_low_zone_hist');
@@ -327,7 +327,7 @@ export async function botLoop({ base, price }) {
 
     // Pousser après l'évaluation
     await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
-    await kv.ltrim('p2_low_zone_hist', 0, 9);
+    await kv.ltrim('p2_low_zone_hist', 0, 14);
   }
 
   // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)

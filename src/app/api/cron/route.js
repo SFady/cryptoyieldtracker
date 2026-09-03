@@ -84,13 +84,13 @@ async function handle(req) {
     const Pc = center - (rMax - rMin) / 4;
     const inLowZone = price > rMin && price < Pc;
     try {
-      const hist = await kv.lrange('p2_low_zone_hist', 0, 9);
+      const hist = await kv.lrange('p2_low_zone_hist', 0, 14);
       const hits = hist.filter(v => v === '1' || v === 1).length;
-      if (hits >= 7) {
+      if (hits >= 10) {
         quickLowZone = true; // tomber dans le chemin bot loop
       } else {
         await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
-        await kv.ltrim('p2_low_zone_hist', 0, 9);
+        await kv.ltrim('p2_low_zone_hist', 0, 14);
       }
     } catch (_) {}
   }
