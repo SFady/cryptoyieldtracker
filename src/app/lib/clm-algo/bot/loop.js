@@ -318,6 +318,19 @@ export async function botLoop({ base, price }) {
     result.lowZoneHits = lowZoneHits;
 
     if (lowZoneHits >= 10) {
+      // Spread check — éviter de rebalancer pendant un spike/dump temporaire
+      const recentPrices = await getLastNPrices(10);
+      if (recentPrices.length >= 5) {
+        const minP   = Math.min(...recentPrices);
+        const maxP   = Math.max(...recentPrices);
+        const spread = (maxP - minP) / ((minP + maxP) / 2) * 100;
+        result.spreadCheck = parseFloat(spread.toFixed(2));
+        if (spread > 1.5) {
+          result.action = 'low_zone_spread_skip';
+          await logBotTick(kv, result);
+          return result;
+        }
+      }
       result.action  = 'low_zone_rebalance';
       result.collect = await runCollect(base, price, 0.5);
       await kv.del('p2_low_zone_hist');

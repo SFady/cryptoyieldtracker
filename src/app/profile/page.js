@@ -613,9 +613,9 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, lowZoneHits = 0 }
         </div>
         {/* Panel droit : 10 dots + IN/OUT + 3 dots */}
         <div style={{ flexShrink: 0, width: 36, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 1, paddingBottom: 2 }}>
-          {/* 10 dots Rule 1B en une ligne */}
+          {/* 15 dots Rule 1B en une ligne */}
           <div style={{ display: "flex", gap: 1 }}>
-            {Array.from({ length: 10 }, (_, i) => (
+            {Array.from({ length: 15 }, (_, i) => (
               <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
             ))}
           </div>
