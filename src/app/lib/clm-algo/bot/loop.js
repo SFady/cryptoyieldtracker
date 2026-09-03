@@ -318,7 +318,7 @@ export async function botLoop({ base, price }) {
     const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
     result.lowZoneHits = lowZoneHits;
 
-    if (lowZoneHits >= 6) {
+    if (lowZoneHits >= 7) {
       result.action  = 'low_zone_rebalance';
       result.collect = await runCollect(base, price, 0.5);
       await kv.del('p2_low_zone_hist');
