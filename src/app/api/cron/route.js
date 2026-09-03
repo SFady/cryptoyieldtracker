@@ -75,8 +75,19 @@ async function handle(req) {
   // Stocker le prix à chaque minute (tick rapide inclus)
   if (price) { try { await writeCronPrice(price); } catch (_) {} }
 
-  // Ni OOR ni heure du tick complet → rien à faire
+  // Ni OOR ni heure du tick complet → pousser low zone puis skip
   if (!isFullTick && !quickOOR) {
+    if (price && liveRange?.min && liveRange?.max) {
+      const rMin = parseFloat(liveRange.min);
+      const rMax = parseFloat(liveRange.max);
+      const center = Math.sqrt(rMin * rMax);
+      const Pc = center - (rMax - rMin) / 4;
+      const inLowZone = price > rMin && price < Pc;
+      try {
+        await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
+        await kv.ltrim('p2_low_zone_hist', 0, 9);
+      } catch (_) {}
+    }
     return Response.json({ ok: true, ranAt, weth: price, skipped: true, nextFullTickIn: Math.round(5 - elapsedMin) });
   }
 
