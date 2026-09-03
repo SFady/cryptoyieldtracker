@@ -75,19 +75,27 @@ async function handle(req) {
   // Stocker le prix à chaque minute (tick rapide inclus)
   if (price) { try { await writeCronPrice(price); } catch (_) {} }
 
-  // Ni OOR ni heure du tick complet → pousser low zone puis skip
-  if (!isFullTick && !quickOOR) {
-    if (price && liveRange?.min && liveRange?.max) {
-      const rMin = parseFloat(liveRange.min);
-      const rMax = parseFloat(liveRange.max);
-      const center = Math.sqrt(rMin * rMax);
-      const Pc = center - (rMax - rMin) / 4;
-      const inLowZone = price > rMin && price < Pc;
-      try {
+  // Ni OOR ni heure du tick complet → pousser low zone, déclencher si seuil atteint
+  let quickLowZone = false;
+  if (!isFullTick && !quickOOR && price && liveRange?.min && liveRange?.max) {
+    const rMin = parseFloat(liveRange.min);
+    const rMax = parseFloat(liveRange.max);
+    const center = Math.sqrt(rMin * rMax);
+    const Pc = center - (rMax - rMin) / 4;
+    const inLowZone = price > rMin && price < Pc;
+    try {
+      const hist = await kv.lrange('p2_low_zone_hist', 0, 9);
+      const hits = hist.filter(v => v === '1' || v === 1).length;
+      if (hits >= 7) {
+        quickLowZone = true; // tomber dans le chemin bot loop
+      } else {
         await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
         await kv.ltrim('p2_low_zone_hist', 0, 9);
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
+  }
+
+  if (!isFullTick && !quickOOR && !quickLowZone) {
     return Response.json({ ok: true, ranAt, weth: price, skipped: true, nextFullTickIn: Math.round(5 - elapsedMin) });
   }
 

@@ -312,8 +312,7 @@ export async function botLoop({ base, price }) {
     result.inLowZone = inLowZone;
     result.Pc = parseFloat(Pc.toFixed(2));
 
-    await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
-    await kv.ltrim('p2_low_zone_hist', 0, 9);
+    // Lire AVANT de pousser — évalue le seuil sur les quick ticks accumulés
     const hist = await kv.lrange('p2_low_zone_hist', 0, 9).catch(() => []);
     const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
     result.lowZoneHits = lowZoneHits;
@@ -325,6 +324,10 @@ export async function botLoop({ base, price }) {
       await logBotTick(kv, result);
       return result;
     }
+
+    // Pousser après l'évaluation
+    await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
+    await kv.ltrim('p2_low_zone_hist', 0, 9);
   }
 
   // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
