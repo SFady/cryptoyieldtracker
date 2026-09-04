@@ -69,6 +69,7 @@ async function clearAlgoState() {
     kv.del('p2_edge_streak'),
     kv.del('p2_live_range'),
     kv.del('p2_oor_count'),
+    kv.del('p2_oor_low'),
     kv.del('p2_low_zone_hist'),
     kv.del('p2_high_zone_hist'),
   ]);
@@ -281,6 +282,7 @@ export async function botLoop({ base, price }) {
     const isOORLow = price < rMin;
     const newCount = (parseInt(oorCountRaw) || 0) + 1;
     await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
+    await kv.set('p2_oor_low', isOORLow ? 1 : 0, { ex: 30 * 86400 });
     result.oorCount = newCount;
     result.isOORLow = isOORLow;
 
@@ -306,7 +308,7 @@ export async function botLoop({ base, price }) {
   }
 
   // Prix revenu en range → reset compteur OOR
-  if (oorCountRaw) await kv.del('p2_oor_count');
+  if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
 
   // Règle 1B : zone basse (Pa < prix < Pc) — 5 des 10 derniers ticks → fermer et rouvrir
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
