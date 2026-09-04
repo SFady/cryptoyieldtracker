@@ -95,7 +95,27 @@ async function handle(req) {
     } catch (_) {}
   }
 
-  if (!isFullTick && !quickOOR && !quickLowZone) {
+  // Zone haute : déclencher si seuil atteint
+  let quickHighZone = false;
+  if (!isFullTick && !quickOOR && !quickLowZone && price && liveRange?.min && liveRange?.max) {
+    const rMin = parseFloat(liveRange.min);
+    const rMax = parseFloat(liveRange.max);
+    const center = Math.sqrt(rMin * rMax);
+    const Pu = center + (rMax - rMin) / 4;
+    const inUpperZone = price > Pu && price < rMax;
+    try {
+      const hist = await kv.lrange('p2_high_zone_hist', 0, 14);
+      const hits = hist.filter(v => v === '1' || v === 1).length;
+      if (hits >= 10) {
+        quickHighZone = true;
+      } else {
+        await kv.lpush('p2_high_zone_hist', inUpperZone ? '1' : '0');
+        await kv.ltrim('p2_high_zone_hist', 0, 14);
+      }
+    } catch (_) {}
+  }
+
+  if (!isFullTick && !quickOOR && !quickLowZone && !quickHighZone) {
     return Response.json({ ok: true, ranAt, weth: price, skipped: true, nextFullTickIn: Math.round(5 - elapsedMin) });
   }
 

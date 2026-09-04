@@ -70,6 +70,7 @@ async function clearAlgoState() {
     kv.del('p2_live_range'),
     kv.del('p2_oor_count'),
     kv.del('p2_low_zone_hist'),
+    kv.del('p2_high_zone_hist'),
   ]);
 }
 
@@ -283,10 +284,12 @@ export async function botLoop({ base, price }) {
     result.oorCount = newCount;
     result.isOORLow = isOORLow;
 
-    // Les ticks OOR bas comptent aussi pour Rule 1B (zone basse)
+    // Ticks OOR bas → Rule 1B, ticks OOR haut → Rule 1U
     if (hasLP) {
-      await kv.lpush('p2_low_zone_hist', isOORLow ? '1' : '0');
-      await kv.ltrim('p2_low_zone_hist', 0, 14);
+      await kv.lpush('p2_low_zone_hist',  isOORLow  ? '1' : '0');
+      await kv.ltrim('p2_low_zone_hist',  0, 14);
+      await kv.lpush('p2_high_zone_hist', isOORLow  ? '0' : '1');
+      await kv.ltrim('p2_high_zone_hist', 0, 14);
     }
 
     if (newCount < 3) {
@@ -341,6 +344,42 @@ export async function botLoop({ base, price }) {
     // Pousser après l'évaluation
     await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
     await kv.ltrim('p2_low_zone_hist', 0, 14);
+  }
+
+  // Règle 1U : zone haute (Pu < prix < Pb) — 10/15 ticks → fermer et rouvrir
+  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
+    const Pu = centerPrice + (rMax - rMin) / 4;
+    const inUpperZone = price > Pu && price < rMax;
+    result.inUpperZone = inUpperZone;
+    result.Pu = parseFloat(Pu.toFixed(2));
+
+    // Lire AVANT de pousser
+    const histHigh = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
+    const highZoneHits = histHigh.filter(v => v === '1' || v === 1).length;
+    result.highZoneHits = highZoneHits;
+
+    if (highZoneHits >= 10) {
+      const recentPrices = await getLastNPrices(10);
+      if (recentPrices.length >= 5) {
+        const minP   = Math.min(...recentPrices);
+        const maxP   = Math.max(...recentPrices);
+        const spread = (maxP - minP) / ((minP + maxP) / 2) * 100;
+        result.spreadCheckHigh = parseFloat(spread.toFixed(2));
+        if (spread > 1.5) {
+          result.action = 'high_zone_spread_skip';
+          await logBotTick(kv, result);
+          return result;
+        }
+      }
+      result.action  = 'high_zone_rebalance';
+      result.collect = await runCollect(base, price, 0.5);
+      await kv.del('p2_high_zone_hist');
+      await logBotTick(kv, result);
+      return result;
+    }
+
+    await kv.lpush('p2_high_zone_hist', inUpperZone ? '1' : '0');
+    await kv.ltrim('p2_high_zone_hist', 0, 14);
   }
 
   // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
