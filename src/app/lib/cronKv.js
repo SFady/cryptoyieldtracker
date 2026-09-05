@@ -35,16 +35,35 @@ export async function getLastTwoPrices() {
   } catch (_) { return []; }
 }
 
-// Percentiles p05/p95 sur les 24 dernières heures
+// Percentiles p05/p95 pondérés exponentiellement (half-life 8h)
+const HALF_LIFE_MS = 8 * 60 * 60 * 1000;
+const DECAY        = Math.LN2 / HALF_LIFE_MS;
+
 export async function getPercentileRange() {
   try {
     const entries = await kv.zrange(KEY, 0, -1);
     if (entries.length < 10) return null;
-    const sorted = entries.map(parsePriceMember).filter(v => v > 0).sort((a, b) => a - b);
-    if (sorted.length < 10) return null;
-    const p05 = sorted[Math.floor(sorted.length * 0.05)];
-    const p95 = sorted[Math.floor(sorted.length * 0.95)];
-    return { p05, p95, cnt: sorted.length };
+    const now = Date.now();
+    const weighted = entries.map(m => {
+      const s     = String(m);
+      const colon = s.indexOf(':');
+      const price  = colon !== -1 ? Number(s.slice(colon + 1)) : Number(s);
+      const ts     = colon !== -1 ? Number(s.slice(0, colon))  : null;
+      const age    = ts ? now - ts : HALF_LIFE_MS * 3;
+      return { price, weight: Math.exp(-DECAY * age) };
+    }).filter(({ price }) => price > 100 && price < 100000);
+    if (weighted.length < 10) return null;
+    weighted.sort((a, b) => a.price - b.price);
+    const totalW = weighted.reduce((s, { weight }) => s + weight, 0);
+    let cum = 0, p05 = null, p95 = null;
+    for (const { price, weight } of weighted) {
+      cum += weight;
+      const frac = cum / totalW;
+      if (p05 === null && frac >= 0.05) p05 = price;
+      if (p95 === null && frac >= 0.95) { p95 = price; break; }
+    }
+    if (!p05 || !p95) return null;
+    return { p05, p95, cnt: weighted.length };
   } catch (_) { return null; }
 }
 
