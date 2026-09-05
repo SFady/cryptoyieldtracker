@@ -38,8 +38,7 @@ export async function getLastTwoPrices() {
 // Percentiles p05/p95 sur les 24 dernières heures
 export async function getPercentileRange() {
   try {
-    const now     = Date.now();
-    const entries = await kv.zrange(KEY, now - TTL_MS, now, { byScore: true });
+    const entries = await kv.zrange(KEY, 0, -1);
     if (entries.length < 10) return null;
     const sorted = entries.map(parsePriceMember).filter(v => v > 0).sort((a, b) => a - b);
     if (sorted.length < 10) return null;
