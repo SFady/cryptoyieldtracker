@@ -244,11 +244,21 @@ export async function botLoop({ base, price }) {
   }
 
   // 1. État LP + config runtime + compteur OOR (en parallèle)
-  const [lpState, rtConfig, oorCountRaw] = await Promise.all([
+  const [lpState, rtConfig, oorCountRaw, anchor7dRaw] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
     kv.get('p2_oor_count').catch(() => null),
+    readPriceAnchor7d(),
   ]);
+
+  const anchor7d = anchor7dRaw ? parseFloat(anchor7dRaw) : null;
+  let targetRatio = 0.5;
+  if (anchor7d) {
+    if (price < anchor7d * 0.97)      targetRatio = 0.7; // baissier → mean reversion haussière
+    else if (price > anchor7d * 1.03) targetRatio = 0.3; // haussier → mean reversion baissière
+  }
+  result.anchor7d    = anchor7d;
+  result.targetRatio = targetRatio;
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
@@ -335,7 +345,7 @@ export async function botLoop({ base, price }) {
         }
       }
       result.action  = 'low_zone_rebalance';
-      result.collect = await runCollect(base, price, 0.5);
+      result.collect = await runCollect(base, price, targetRatio);
       await kv.del('p2_low_zone_hist');
       await logBotTick(kv, result);
       return result;
@@ -372,7 +382,7 @@ export async function botLoop({ base, price }) {
         }
       }
       result.action  = 'high_zone_rebalance';
-      result.collect = await runCollect(base, price, 0.5);
+      result.collect = await runCollect(base, price, targetRatio);
       await kv.del('p2_high_zone_hist');
       await logBotTick(kv, result);
       return result;
@@ -397,13 +407,13 @@ export async function botLoop({ base, price }) {
       if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price, 0.5);
+        result.collect = await runCollect(base, price, targetRatio);
         await logBotTick(kv, result);
         return result;
       } else if (p24h > p24hAtOpen + 1.5) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, 0.5);
+        result.collect = await runCollect(base, price, targetRatio);
         await logBotTick(kv, result);
         return result;
       }
@@ -444,7 +454,7 @@ export async function botLoop({ base, price }) {
       }
     }
 
-    result.autoStart = await autoStart({ base, price });
+    result.autoStart = await autoStart({ base, price, targetRatio });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
     return result;
