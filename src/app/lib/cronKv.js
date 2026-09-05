@@ -5,9 +5,16 @@ const KEY_LAST_RUN = "cron-last-run";
 const TTL_MS       = 24 * 60 * 60 * 1000;
 const LP_STATE_TTL = 604800; // 7 jours en secondes
 
+// Parse member : nouveau format "timestamp:price" ou ancien format "price"
+function parsePriceMember(member) {
+  const s = String(member);
+  const colon = s.indexOf(':');
+  return Number(colon !== -1 ? s.slice(colon + 1) : s);
+}
+
 export async function writeCronPrice(price) {
   const now = Date.now();
-  await kv.zadd(KEY, { score: now, member: String(price) });
+  await kv.zadd(KEY, { score: now, member: `${now}:${price}` });
   await kv.zremrangebyscore(KEY, 0, now - TTL_MS);
   await kv.set(KEY_LAST_RUN, now);
 }
@@ -16,7 +23,7 @@ export async function writeCronPrice(price) {
 export async function getLastNPrices(n) {
   try {
     const entries = await kv.zrange(KEY, 0, n - 1, { rev: true });
-    return entries.map(Number).filter(v => v > 0);
+    return entries.map(parsePriceMember).filter(v => v > 0);
   } catch (_) { return []; }
 }
 
@@ -24,7 +31,7 @@ export async function getLastNPrices(n) {
 export async function getLastTwoPrices() {
   try {
     const entries = await kv.zrange(KEY, 0, 2, { rev: true });
-    return entries.map(Number).filter(n => n > 0);
+    return entries.map(parsePriceMember).filter(v => v > 0);
   } catch (_) { return []; }
 }
 
@@ -34,9 +41,10 @@ export async function getPercentileRange() {
     const now     = Date.now();
     const entries = await kv.zrange(KEY, now - TTL_MS, now, { byScore: true });
     if (entries.length < 10) return null;
-    const sorted = entries.map(Number).sort((a, b) => a - b);
-    const p05    = sorted[Math.floor(sorted.length * 0.05)];
-    const p95    = sorted[Math.floor(sorted.length * 0.95)];
+    const sorted = entries.map(parsePriceMember).filter(v => v > 0).sort((a, b) => a - b);
+    if (sorted.length < 10) return null;
+    const p05 = sorted[Math.floor(sorted.length * 0.05)];
+    const p95 = sorted[Math.floor(sorted.length * 0.95)];
     return { p05, p95, cnt: sorted.length };
   } catch (_) { return null; }
 }
