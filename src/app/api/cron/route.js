@@ -78,10 +78,11 @@ async function handle(req) {
   // Ni OOR ni heure du tick complet → pousser low zone, déclencher si seuil atteint
   let quickLowZone = false;
   if (!isFullTick && !quickOOR && price && liveRange?.min && liveRange?.max) {
-    const rMin = parseFloat(liveRange.min);
-    const rMax = parseFloat(liveRange.max);
+    const rMin   = parseFloat(liveRange.min);
+    const rMax   = parseFloat(liveRange.max);
+    const entry  = liveRange.entry ? parseFloat(liveRange.entry) : null;
     const center = Math.sqrt(rMin * rMax);
-    const Pc = center - (rMax - rMin) / 4;
+    const Pc = (entry && entry < center) ? (rMin + entry) / 2 : center - (rMax - rMin) / 4;
     const inLowZone = price > rMin && price < Pc;
     try {
       const hist = await kv.lrange('p2_low_zone_hist', 0, 14);
@@ -98,10 +99,11 @@ async function handle(req) {
   // Zone haute : déclencher si seuil atteint
   let quickHighZone = false;
   if (!isFullTick && !quickOOR && !quickLowZone && price && liveRange?.min && liveRange?.max) {
-    const rMin = parseFloat(liveRange.min);
-    const rMax = parseFloat(liveRange.max);
+    const rMin   = parseFloat(liveRange.min);
+    const rMax   = parseFloat(liveRange.max);
+    const entry  = liveRange.entry ? parseFloat(liveRange.entry) : null;
     const center = Math.sqrt(rMin * rMax);
-    const Pu = center + (rMax - rMin) / 4;
+    const Pu = (entry && entry > center) ? (entry + rMax) / 2 : center + (rMax - rMin) / 4;
     const inUpperZone = price > Pu && price < rMax;
     try {
       const hist = await kv.lrange('p2_high_zone_hist', 0, 14);

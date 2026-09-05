@@ -24,6 +24,7 @@ export default function ProfilePage() {
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
+  const [entryPrice2, setEntryPrice2] = useState(null);
   const [lowZoneHits2, setLowZoneHits2]   = useState(0);
   const [highZoneHits2, setHighZoneHits2] = useState(0);
   const [loading2, setLoading2]   = useState(true);
@@ -50,7 +51,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowZoneHits2(d.lowZoneHits ?? 0); setHighZoneHits2(d.highZoneHits ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setLowZoneHits2(d.lowZoneHits ?? 0); setHighZoneHits2(d.highZoneHits ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -119,7 +120,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} lowZoneHits={lowZoneHits2} highZoneHits={highZoneHits2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} entryPrice={entryPrice2} lowZoneHits={lowZoneHits2} highZoneHits={highZoneHits2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -282,7 +283,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, lowZoneHits = 0, highZoneHits = 0, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, entryPrice = null, lowZoneHits = 0, highZoneHits = 0, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -403,7 +404,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} lowZoneHits={lowZoneHits} highZoneHits={highZoneHits} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} entryPrice={entryPrice} lowZoneHits={lowZoneHits} highZoneHits={highZoneHits} />
         )}
       </div>
 
@@ -587,14 +588,15 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, lowZoneHits = 0, highZoneHits = 0 }) {
-  const lo  = parseFloat(low);
-  const hi  = parseFloat(high);
-  const cur = parseFloat(current);
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, entryPrice = null, lowZoneHits = 0, highZoneHits = 0 }) {
+  const lo    = parseFloat(low);
+  const hi    = parseFloat(high);
+  const cur   = parseFloat(current);
+  const entry = entryPrice ? parseFloat(entryPrice) : null;
   const color  = inRange ? "#00e5a0" : "#c97070";
   const center = Math.sqrt(lo * hi);
-  const Pc     = center - (hi - lo) / 4;
-  const Pu     = center + (hi - lo) / 4;
+  const Pc     = (entry && entry < center) ? (lo + entry) / 2 : center - (hi - lo) / 4;
+  const Pu     = (entry && entry > center) ? (entry + hi) / 2 : center + (hi - lo) / 4;
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));

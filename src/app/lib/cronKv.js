@@ -101,8 +101,8 @@ export async function clearWethFeesPending(poolNum) {
 }
 
 // Range réel de la position pool 2 (long-lived, mis à jour à chaque chargement positions2)
-export async function writeP2Range(min, max) {
-  try { await kv.set('p2_live_range', { min: String(min), max: String(max) }, { ex: LP_STATE_TTL }); } catch (_) {}
+export async function writeP2Range(min, max, entry = null) {
+  try { await kv.set('p2_live_range', { min: String(min), max: String(max), ...(entry !== null && { entry: String(entry) }) }, { ex: LP_STATE_TTL }); } catch (_) {}
 }
 export async function readP2Range() {
   try { return await kv.get('p2_live_range'); } catch (_) { return null; }

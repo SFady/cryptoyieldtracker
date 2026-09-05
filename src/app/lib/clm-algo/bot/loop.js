@@ -134,7 +134,7 @@ async function runCollect(base, price, targetRatio = 0.5) {
 
   // Sauvegarder le nouveau range
   if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
-    await writeP2Range(out.autoStart.pool.tickLowerPrice, out.autoStart.pool.tickUpperPrice);
+    await writeP2Range(out.autoStart.pool.tickLowerPrice, out.autoStart.pool.tickUpperPrice, price);
   }
 
   return out;
@@ -263,13 +263,17 @@ export async function botLoop({ base, price }) {
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
 
-  // range_min/max peut être null en DB (pool 2) → lire p2_live_range (mis à jour à chaque page)
-  if (hasLP && (rMin == null || isNaN(rMin))) {
+  // Lire p2_live_range : range réel + prix d'entrée (pour Pc/Pu option B)
+  let entryPrice = null;
+  if (hasLP) {
     const lr = await readP2Range();
-    if (lr?.min) {
-      rMin = parseFloat(lr.min);
-      rMax = parseFloat(lr.max);
-      console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
+    if (lr?.entry) entryPrice = parseFloat(lr.entry);
+    if (rMin == null || isNaN(rMin)) {
+      if (lr?.min) {
+        rMin = parseFloat(lr.min);
+        rMax = parseFloat(lr.max);
+        console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
+      }
     }
   }
 
@@ -318,9 +322,9 @@ export async function botLoop({ base, price }) {
   // Prix revenu en range → reset compteur OOR
   if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
 
-  // Règle 1B : zone basse (Pa < prix < Pc) — 5 des 10 derniers ticks → fermer et rouvrir
+  // Règle 1B : zone basse (Pa < prix < Pc) — 10/15 ticks → fermer et rouvrir
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
-    const Pc = centerPrice - (rMax - rMin) / 4;
+    const Pc = (entryPrice && entryPrice < centerPrice) ? (rMin + entryPrice) / 2 : centerPrice - (rMax - rMin) / 4;
     const inLowZone = price > rMin && price < Pc;
     result.inLowZone = inLowZone;
     result.Pc = parseFloat(Pc.toFixed(2));
@@ -358,7 +362,7 @@ export async function botLoop({ base, price }) {
 
   // Règle 1U : zone haute (Pu < prix < Pb) — 10/15 ticks → fermer et rouvrir
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
-    const Pu = centerPrice + (rMax - rMin) / 4;
+    const Pu = (entryPrice && entryPrice > centerPrice) ? (entryPrice + rMax) / 2 : centerPrice + (rMax - rMin) / 4;
     const inUpperZone = price > Pu && price < rMax;
     result.inUpperZone = inUpperZone;
     result.Pu = parseFloat(Pu.toFixed(2));
