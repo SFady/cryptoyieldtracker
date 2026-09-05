@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices, readFeesBank, writeFeesBank, readLastDailyTx, writeLastDailyTx } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -16,6 +16,7 @@ import { logBotTick }       from './metrics.js';
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
+const ERC20_IFACE  = new ethers.Interface(['function transfer(address,uint256) returns (bool)']);
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
   'https://base.drpc.org',
@@ -51,6 +52,65 @@ async function readWalletToken(tokenAddress, decimals) {
 const getWalletUsdc = () => readWalletToken(USDC_ADDRESS, 6);
 const getWalletWeth = () => readWalletToken(WETH_ADDRESS, 18);
 
+// Verse min(bank, DAILY_CAP) vers DESTINATION_WALLET une fois par jour (Paris TZ)
+async function tryDailyTransfer(feesCollectedUsdc = 0) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
+  try {
+    const [bankRaw, openingTotalRaw, lastTxDate] = await Promise.all([
+      kv.get('p2_fees_bank').catch(() => null),
+      kv.get('p2_opening_total').catch(() => null),
+      kv.get('p2_last_daily_tx').catch(() => null),
+    ]);
+    const bank     = (parseFloat(bankRaw ?? 0) || 0) + (feesCollectedUsdc || 0);
+    const capital  = parseFloat(openingTotalRaw ?? 0) || 0;
+    const dailyCap = capital > 0 ? capital * 0.05 / 30 : 0;
+
+    // Toujours sauvegarder le bank mis à jour
+    await kv.set('p2_fees_bank', bank, { ex: 604800 });
+
+    if (lastTxDate === today)  return { skipped: 'already_done_today', bank };
+    if (dailyCap <= 0 || bank < 0.01) return { skipped: 'insufficient', bank, dailyCap };
+
+    const toSend = parseFloat(Math.min(bank, dailyCap).toFixed(6));
+    const dest   = process.env.DESTINATION_WALLET;
+    if (!dest) return { skipped: 'no_dest_wallet' };
+
+    // Envoi ERC20 USDC vers le wallet externe
+    let txHash = null;
+    const amount = ethers.parseUnits(String(toSend), 6);
+    for (const url of RPC_URLS) {
+      try {
+        const provider = new ethers.JsonRpcProvider(url);
+        const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
+        const tx       = await wallet.sendTransaction({
+          to:   USDC_ADDRESS,
+          data: ERC20_IFACE.encodeFunctionData('transfer', [dest, amount]),
+        });
+        await tx.wait();
+        txHash = tx.hash;
+        break;
+      } catch (_) {}
+    }
+    if (!txHash) return { error: 'transfer_failed', bank };
+
+    const bankAfter = parseFloat((bank - toSend).toFixed(6));
+    await Promise.all([
+      kv.set('p2_fees_bank', bankAfter, { ex: 604800 }),
+      kv.set('p2_last_daily_tx', today, { ex: 604800 }),
+    ]);
+
+    try {
+      const sqlDb = neon(process.env.DATABASE_URL);
+      await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
+                  VALUES (${toSend}, ${'daily_transfer'}, ${txHash}, ${2})`;
+    } catch (_) {}
+
+    return { ok: true, sent: toSend, txHash, bankRemaining: bankAfter, dailyCap };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 async function closeLP(base) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
@@ -78,17 +138,20 @@ async function clearAlgoState() {
 async function closeAndSwap(base, isOORLow) {
   const out = {};
 
+  const usdcBefore = await getWalletUsdc();
   for (const step of [1, 2]) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ step, poolNum: 2 }),
+        body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
         signal:  AbortSignal.timeout(120000),
       });
       out[`step${step}`] = await r.json();
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
+  const feesCollected = Math.max(0, (await getWalletUsdc()) - usdcBefore);
+  out.dailyTransfer = await tryDailyTransfer(feesCollected);
 
   try   { out.closeLP = await closeLP(base); }
   catch (e) { out.closeLPError = e.message; }
@@ -110,17 +173,20 @@ async function runCollect(base, price, targetRatio = 0.5) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
+  const usdcBefore = await getWalletUsdc();
   for (const step of [1, 2]) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ step, poolNum: 2 }),
+        body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
         signal:  AbortSignal.timeout(120000),
       });
       out[`step${step}`] = await r.json();
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
+  const feesCollected = Math.max(0, (await getWalletUsdc()) - usdcBefore);
+  out.dailyTransfer = await tryDailyTransfer(feesCollected);
 
   // Fermer la LP
   try   { out.closeLP = await closeLP(base); }

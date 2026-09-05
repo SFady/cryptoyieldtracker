@@ -160,6 +160,20 @@ export async function writePositionsCache(poolNum, data) {
   try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 15 }); } catch (_) {}
 }
 
+// Bank de fees journalières (5%/30 par jour vers DESTINATION_WALLET)
+export async function readFeesBank() {
+  try { return parseFloat((await kv.get('p2_fees_bank')) ?? 0) || 0; } catch (_) { return 0; }
+}
+export async function writeFeesBank(amount) {
+  try { await kv.set('p2_fees_bank', amount, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+export async function readLastDailyTx() {
+  try { return await kv.get('p2_last_daily_tx'); } catch (_) { return null; }
+}
+export async function writeLastDailyTx(date) {
+  try { await kv.set('p2_last_daily_tx', date, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+
 // Ancre de prix 7 jours (signal de tendance haussier/baissier, TTL 8j auto-reset)
 export async function writePriceAnchor7d(price) {
   try { await kv.set('p2_price_anchor_7d', price, { ex: 8 * 86400 }); } catch (_) {}
