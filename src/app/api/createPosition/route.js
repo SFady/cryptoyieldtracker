@@ -762,17 +762,12 @@ export async function POST(req) {
       await tryDeposit(d, g);
       gaugeOk = true;
     } catch (_) {}
-    // C) safeTransferFrom — le gauge reçoit le NFT via onERC721Received
-    if (!gaugeOk) try {
-      const d = NFPM_IFACE.encodeFunctionData("safeTransferFrom", [wallet.address, gaugeAddr, tokenId]);
-      let g = 500000n;
-      try { const e = await provider.estimateGas({ to: nfpm, from: wallet.address, data: d }); g = e * 3n / 2n; } catch (_) {}
-      const tx = await sendTx(wallet, { to: nfpm, data: d, gasLimit: g });
-      txGaugeHash = tx.hash;
-      await waitForTx(provider, tx);
-      gaugeOk = true;
-    } catch (e) {
-      gaugeWarning = `gauge deposit échoué (3 méthodes tentées) : ${e.shortMessage ?? e.message} | tokenId=${tokenId} gauge=${gaugeAddr}`;
+    // C) safeTransferFrom SUPPRIMÉE — le gauge (deposit() exige ownerOf==msg.sender) n'enregistre
+    // JAMAIS le stake pour un transfert brut, ce qui bloque définitivement withdraw() ensuite
+    // (aucune fonction de rescue). Un NFT ainsi transféré est irrécupérable. On préfère échouer
+    // bruyamment en laissant le NFT dans le wallet (retentable) plutôt que de l'orpheliner au gauge.
+    if (!gaugeOk) {
+      gaugeWarning = `gauge deposit échoué (2 méthodes tentées, NFT conservé dans le wallet) | tokenId=${tokenId} gauge=${gaugeAddr}`;
     }
 
     const budgetWarning = totalBudget < amountUSDC
