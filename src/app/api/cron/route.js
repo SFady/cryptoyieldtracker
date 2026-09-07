@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { writeCronPrice, getLastTwoPrices, readLpState, writeLpState } from "../../lib/cronKv";
+import { writeCronPrice, getLastTwoPrices, readLpState, writeLpState, acquireRedisLock } from "../../lib/cronKv";
 import { POOL_ADDRESS } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -161,13 +161,20 @@ async function handle(req) {
   }
 
   if (base) {
-    // Pool 2 — CLM Neutral Zone Hedge bot
+    // Pool 2 — CLM Neutral Zone Hedge bot (verrou anti-concurrence : évite deux ticks simultanés sur le même wallet)
     if (process.env.PRIVATE_KEY) {
-      try {
-        const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
-        rebalanceResults["p2"] = await botLoop({ base, price });
-      } catch (e) {
-        rebalanceResults["p2"] = { error: e.message };
+      const releaseLock = await acquireRedisLock();
+      if (!releaseLock) {
+        rebalanceResults["p2"] = { skipped: true, reason: "tick précédent encore en cours (lock actif)" };
+      } else {
+        try {
+          const { botLoop } = await import('../../lib/clm-algo/bot/loop.js');
+          rebalanceResults["p2"] = await botLoop({ base, price });
+        } catch (e) {
+          rebalanceResults["p2"] = { error: e.message };
+        } finally {
+          await releaseLock();
+        }
       }
     }
 
