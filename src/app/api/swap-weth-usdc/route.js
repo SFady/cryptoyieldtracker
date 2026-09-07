@@ -1,12 +1,13 @@
 import { ethers } from 'ethers';
+import { getPoolAddress } from '../../lib/config';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 60;
 
-const SWAP_ROUTER  = '0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5';
+const V2_ROUTER    = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43'; // Aerodrome V2 router — même route éprouvée que createPosition.js
+const V2_FACTORY   = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
 const WETH         = '0x4200000000000000000000000000000000000006';
 const USDC         = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-const TICK_SPACINGS = [100, 200, 1, 50]; // essayés dans l'ordre jusqu'au premier succès
 const MIN_WETH     = 0.0001; // ~$0.25 — en dessous c'est de la poussière
 
 const RPC_URLS = [
@@ -22,8 +23,8 @@ const ERC20_IFACE = new ethers.Interface([
   'function approve(address, uint256) returns (bool)',
 ]);
 
-const SWAP_IFACE = new ethers.Interface([
-  'function exactInputSingle((address tokenIn, address tokenOut, int24 tickSpacing, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut)',
+const V2_ROUTER_IFACE = new ethers.Interface([
+  'function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)',
 ]);
 
 function freshDeadline() { return BigInt(Math.floor(Date.now() / 1000) + 120); }
@@ -46,6 +47,7 @@ export async function POST(req) {
   if (!provider) return Response.json({ error: 'RPC indisponible' }, { status: 503 });
 
   const wallet = new ethers.Wallet(privateKey.trim(), provider);
+  const POOL   = getPoolAddress(poolNum);
 
   try {
     // Lire le solde WETH
@@ -57,37 +59,36 @@ export async function POST(req) {
       return Response.json({ ok: true, skipped: true, reason: `WETH trop faible (${wethFloat.toFixed(6)} ETH)` });
     }
 
-    // Approve SWAP_ROUTER
+    // Prix live du pool (slot0) — sert à calculer le minOut, comme dans createPosition.js
+    const s0  = await provider.call({ to: POOL, data: '0x3850c7bd' });
+    const sqX = ethers.AbiCoder.defaultAbiCoder().decode(['uint160'], s0)[0];
+    const sqP = Number(sqX) / Number(2n ** 96n);
+    const poolPrice = sqP * sqP * 1e12;
+    if (!(poolPrice > 100 && poolPrice < 100000)) {
+      return Response.json({ error: `Prix pool invalide (${poolPrice})` }, { status: 500 });
+    }
+
+    // Approve V2_ROUTER
     try {
-      const txApp = await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData('approve', [SWAP_ROUTER, ethers.MaxUint256]) });
+      const txApp = await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData('approve', [V2_ROUTER, ethers.MaxUint256]) });
       await txApp.wait();
     } catch (_) {}
 
-    // Swap WETH → USDC : essai de chaque tick spacing puis slippage croissant
+    // Swap WETH → USDC via le routeur V2 — même route éprouvée que createPosition.js (jamais échoué en prod)
     let swapHash = null;
-    outer: for (const tickSpacing of TICK_SPACINGS) {
-      for (const pct of [995n, 990n, 980n]) {
-        try {
-          const priceData = SWAP_IFACE.encodeFunctionData('exactInputSingle', [{
-            tokenIn: WETH, tokenOut: USDC, tickSpacing,
-            recipient: wallet.address, deadline: freshDeadline(),
-            amountIn: wethBal, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n,
-          }]);
-          const simResult = await provider.call({ to: SWAP_ROUTER, data: priceData });
-          const [simOut]  = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], simResult);
-          const minOut    = simOut * pct / 1000n;
-
-          const data = SWAP_IFACE.encodeFunctionData('exactInputSingle', [{
-            tokenIn: WETH, tokenOut: USDC, tickSpacing,
-            recipient: wallet.address, deadline: freshDeadline(),
-            amountIn: wethBal, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
-          }]);
-          const tx = await wallet.sendTransaction({ to: SWAP_ROUTER, data, gasLimit: 300000n });
-          await tx.wait();
-          swapHash = tx.hash;
-          break outer;
-        } catch (_) {}
-      }
+    for (const slipPct of [970n, 950n, 900n]) {
+      const minOut = wethBal * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * slipPct / 1000n;
+      try {
+        const data = V2_ROUTER_IFACE.encodeFunctionData('swapExactTokensForTokens', [
+          wethBal, minOut,
+          [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
+          wallet.address, freshDeadline(),
+        ]);
+        const tx = await wallet.sendTransaction({ to: V2_ROUTER, data, gasLimit: 300000n });
+        await tx.wait();
+        swapHash = tx.hash;
+        break;
+      } catch (_) {}
     }
 
     if (!swapHash) return Response.json({ error: 'Swap WETH→USDC échoué' }, { status: 500 });
