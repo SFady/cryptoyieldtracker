@@ -28,9 +28,12 @@ const SWAP_IFACE = new ethers.Interface([
 
 function freshDeadline() { return BigInt(Math.floor(Date.now() / 1000) + 120); }
 
-export async function POST() {
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) return Response.json({ error: 'PRIVATE_KEY manquant' }, { status: 500 });
+export async function POST(req) {
+  let poolNum = 2;
+  try { const body = await req.json(); if (body?.poolNum) poolNum = body.poolNum; } catch (_) {}
+
+  const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
+  if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
 
   let provider;
   for (const url of RPC_URLS) {

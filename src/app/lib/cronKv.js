@@ -134,6 +134,14 @@ export async function readP2Range() {
   try { return await kv.get('p2_live_range'); } catch (_) { return null; }
 }
 
+// Range réel de la position pool 3 (copie isolée de writeP2Range/readP2Range, clé distincte)
+export async function writeP3Range(min, max, entry = null) {
+  try { await kv.set('p3_live_range', { min: String(min), max: String(max), ...(entry !== null && { entry: String(entry) }) }, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+export async function readP3Range() {
+  try { return await kv.get('p3_live_range'); } catch (_) { return null; }
+}
+
 // État d'erreur lp_events (CREATE_ERR / CLOSE_ERR)
 export async function writeErrorState(poolNum, hasError, msg = null) {
   try { await kv.set(`lp-err-${poolNum}`, { hasError, msg }, { ex: LP_STATE_TTL }); } catch (_) {}
