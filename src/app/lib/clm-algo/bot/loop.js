@@ -390,7 +390,7 @@ export async function botLoop({ base, price }) {
 
   // Règle 1B : zone basse (Pa < prix < Pc) — 10/15 ticks → fermer et rouvrir
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
-    const Pc = (entryPrice && entryPrice < centerPrice) ? (rMin + entryPrice) / 2 : centerPrice - (rMax - rMin) / 4;
+    const Pc = (entryPrice && entryPrice < centerPrice) ? (rMin + entryPrice) / 2 : rMin + (rMax - rMin) * 0.20;
     const inLowZone = price > rMin && price < Pc;
     result.inLowZone = inLowZone;
     result.Pc = parseFloat(Pc.toFixed(2));
@@ -400,7 +400,7 @@ export async function botLoop({ base, price }) {
     const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
     result.lowZoneHits = lowZoneHits;
 
-    if (lowZoneHits >= 13) {
+    if (lowZoneHits >= 10) {
       // Spread check — éviter de rebalancer pendant un spike/dump temporaire
       const recentPrices = await getLastNPrices(10);
       if (recentPrices.length >= 5) {
@@ -428,7 +428,7 @@ export async function botLoop({ base, price }) {
 
   // Règle 1U : zone haute (Pu < prix < Pb) — 10/15 ticks → fermer et rouvrir
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
-    const Pu = (entryPrice && entryPrice > centerPrice) ? (entryPrice + rMax) / 2 : centerPrice + (rMax - rMin) / 4;
+    const Pu = (entryPrice && entryPrice > centerPrice) ? (entryPrice + rMax) / 2 : rMax - (rMax - rMin) * 0.20;
     const inUpperZone = price > Pu && price < rMax;
     result.inUpperZone = inUpperZone;
     result.Pu = parseFloat(Pu.toFixed(2));
@@ -438,7 +438,7 @@ export async function botLoop({ base, price }) {
     const highZoneHits = histHigh.filter(v => v === '1' || v === 1).length;
     result.highZoneHits = highZoneHits;
 
-    if (highZoneHits >= 13) {
+    if (highZoneHits >= 10) {
       const recentPrices = await getLastNPrices(10);
       if (recentPrices.length >= 5) {
         const minP   = Math.min(...recentPrices);
