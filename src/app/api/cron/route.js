@@ -171,27 +171,8 @@ async function handle(req) {
       }
     }
 
-    // Pool 3 (si PRIVATE_KEY_3 configuré)
+    // Pool 3 — DÉSACTIVÉ intentionnellement (legacy autoRebalance instable, en attente de loop3.js)
     console.log("[cron] pool2 results:", JSON.stringify(rebalanceResults));
-    console.log("[cron] PRIVATE_KEY_3 présent:", !!process.env.PRIVATE_KEY_3);
-    if (process.env.PRIVATE_KEY_3) {
-      try {
-        const res  = await fetch(`${base}/api/autoRebalance?case=5&poolNum=3`, { signal: AbortSignal.timeout(280000) });
-        rebalanceResults[`p3_5`] = await res.json();
-      } catch (e) {
-        rebalanceResults[`p3_5`] = { error: e.message };
-      }
-
-      const caseNum3 = await pickCase(3);
-      if (caseNum3) {
-        try {
-          const res  = await fetch(`${base}/api/autoRebalance?case=${caseNum3}&poolNum=3`, { signal: AbortSignal.timeout(280000) });
-          rebalanceResults[`p3_${caseNum3}`] = await res.json();
-        } catch (e) {
-          rebalanceResults[`p3_${caseNum3}`] = { error: e.message };
-        }
-      }
-    }
   }
 
   console.log("[cron] pool3 results:", JSON.stringify(rebalanceResults).slice(0, 500));
