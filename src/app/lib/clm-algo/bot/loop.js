@@ -400,7 +400,7 @@ export async function botLoop({ base, price }) {
     const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
     result.lowZoneHits = lowZoneHits;
 
-    if (lowZoneHits >= 10) {
+    if (lowZoneHits >= 13) {
       // Spread check — éviter de rebalancer pendant un spike/dump temporaire
       const recentPrices = await getLastNPrices(10);
       if (recentPrices.length >= 5) {
@@ -438,7 +438,7 @@ export async function botLoop({ base, price }) {
     const highZoneHits = histHigh.filter(v => v === '1' || v === 1).length;
     result.highZoneHits = highZoneHits;
 
-    if (highZoneHits >= 10) {
+    if (highZoneHits >= 13) {
       const recentPrices = await getLastNPrices(10);
       if (recentPrices.length >= 5) {
         const minP   = Math.min(...recentPrices);
