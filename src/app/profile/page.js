@@ -25,8 +25,6 @@ export default function ProfilePage() {
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
   const [entryPrice2, setEntryPrice2] = useState(null);
-  const [lowZoneHits2, setLowZoneHits2]   = useState(0);
-  const [highZoneHits2, setHighZoneHits2] = useState(0);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
   const [openingTotal2, setOpeningTotal2] = useState(null);
@@ -52,7 +50,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setLowZoneHits2(d.lowZoneHits ?? 0); setHighZoneHits2(d.highZoneHits ?? 0); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -122,7 +120,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} entryPrice={entryPrice2} lowZoneHits={lowZoneHits2} highZoneHits={highZoneHits2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} entryPrice={entryPrice2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -285,7 +283,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, entryPrice = null, lowZoneHits = 0, highZoneHits = 0, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, entryPrice = null, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -406,7 +404,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} entryPrice={entryPrice} lowZoneHits={lowZoneHits} highZoneHits={highZoneHits} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} entryPrice={entryPrice} />
         )}
       </div>
 
@@ -595,7 +593,7 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, entryPrice = null, lowZoneHits = 0, highZoneHits = 0 }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, entryPrice = null }) {
   const lo    = parseFloat(low);
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
@@ -626,18 +624,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, e
         </div>
         {/* Panel droit */}
         <div style={{ flexShrink: 0, width: 36, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 1, paddingBottom: 2 }}>
-          {/* 15 dots Rule 1U zone haute */}
-          <div style={{ display: "flex", gap: 1 }}>
-            {Array.from({ length: 15 }, (_, i) => (
-              <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < highZoneHits ? "#29b6f0" : "rgba(255,255,255,0.12)" }} />
-            ))}
-          </div>
-          {/* 15 dots Rule 1B zone basse */}
-          <div style={{ display: "flex", gap: 1 }}>
-            {Array.from({ length: 15 }, (_, i) => (
-              <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: i < lowZoneHits ? "#f0b429" : "rgba(255,255,255,0.12)" }} />
-            ))}
-          </div>
           {/* IN / OUT */}
           <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
             {inRange ? "● IN" : "● OUT"}
