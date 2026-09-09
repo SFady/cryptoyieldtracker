@@ -46,6 +46,7 @@ export default function ProfilePage() {
   const [error3, setError3]       = useState(null);
 
   const SHOW_POOL2 = true;
+  const SHOW_POOL3 = false;
 
   useEffect(() => {
     if (SHOW_POOL2) {
@@ -56,6 +57,7 @@ export default function ProfilePage() {
         .finally(() => setLoading2(false));
     }
 
+    if (!SHOW_POOL3) return;
     fetch("/api/positions3")
       .then((r) => r.json())
       .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setRebalanceBlock3(d.rebalanceBlock ?? null); setWalletShort3(d.walletShort ?? ""); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
@@ -126,7 +128,7 @@ export default function ProfilePage() {
       })()}
 
       {/* ── Wallet 3 : WETH/USDC ── */}
-      {(() => {
+      {SHOW_POOL3 && (() => {
         const total3 = pos3
           ? pos3.reduce((s, p) => {
               const aeroFees = parseFloat(p.aeroRevenueUSD ?? "0");
