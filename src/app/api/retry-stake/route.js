@@ -40,9 +40,30 @@ function tickToPrice(tick) {
 }
 
 async function waitForTx(provider, tx) {
-  const r = await tx.wait();
-  if (r?.status === 0) throw new Error('reverted');
-  return r;
+  try {
+    const r = await tx.wait();
+    if (r?.status === 0) throw new Error('reverted');
+    return r;
+  } catch (_) {
+    // tx.wait() peut échouer sur un RPC flaky même si la tx a réussi — repoller le reçu directement
+    for (let i = 0; i < 30; i++) {
+      await new Promise(res => setTimeout(res, 2000));
+      for (const url of RPC_URLS) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [tx.hash] }),
+          });
+          const json = await res.json();
+          if (json.result) {
+            if (json.result.status === '0x0') throw new Error('reverted');
+            return json.result;
+          }
+        } catch (e) { if (e.message === 'reverted') throw e; }
+      }
+    }
+    throw new Error('confirmation timeout');
+  }
 }
 
 export async function POST(req) {
@@ -98,20 +119,28 @@ export async function POST(req) {
     });
     await waitForTx(provider, txApprove);
 
-    // 5. Deposit officiel — v1 puis v2
+    // 5. Deposit officiel — v1 puis v2, avec estimation de gas réelle (fallback 500k si l'estimation échoue)
     let depositHash = null;
     let depositErr  = null;
     try {
-      const tx = await wallet.sendTransaction({
-        to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData('deposit(uint256)', [tokenId]), gasLimit: 500000n,
-      });
+      const data = GAUGE_IFACE.encodeFunctionData('deposit(uint256)', [tokenId]);
+      let gasLimit = 500000n;
+      try {
+        const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data });
+        gasLimit = est * 3n / 2n;
+      } catch (_) {}
+      const tx = await wallet.sendTransaction({ to: gaugeAddr, data, gasLimit });
       await waitForTx(provider, tx);
       depositHash = tx.hash;
     } catch (e1) {
       try {
-        const tx2 = await wallet.sendTransaction({
-          to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData('deposit(uint256,uint256)', [tokenId, 0n]), gasLimit: 500000n,
-        });
+        const data2 = GAUGE_IFACE.encodeFunctionData('deposit(uint256,uint256)', [tokenId, 0n]);
+        let gasLimit2 = 500000n;
+        try {
+          const est2 = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: data2 });
+          gasLimit2 = est2 * 3n / 2n;
+        } catch (_) {}
+        const tx2 = await wallet.sendTransaction({ to: gaugeAddr, data: data2, gasLimit: gasLimit2 });
         await waitForTx(provider, tx2);
         depositHash = tx2.hash;
       } catch (e2) {
