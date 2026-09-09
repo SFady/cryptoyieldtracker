@@ -130,8 +130,6 @@ async function clearAlgoState() {
     kv.del('p2_live_range'),
     kv.del('p2_oor_count'),
     kv.del('p2_oor_low'),
-    kv.del('p2_low_zone_hist'),
-    kv.del('p2_high_zone_hist'),
   ]);
 }
 
@@ -329,11 +327,9 @@ export async function botLoop({ base, price }) {
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
 
-  // Lire p2_live_range : range réel + prix d'entrée (pour Pc/Pu option B)
-  let entryPrice = null;
+  // Lire p2_live_range : range réel (fallback si absent de lpState)
   if (hasLP) {
     const lr = await readP2Range();
-    if (lr?.entry) entryPrice = parseFloat(lr.entry);
     if (rMin == null || isNaN(rMin)) {
       if (lr?.min) {
         rMin = parseFloat(lr.min);
@@ -364,14 +360,6 @@ export async function botLoop({ base, price }) {
     result.oorCount = newCount;
     result.isOORLow = isOORLow;
 
-    // Ticks OOR bas → Rule 1B, ticks OOR haut → Rule 1U
-    if (hasLP) {
-      await kv.lpush('p2_low_zone_hist',  isOORLow  ? '1' : '0');
-      await kv.ltrim('p2_low_zone_hist',  0, 14);
-      await kv.lpush('p2_high_zone_hist', isOORLow  ? '0' : '1');
-      await kv.ltrim('p2_high_zone_hist', 0, 14);
-    }
-
     if (newCount < 3) {
       result.action = 'oor_waiting';
       await logBotTick(kv, result);
@@ -387,80 +375,6 @@ export async function botLoop({ base, price }) {
 
   // Prix revenu en range → reset compteur OOR
   if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
-
-  // Règle 1B : zone basse (Pa < prix < Pc) — 10/15 ticks → fermer et rouvrir
-  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
-    const Pc = (entryPrice && entryPrice < centerPrice) ? (rMin + entryPrice) / 2 : rMin + (rMax - rMin) * 0.20;
-    const inLowZone = price > rMin && price < Pc;
-    result.inLowZone = inLowZone;
-    result.Pc = parseFloat(Pc.toFixed(2));
-
-    // Lire AVANT de pousser — évalue le seuil sur les quick ticks accumulés
-    const hist = await kv.lrange('p2_low_zone_hist', 0, 14).catch(() => []);
-    const lowZoneHits = hist.filter(v => v === '1' || v === 1).length;
-    result.lowZoneHits = lowZoneHits;
-
-    if (lowZoneHits >= 10) {
-      // Spread check — éviter de rebalancer pendant un spike/dump temporaire
-      const recentPrices = await getLastNPrices(10);
-      if (recentPrices.length >= 5) {
-        const minP   = Math.min(...recentPrices);
-        const maxP   = Math.max(...recentPrices);
-        const spread = (maxP - minP) / ((minP + maxP) / 2) * 100;
-        result.spreadCheck = parseFloat(spread.toFixed(2));
-        if (spread > 1.5) {
-          result.action = 'low_zone_spread_skip';
-          await logBotTick(kv, result);
-          return result;
-        }
-      }
-      result.action      = 'low_zone_exit';
-      result.closeResult = await closeAndSwap(base, true);
-      await kv.del('p2_low_zone_hist');
-      await logBotTick(kv, result);
-      return result;
-    }
-
-    // Pousser après l'évaluation
-    await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
-    await kv.ltrim('p2_low_zone_hist', 0, 14);
-  }
-
-  // Règle 1U : zone haute (Pu < prix < Pb) — 10/15 ticks → fermer et rouvrir
-  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
-    const Pu = (entryPrice && entryPrice > centerPrice) ? (entryPrice + rMax) / 2 : rMax - (rMax - rMin) * 0.20;
-    const inUpperZone = price > Pu && price < rMax;
-    result.inUpperZone = inUpperZone;
-    result.Pu = parseFloat(Pu.toFixed(2));
-
-    // Lire AVANT de pousser
-    const histHigh = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
-    const highZoneHits = histHigh.filter(v => v === '1' || v === 1).length;
-    result.highZoneHits = highZoneHits;
-
-    if (highZoneHits >= 10) {
-      const recentPrices = await getLastNPrices(10);
-      if (recentPrices.length >= 5) {
-        const minP   = Math.min(...recentPrices);
-        const maxP   = Math.max(...recentPrices);
-        const spread = (maxP - minP) / ((minP + maxP) / 2) * 100;
-        result.spreadCheckHigh = parseFloat(spread.toFixed(2));
-        if (spread > 1.5) {
-          result.action = 'high_zone_spread_skip';
-          await logBotTick(kv, result);
-          return result;
-        }
-      }
-      result.action      = 'high_zone_exit';
-      result.closeResult = await closeAndSwap(base, false);
-      await kv.del('p2_high_zone_hist');
-      await logBotTick(kv, result);
-      return result;
-    }
-
-    await kv.lpush('p2_high_zone_hist', inUpperZone ? '1' : '0');
-    await kv.ltrim('p2_high_zone_hist', 0, 14);
-  }
 
   // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
