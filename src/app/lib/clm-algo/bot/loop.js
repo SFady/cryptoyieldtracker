@@ -414,8 +414,8 @@ export async function botLoop({ base, price }) {
           return result;
         }
       }
-      result.action  = 'low_zone_rebalance';
-      result.collect = await runCollect(base, price, targetRatio);
+      result.action      = 'low_zone_exit';
+      result.closeResult = await closeAndSwap(base, true);
       await kv.del('p2_low_zone_hist');
       await logBotTick(kv, result);
       return result;
@@ -451,8 +451,8 @@ export async function botLoop({ base, price }) {
           return result;
         }
       }
-      result.action  = 'high_zone_rebalance';
-      result.collect = await runCollect(base, price, targetRatio);
+      result.action      = 'high_zone_exit';
+      result.closeResult = await closeAndSwap(base, false);
       await kv.del('p2_high_zone_hist');
       await logBotTick(kv, result);
       return result;
