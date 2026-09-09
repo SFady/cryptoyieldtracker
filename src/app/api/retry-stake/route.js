@@ -15,7 +15,10 @@ export const maxDuration = 120;
 const NFPM_NEW    = '0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53';
 const NFPM_OLD    = '0x827922686190790b37229fd06084350E74485b72';
 const VOTER       = '0x16613524e02ad97eDfeF371bC883F2F5d6C480A5';
+const WETH        = '0x4200000000000000000000000000000000000006';
+const USDC        = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const DECIMAL_ADJUSTMENT = 6 - 18;
+const ERC20_BALANCE_IFACE = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -132,7 +135,20 @@ export async function POST(req) {
 
       const wethAmount = (L * (1 / sqrtPc_raw - 1 / sqrtPb_raw)) / 1e18;
       const usdcAmount = (L * (sqrtPc_raw - sqrtPa_raw)) / 1e6;
-      openingTotal = parseFloat((wethAmount * poolPrice + usdcAmount).toFixed(2));
+
+      // + solde non utilisé restant dans le wallet (dust WETH/USDC hors de la position)
+      let dustUsd = 0;
+      try {
+        const [wethDustHex, usdcDustHex] = await Promise.all([
+          provider.call({ to: WETH, data: ERC20_BALANCE_IFACE.encodeFunctionData('balanceOf', [wallet.address]) }),
+          provider.call({ to: USDC, data: ERC20_BALANCE_IFACE.encodeFunctionData('balanceOf', [wallet.address]) }),
+        ]);
+        const wethDust = Number(ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], wethDustHex)[0]) / 1e18;
+        const usdcDust = Number(ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], usdcDustHex)[0]) / 1e6;
+        dustUsd = wethDust * poolPrice + usdcDust;
+      } catch (_) {}
+
+      openingTotal = parseFloat((wethAmount * poolPrice + usdcAmount + dustUsd).toFixed(2));
     } catch (_) {}
 
     // 4. Approve NFPM -> gauge
