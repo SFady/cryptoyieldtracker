@@ -339,7 +339,10 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  const isOOR = hasLP && !isNaN(rMin) && !isNaN(rMax) && (price < rMin || price > rMax);
+  // Zone de bord = 5% du range total de chaque côté (englobe aussi l'OOR complet,
+  // qui n'est qu'un cas particulier de "prix au-delà de rMin/rMax")
+  const edgeMargin = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
+  const isOOR = hasLP && edgeMargin !== null && (price < rMin + edgeMargin || price > rMax - edgeMargin);
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
     ? Math.sqrt(rMin * rMax)
     : null;
@@ -351,9 +354,9 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1A : hors range → 3 ticks consécutifs → fermer LP
+  // Règle 1A : zone de bord (5% du range) — 3 ticks consécutifs → fermer LP
   if (isOOR) {
-    const isOORLow = price < rMin;
+    const isOORLow = price < rMin + edgeMargin;
     const newCount = (parseInt(oorCountRaw) || 0) + 1;
     await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
     await kv.set('p2_oor_low', isOORLow ? 1 : 0, { ex: 30 * 86400 });
@@ -366,7 +369,7 @@ export async function botLoop({ base, price }) {
       return result;
     }
 
-    // 3 ticks OOR consécutifs → fermer LP + swap WETH→USDC si OOR bas
+    // 3 ticks consécutifs en zone de bord → fermer LP + swap WETH→USDC si côté bas
     result.action      = 'oor_close';
     result.closeResult = await closeAndSwap(base, isOORLow);
     await logBotTick(kv, result);
