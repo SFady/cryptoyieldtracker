@@ -8,6 +8,7 @@ export default function PoolControls() {
   const [running, setRunning]       = React.useState(null);
   const [result, setResult]         = React.useState(null);
   const [oldPosId, setOldPosId]     = React.useState('');
+  const [restakeId, setRestakeId]   = React.useState('');
   const timerRef = React.useRef(null);
 
   function handleClick(action) {
@@ -92,6 +93,18 @@ export default function PoolControls() {
         if (!res.ok) { setResult({ ok: false, msg: data.error ?? `Erreur serveur ${res.status}` }); return; }
         const n = data.collected?.length ?? 0;
         setResult({ ok: true, msg: `${n} vieille(s) fermée(s) · USDC: $${data.finalUsdc}${tid ? ` · ID ${tid}` : ''}` });
+      } else if (action === "retryStake") {
+        const tid = restakeId.trim();
+        if (!tid) { setResult({ ok: false, msg: "ID du token requis" }); return; }
+        const res  = await fetch("/api/retry-stake", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tokenId: parseInt(tid), poolNum }),
+        });
+        let data;
+        try { data = await res.json(); } catch (_) { data = {}; }
+        if (!res.ok) { setResult({ ok: false, msg: data.error ?? `Erreur serveur ${res.status}` }); return; }
+        setResult({ ok: true, msg: `Staké ✓ — tokenId ${data.tokenId} · range $${data.rangeMin?.toFixed(0)}-$${data.rangeMax?.toFixed(0)} · tx ${data.depositHash?.slice(0,10)}…` });
       } else if (action === "closeLpQuick") {
         const res  = await fetch("/api/close-lp-quick", {
           method: "POST",
@@ -197,6 +210,26 @@ export default function PoolControls() {
             />
             <button onClick={() => handleClick("closeOld")} disabled={!!running} style={btnStyle("closeOld", "255,100,80")}>
               {running === "closeOld" ? "En cours…" : confirming === "closeOld" ? "⚠ CONFIRMER ?" : "Fermer vieilles"}
+            </button>
+          </div>
+        )}
+        {poolNum === 2 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              type="text"
+              value={restakeId}
+              onChange={e => setRestakeId(e.target.value)}
+              placeholder="ID à restaker"
+              style={{
+                fontFamily: "monospace", fontSize: "0.72rem",
+                padding: "4px 8px", borderRadius: 5,
+                background: "rgba(20,26,36,0.9)",
+                border: "1px solid rgba(120,200,255,0.25)",
+                color: "#aacfee", width: 120, outline: "none",
+              }}
+            />
+            <button onClick={() => handleClick("retryStake")} disabled={!!running} style={btnStyle("retryStake", "120,200,255")}>
+              {running === "retryStake" ? "En cours…" : confirming === "retryStake" ? "⚠ CONFIRMER ?" : "Restaker"}
             </button>
           </div>
         )}
