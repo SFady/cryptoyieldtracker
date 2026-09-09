@@ -452,6 +452,11 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         fontSize: "0.72rem", fontFamily: "monospace", color: "#6666aa",
       }}>
         <span>#{pos.tokenId}</span>
+        {pos.isStaked !== undefined && (
+          <span style={{ color: pos.isStaked ? "#00e5a0" : "#ff9f4a" }}>
+            {pos.isStaked ? "✓ Staké" : "⚠ Non-staké"}
+          </span>
+        )}
         {pos.openTimestamp && (() => {
           const totalMin = Math.floor((Date.now() - pos.openTimestamp) / 60_000);
           const h = Math.floor(totalMin / 60);

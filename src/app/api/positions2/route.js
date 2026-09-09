@@ -431,6 +431,7 @@ export async function GET() {
       if (collectRows.length > 0) lastCollectTimestamp = new Date(collectRows[0].created_at).getTime();
     } catch (_) {}
 
+    const stakedIdSet = new Set(stakedIds.map((id) => id.toString()));
     const results = await Promise.allSettled(tokenIds.map((id) => buildPosition(id, ethCall, openDataByTokenId[id.toString()])));
     const positions = results
       .filter((r) => r.status === "fulfilled" && r.value !== null)
@@ -446,6 +447,7 @@ export async function GET() {
           aeroBalance:          aeroBal > 0 ? aeroBal.toFixed(2) : "",
           totalRevenueUSD:      totalRevUSD.toFixed(2),
           lastCollectTimestamp,
+          isStaked:             stakedIdSet.has(pos.tokenId),
         };
       });
 
