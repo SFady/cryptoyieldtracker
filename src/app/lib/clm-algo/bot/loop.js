@@ -133,7 +133,7 @@ async function clearAlgoState() {
   ]);
 }
 
-async function closeAndSwap(base, isOORLow) {
+async function closeEdgeZone(base) {
   const out = {};
 
   const usdcBefore = await getWalletUsdc();
@@ -153,11 +153,6 @@ async function closeAndSwap(base, isOORLow) {
 
   try   { out.closeLP = await closeLP(base); }
   catch (e) { out.closeLPError = e.message; }
-
-  try {
-    const r = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
-    out.swapToUsdc = await r.json();
-  } catch (e) { out.swapError = e.message; }
 
   await clearAlgoState();
   return out;
@@ -369,9 +364,9 @@ export async function botLoop({ base, price }) {
       return result;
     }
 
-    // 3 ticks consécutifs en zone de bord → fermer LP + swap WETH→USDC si côté bas
+    // 3 ticks consécutifs en zone de bord → fermer LP (sans conversion forcée en USDC)
     result.action      = 'oor_close';
-    result.closeResult = await closeAndSwap(base, isOORLow);
+    result.closeResult = await closeEdgeZone(base);
     await logBotTick(kv, result);
     return result;
   }
