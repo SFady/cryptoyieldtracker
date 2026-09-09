@@ -13,6 +13,18 @@ export async function POST(req) {
   const poolNum = body.poolNum ?? 2;
   const reason  = body.reason ?? 'stuck_at_gauge';
 
+  // Correction ponctuelle du capital d'ouverture affiché (Redis uniquement) — n'exécute
+  // pas la logique de nettoyage ci-dessous quand ce champ est fourni.
+  if (body.setOpeningTotal != null) {
+    try {
+      await kv.set(`p${poolNum}_opening_total`, body.setOpeningTotal, { ex: 30 * 86400 });
+      await kv.set(`p${poolNum}_opening_lp`,    body.setOpeningTotal, { ex: 30 * 86400 });
+      return Response.json({ ok: true, poolNum, openingTotal: body.setOpeningTotal });
+    } catch (e) {
+      return Response.json({ error: e.message }, { status: 500 });
+    }
+  }
+
   const sql = neon(process.env.DATABASE_URL);
   const result = { poolNum };
 
