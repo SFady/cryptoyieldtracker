@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { kv } from '@vercel/kv';
 import { neon } from '@neondatabase/serverless';
 import { writeLpState } from '../../lib/cronKv';
 import { getPoolAddress } from '../../lib/config';
@@ -113,6 +114,27 @@ export async function POST(req) {
       return Response.json({ error: 'Gauge introuvable pour ce pool' }, { status: 500 });
     }
 
+    // 3b. Calculer la valeur réelle de la position (prix courant du pool + liquidité)
+    //     pour que le capital d'ouverture affiché reflète la réalité, pas une ancienne position.
+    //     Tout en unités brutes on-chain (ticks/liquidity) pour éviter les erreurs de décimales,
+    //     conversion en $ seulement à la toute fin.
+    let openingTotal = null;
+    try {
+      const slot0Hex   = await provider.call({ to: poolAddr, data: '0x3850c7bd' });
+      const sqrtX96    = ethers.AbiCoder.defaultAbiCoder().decode(['uint160'], slot0Hex)[0];
+      const sqrtP_raw  = Number(sqrtX96) / Number(2 ** 96);
+      const poolPrice  = sqrtP_raw * sqrtP_raw * 1e12; // prix humain $/WETH, pour la conversion finale uniquement
+
+      const L          = Number(pos.liquidity);
+      const sqrtPa_raw = Math.pow(1.0001, Number(pos.tickLower) / 2);
+      const sqrtPb_raw = Math.pow(1.0001, Number(pos.tickUpper) / 2);
+      const sqrtPc_raw = Math.min(Math.max(sqrtP_raw, sqrtPa_raw), sqrtPb_raw);
+
+      const wethAmount = (L * (1 / sqrtPc_raw - 1 / sqrtPb_raw)) / 1e18;
+      const usdcAmount = (L * (sqrtPc_raw - sqrtPa_raw)) / 1e6;
+      openingTotal = parseFloat((wethAmount * poolPrice + usdcAmount).toFixed(2));
+    } catch (_) {}
+
     // 4. Approve NFPM -> gauge
     const txApprove = await wallet.sendTransaction({
       to: nfpm, data: NFPM_IFACE.encodeFunctionData('approve', [gaugeAddr, tokenId]),
@@ -153,11 +175,12 @@ export async function POST(req) {
     }
 
     // 6. Mettre à jour DB + Redis pour que le bot reconnaisse la position comme active
+    //    (y compris le capital d'ouverture, pour que l'affichage ne reste pas bloqué sur l'ancienne position)
     try {
       const sql = neon(process.env.DATABASE_URL);
       await sql`
-        INSERT INTO lp_events (action1, action2, token_id, pool_num, range_min, range_max, created_at)
-        VALUES ('CREATE_OK', NULL, ${String(tokenId)}, ${poolNum}, ${rangeMin}, ${rangeMax}, NOW())
+        INSERT INTO lp_events (action1, action2, token_id, pool_num, range_min, range_max, total_at_open, created_at)
+        VALUES ('CREATE_OK', NULL, ${String(tokenId)}, ${poolNum}, ${rangeMin}, ${rangeMax}, ${openingTotal}, NOW())
       `;
     } catch (_) {}
     await writeLpState(poolNum, {
@@ -165,8 +188,14 @@ export async function POST(req) {
       range_min: String(rangeMin), range_max: String(rangeMax),
       created_at: new Date().toISOString(),
     });
+    if (openingTotal !== null) {
+      try {
+        await kv.set(`p${poolNum}_opening_total`, openingTotal, { ex: 30 * 86400 });
+        await kv.set(`p${poolNum}_opening_lp`,    openingTotal, { ex: 30 * 86400 });
+      } catch (_) {}
+    }
 
-    return Response.json({ ok: true, tokenId, gaugeAddr, depositHash, rangeMin, rangeMax });
+    return Response.json({ ok: true, tokenId, gaugeAddr, depositHash, rangeMin, rangeMax, openingTotal });
   } catch (e) {
     return Response.json({ error: e.shortMessage ?? e.message }, { status: 500 });
   }
