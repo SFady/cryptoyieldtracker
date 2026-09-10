@@ -6,15 +6,9 @@ import BottomMenu from "./BottomMenu";
 
 const validSections = ["home", "activities", "profile", "transfers", "test"];
 
-const isolatedSections = ["dashboard-test"];
-
 export default function LayoutClient({ children }) {
   const pathname = usePathname();
   const currentSection = pathname.split("/")[1] || "home";
-
-  if (isolatedSections.includes(currentSection)) {
-    return <>{children}</>;
-  }
 
   const section = validSections.includes(currentSection)
     ? currentSection
