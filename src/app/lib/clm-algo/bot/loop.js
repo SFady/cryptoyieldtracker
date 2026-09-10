@@ -8,8 +8,7 @@ import { logBotTick }       from './metrics.js';
 
 // Module 7 — Orchestrateur cron pool 2 (stratégie 50/50)
 // Règles :
-//   1A. OOR 3 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
-//   1B. Zone basse (Pa<prix<Pc) 10/15 ticks → fermer + rouvrir (mean-reversion)
+//   1A. Zone de bord (5% du range, englobe OOR) 3 ticks consécutifs → fermer LP + swap WETH→USDC
 //   1c. Volatilité ±2pt → resserrer/élargir le range (50/50)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start
 //   3.  En range      → rien
@@ -153,6 +152,11 @@ async function closeEdgeZone(base) {
 
   try   { out.closeLP = await closeLP(base); }
   catch (e) { out.closeLPError = e.message; }
+
+  try {
+    const r = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
+    out.swapToUsdc = await r.json();
+  } catch (e) { out.swapError = e.message; }
 
   await clearAlgoState();
   return out;
