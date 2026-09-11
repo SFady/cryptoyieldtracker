@@ -125,8 +125,6 @@ async function clearAlgoState() {
     kv.del('p2_live_range'),
     kv.del('p2_oor_count'),
     kv.del('p2_oor_low'),
-    kv.del('p2_volatility_direction'),
-    kv.del('p2_volatility_hits'),
   ]);
 }
 
@@ -373,8 +371,7 @@ export async function botLoop({ base, price }) {
   // Prix revenu en range → reset compteur OOR
   if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
 
-  // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50), hystérésis 5 ticks
-  // consécutifs dans le même sens avant de resizer (évite le churn sur un écart passager)
+  // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
   if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
@@ -386,33 +383,16 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen = rangePctActuel;
-
-      const wantsShrink = p24h < p24hAtOpen - 1.5;
-      const wantsExpand = p24h > p24hAtOpen + 1.5;
-      const direction    = wantsShrink ? 'shrink' : wantsExpand ? 'expand' : null;
-
-      const prevDirection = await kv.get('p2_volatility_direction').catch(() => null);
-      let hitCount = direction && direction === prevDirection
-        ? (parseInt(await kv.get('p2_volatility_hits').catch(() => 0)) || 0) + 1
-        : (direction ? 1 : 0);
-
-      result.volatilityDirection = direction;
-      result.volatilityHits      = hitCount;
-
-      if (direction) {
-        await kv.set('p2_volatility_direction', direction, { ex: 30 * 86400 });
-        await kv.set('p2_volatility_hits', hitCount, { ex: 30 * 86400 });
-      } else if (prevDirection) {
-        await kv.del('p2_volatility_direction');
-        await kv.del('p2_volatility_hits');
-      }
-
-      if (direction && hitCount >= 5) {
-        console.log(`[botLoop 1c] range_${direction} — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
-        result.action  = direction === 'shrink' ? 'range_shrink_rebalance' : 'range_expand_rebalance';
+      if (p24h < p24hAtOpen - 2) {
+        console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
+        result.action  = 'range_shrink_rebalance';
         result.collect = await runCollect(base, price, targetRatio);
-        await kv.del('p2_volatility_direction');
-        await kv.del('p2_volatility_hits');
+        await logBotTick(kv, result);
+        return result;
+      } else if (p24h > p24hAtOpen + 2) {
+        console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
+        result.action  = 'range_expand_rebalance';
+        result.collect = await runCollect(base, price, targetRatio);
         await logBotTick(kv, result);
         return result;
       }
