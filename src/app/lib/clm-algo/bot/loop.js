@@ -372,7 +372,12 @@ export async function botLoop({ base, price }) {
   if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
 
   // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
-  if (hasLP && centerPrice && !isNaN(rMin) && !isNaN(rMax)) {
+  // Uniquement si le prix est proche du centre (±5% du range total) — évite de resizer
+  // quand le prix est déjà proche d'un bord, où la Règle 1A est plus appropriée.
+  const centerMargin = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
+  const nearCenter    = centerPrice !== null && centerMargin !== null && Math.abs(price - centerPrice) <= centerMargin;
+  result.nearCenter1c = hasLP ? nearCenter : null;
+  if (hasLP && centerPrice && nearCenter && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
