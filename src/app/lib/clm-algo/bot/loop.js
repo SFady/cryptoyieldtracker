@@ -51,9 +51,9 @@ async function readWalletToken(tokenAddress, decimals) {
 const getWalletUsdc = () => readWalletToken(USDC_ADDRESS, 6);
 const getWalletWeth = () => readWalletToken(WETH_ADDRESS, 18);
 
-// Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET,
-// selon le côté par lequel la position est sortie (Règle 1A uniquement) :
-// haut → 50% envoyés / 50% gardés ; bas → 25% envoyés / 75% gardés.
+// Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET.
+// Règle 1A (sortie directionnelle) : haut → 50% envoyés/50% gardés ; bas → 25%/75%.
+// Règle 1c (resserrement/élargissement, pas de direction) : toujours 25%/75% (isLow=true).
 async function sendAeroSplit(feesCollectedUsdc, isLow) {
   if (!feesCollectedUsdc || feesCollectedUsdc < 0.01) return { skipped: 'insufficient', feesCollectedUsdc };
 
@@ -143,6 +143,7 @@ async function runCollect(base, price, targetRatio = 0.5) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
+  const usdcBefore = await getWalletUsdc();
   for (const step of [1, 2]) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
@@ -154,6 +155,8 @@ async function runCollect(base, price, targetRatio = 0.5) {
       out[`step${step}`] = await r.json();
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
+  const feesCollected = Math.max(0, (await getWalletUsdc()) - usdcBefore);
+  out.aeroSplit = await sendAeroSplit(feesCollected, true); // Règle 1c : toujours 25%/75%
 
   // Fermer la LP
   try   { out.closeLP = await closeLP(base); }
