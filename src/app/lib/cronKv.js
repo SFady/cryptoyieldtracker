@@ -67,6 +67,37 @@ export async function getPercentileRange() {
   } catch (_) { return null; }
 }
 
+// Spread p05-p95 simple (non pondéré) sur une fenêtre de temps [now-toMs, now-fromMs]
+function simpleSpreadPct(entries) {
+  const prices = entries.map(m => {
+    const s = String(m);
+    const colon = s.indexOf(':');
+    return colon !== -1 ? Number(s.slice(colon + 1)) : Number(s);
+  }).filter(p => p > 100 && p < 100000).sort((a, b) => a - b);
+  if (prices.length < 5) return null;
+  const p05 = prices[Math.floor(prices.length * 0.05)];
+  const p95 = prices[Math.min(prices.length - 1, Math.ceil(prices.length * 0.95))];
+  if (!p05 || !p95 || p05 <= 0) return null;
+  return (p95 - p05) / p05 * 100;
+}
+
+// Tendance de la volatilité : compare le spread des 4 dernières heures à celui des 4h précédentes
+export async function getPercentileTrend() {
+  try {
+    const now = Date.now();
+    const FOUR_H = 4 * 60 * 60 * 1000;
+    const [recent, previous] = await Promise.all([
+      kv.zrange(KEY, now - FOUR_H, now, { byScore: true }),
+      kv.zrange(KEY, now - 2 * FOUR_H, now - FOUR_H, { byScore: true }),
+    ]);
+    const recentPct   = simpleSpreadPct(recent);
+    const previousPct = simpleSpreadPct(previous);
+    if (recentPct === null || previousPct === null) return null;
+    const direction = recentPct > previousPct ? 'up' : recentPct < previousPct ? 'down' : 'flat';
+    return { recentPct, previousPct, direction };
+  } catch (_) { return null; }
+}
+
 // Prochain cron = dernier run + 5 min
 export async function getNextCronAt() {
   try {

@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPercentileTrend, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -214,7 +214,13 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  const rangePct = parseFloat((p24h !== null ? Math.ceil(p24h / 0.5) * 0.5 : 10).toFixed(2));
+  let rangePct = parseFloat((p24h !== null ? Math.ceil(p24h / 0.5) * 0.5 : 10).toFixed(2));
+
+  // Tendance du range percentile (volatilité) sur 4h : si haussier, +0.5% à rangePct
+  const rangeTrend = await getPercentileTrend();
+  if (rangeTrend && rangeTrend.direction === 'up') rangePct = parseFloat((rangePct + 0.5).toFixed(2));
+  result.rangeTrend = rangeTrend;
+
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
   const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
