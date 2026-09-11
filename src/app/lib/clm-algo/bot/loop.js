@@ -218,7 +218,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
 
   // Tendance du range percentile (volatilité) sur 4h : si haussier, +0.5% à rangePct
   const rangeTrend = await getPercentileTrend();
-  if (rangeTrend && rangeTrend.direction === 'up') rangePct = parseFloat((rangePct + 0.5).toFixed(2));
+  if (rangeTrend && rangeTrend.direction === 'up') rangePct = parseFloat((rangePct + 1).toFixed(2));
   result.rangeTrend = rangeTrend;
 
   const halfFrac = rangePct / 200;
