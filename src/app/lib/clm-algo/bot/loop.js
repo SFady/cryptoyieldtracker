@@ -131,11 +131,6 @@ async function closeEdgeZone(base, isLow) {
   try   { out.closeLP = await closeLP(base); }
   catch (e) { out.closeLPError = e.message; }
 
-  try {
-    const r = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
-    out.swapToUsdc = await r.json();
-  } catch (e) { out.swapError = e.message; }
-
   await clearAlgoState();
   return out;
 }
