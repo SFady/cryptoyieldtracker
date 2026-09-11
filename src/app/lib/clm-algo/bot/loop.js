@@ -8,7 +8,7 @@ import { logBotTick }       from './metrics.js';
 
 // Module 7 — Orchestrateur cron pool 2 (stratégie 50/50)
 // Règles :
-//   1A. Zone de bord (5% du range, englobe OOR) 3 ticks consécutifs → fermer LP + swap WETH→USDC
+//   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
 //   1c. Volatilité ±2pt → resserrer/élargir le range (50/50)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start
 //   3.  En range      → rien
@@ -353,7 +353,7 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1A : zone de bord (5% du range) — 3 ticks consécutifs → fermer LP
+  // Règle 1A : zone de bord (5% du range) — 5 ticks consécutifs → fermer LP
   if (isOOR) {
     const isOORLow = price < rMin + edgeMargin;
     const newCount = (parseInt(oorCountRaw) || 0) + 1;
@@ -362,13 +362,13 @@ export async function botLoop({ base, price }) {
     result.oorCount = newCount;
     result.isOORLow = isOORLow;
 
-    if (newCount < 3) {
+    if (newCount < 5) {
       result.action = 'oor_waiting';
       await logBotTick(kv, result);
       return result;
     }
 
-    // 3 ticks consécutifs en zone de bord → fermer LP (sans conversion forcée en USDC)
+    // 5 ticks consécutifs en zone de bord → fermer LP (sans conversion forcée en USDC)
     result.action      = 'oor_close';
     result.closeResult = await closeEdgeZone(base);
     await logBotTick(kv, result);

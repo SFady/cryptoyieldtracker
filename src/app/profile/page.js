@@ -628,15 +628,15 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, e
           <span style={{ fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap", letterSpacing: "0.5px" }}>
             {inRange ? "● IN" : "● OUT"}
           </span>
-          {/* 3 dots OOR haut (cyan) */}
+          {/* 5 dots OOR haut (cyan) */}
           <div style={{ display: "flex", gap: 1 }}>
-            {Array.from({ length: 3 }, (_, i) => (
+            {Array.from({ length: 5 }, (_, i) => (
               <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: (!oorLow && i < oorCount) ? "#29b6f0" : "rgba(255,255,255,0.12)" }} />
             ))}
           </div>
-          {/* 3 dots OOR bas (rouge) */}
+          {/* 5 dots OOR bas (rouge) */}
           <div style={{ display: "flex", gap: 1 }}>
-            {Array.from({ length: 3 }, (_, i) => (
+            {Array.from({ length: 5 }, (_, i) => (
               <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: (oorLow && i < oorCount) ? "#c97070" : "rgba(255,255,255,0.12)" }} />
             ))}
           </div>
