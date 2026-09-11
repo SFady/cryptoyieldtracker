@@ -158,7 +158,7 @@ async function closeEdgeZone(base, isLow) {
  * Collecte les AERO (pendant que la position est encore stakée), ferme la LP,
  * puis rouvre immédiatement avec tout le capital disponible au ratio de tendance.
  */
-async function runCollect(base, price, targetRatio = 0.5) {
+async function runCollect(base, price, targetRatio = 0.5, centerPrice = null) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -186,7 +186,8 @@ async function runCollect(base, price, targetRatio = 0.5) {
   await clearAlgoState();
 
   // Rouvrir LP avec tout le capital disponible au ratio cible
-  out.autoStart = await autoStart({ base, price, targetRatio });
+  // (centerPrice fourni = garder l'ancien centre, ex: élargissement 1c, pas de recentrage)
+  out.autoStart = await autoStart({ base, price, targetRatio, centerPrice });
 
   // Sauvegarder le nouveau range
   if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
@@ -199,7 +200,7 @@ async function runCollect(base, price, targetRatio = 0.5) {
 /**
  * Recrée une position LP avec toute la liquidité disponible au ratio de tendance.
  */
-async function autoStart({ base, price, targetRatio = 0.5 }) {
+async function autoStart({ base, price, targetRatio = 0.5, centerPrice = null }) {
   const result = { action: 'auto_start' };
 
   // 1. Capital disponible = USDC + WETH dans le wallet
@@ -216,8 +217,11 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
     : null;
   const rangePct = parseFloat((p24h !== null ? Math.ceil(p24h / 0.5) * 0.5 : 10).toFixed(2));
   const halfFrac = rangePct / 200;
-  const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
-  const maxPrice = parseFloat((price * (1 + halfFrac)).toFixed(2));
+  // Centrage : sur l'ancien centre si fourni (évite un swap de repositionnement inutile
+  // lors d'un élargissement 1c), sinon sur le prix courant comme d'habitude
+  const rangeCenter = centerPrice ?? price;
+  const minPrice = parseFloat((rangeCenter / (1 + halfFrac)).toFixed(2));
+  const maxPrice = parseFloat((rangeCenter * (1 + halfFrac)).toFixed(2));
   result.rangePct   = rangePct;
   result.percentile = p24h !== null ? parseFloat(p24h.toFixed(2)) : null;
 
@@ -386,13 +390,16 @@ export async function botLoop({ base, price }) {
       if (p24h < p24hAtOpen - 2) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
+        // Rétrécissement : recentre sur le prix courant (50/50), comportement normal
         result.collect = await runCollect(base, price, targetRatio);
         await logBotTick(kv, result);
         return result;
       } else if (p24h > p24hAtOpen + 2) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, targetRatio);
+        // Élargissement : garde l'ancien centre (pas de recentrage sur le prix courant)
+        // pour éviter un swap de repositionnement inutile
+        result.collect = await runCollect(base, price, targetRatio, centerPrice);
         await logBotTick(kv, result);
         return result;
       }
