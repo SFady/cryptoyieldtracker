@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices, readFeesBank, writeFeesBank, readLastDailyTx, writeLastDailyTx } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -51,63 +51,41 @@ async function readWalletToken(tokenAddress, decimals) {
 const getWalletUsdc = () => readWalletToken(USDC_ADDRESS, 6);
 const getWalletWeth = () => readWalletToken(WETH_ADDRESS, 18);
 
-// Verse min(bank, DAILY_CAP) vers DESTINATION_WALLET une fois par jour (Paris TZ)
-async function tryDailyTransfer(feesCollectedUsdc = 0) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
-  try {
-    const [bankRaw, openingTotalRaw, lastTxDate] = await Promise.all([
-      kv.get('p2_fees_bank').catch(() => null),
-      kv.get('p2_opening_total').catch(() => null),
-      kv.get('p2_last_daily_tx').catch(() => null),
-    ]);
-    const bank     = (parseFloat(bankRaw ?? 0) || 0) + (feesCollectedUsdc || 0);
-    const capital  = parseFloat(openingTotalRaw ?? 0) || 0;
-    const dailyCap = capital > 0 ? capital * 0.05 / 30 : 0;
+// Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET,
+// selon le côté par lequel la position est sortie (Règle 1A uniquement) :
+// haut → 50% envoyés / 50% gardés ; bas → 25% envoyés / 75% gardés.
+async function sendAeroSplit(feesCollectedUsdc, isLow) {
+  if (!feesCollectedUsdc || feesCollectedUsdc < 0.01) return { skipped: 'insufficient', feesCollectedUsdc };
 
-    // Toujours sauvegarder le bank mis à jour
-    await kv.set('p2_fees_bank', bank, { ex: 604800 });
+  const fraction = isLow ? 0.25 : 0.5;
+  const toSend   = parseFloat((feesCollectedUsdc * fraction).toFixed(6));
+  const dest     = process.env.DESTINATION_WALLET;
+  if (!dest) return { skipped: 'no_dest_wallet' };
 
-    if (lastTxDate === today)  return { skipped: 'already_done_today', bank };
-    if (dailyCap <= 0 || bank < 0.01) return { skipped: 'insufficient', bank, dailyCap };
-
-    const toSend = parseFloat(Math.min(bank, dailyCap).toFixed(6));
-    const dest   = process.env.DESTINATION_WALLET;
-    if (!dest) return { skipped: 'no_dest_wallet' };
-
-    // Envoi ERC20 USDC vers le wallet externe
-    let txHash = null;
-    const amount = ethers.parseUnits(String(toSend), 6);
-    for (const url of RPC_URLS) {
-      try {
-        const provider = new ethers.JsonRpcProvider(url);
-        const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
-        const tx       = await wallet.sendTransaction({
-          to:   USDC_ADDRESS,
-          data: ERC20_IFACE.encodeFunctionData('transfer', [dest, amount]),
-        });
-        await tx.wait();
-        txHash = tx.hash;
-        break;
-      } catch (_) {}
-    }
-    if (!txHash) return { error: 'transfer_failed', bank };
-
-    const bankAfter = parseFloat((bank - toSend).toFixed(6));
-    await Promise.all([
-      kv.set('p2_fees_bank', bankAfter, { ex: 604800 }),
-      kv.set('p2_last_daily_tx', today, { ex: 604800 }),
-    ]);
-
+  let txHash = null;
+  const amount = ethers.parseUnits(String(toSend), 6);
+  for (const url of RPC_URLS) {
     try {
-      const sqlDb = neon(process.env.DATABASE_URL);
-      await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
-                  VALUES (${toSend}, ${'daily_transfer'}, ${txHash}, ${2})`;
+      const provider = new ethers.JsonRpcProvider(url);
+      const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
+      const tx       = await wallet.sendTransaction({
+        to:   USDC_ADDRESS,
+        data: ERC20_IFACE.encodeFunctionData('transfer', [dest, amount]),
+      });
+      await tx.wait();
+      txHash = tx.hash;
+      break;
     } catch (_) {}
-
-    return { ok: true, sent: toSend, txHash, bankRemaining: bankAfter, dailyCap };
-  } catch (e) {
-    return { error: e.message };
   }
+  if (!txHash) return { error: 'transfer_failed', toSend };
+
+  try {
+    const sqlDb = neon(process.env.DATABASE_URL);
+    await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
+                VALUES (${toSend}, ${isLow ? 'edge_low_25pct' : 'edge_high_50pct'}, ${txHash}, ${2})`;
+  } catch (_) {}
+
+  return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
 
 async function closeLP(base) {
@@ -132,7 +110,7 @@ async function clearAlgoState() {
   ]);
 }
 
-async function closeEdgeZone(base) {
+async function closeEdgeZone(base, isLow) {
   const out = {};
 
   const usdcBefore = await getWalletUsdc();
@@ -148,7 +126,7 @@ async function closeEdgeZone(base) {
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
   const feesCollected = Math.max(0, (await getWalletUsdc()) - usdcBefore);
-  out.dailyTransfer = await tryDailyTransfer(feesCollected);
+  out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
 
   try   { out.closeLP = await closeLP(base); }
   catch (e) { out.closeLPError = e.message; }
@@ -170,7 +148,6 @@ async function runCollect(base, price, targetRatio = 0.5) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
-  const usdcBefore = await getWalletUsdc();
   for (const step of [1, 2]) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
@@ -182,8 +159,6 @@ async function runCollect(base, price, targetRatio = 0.5) {
       out[`step${step}`] = await r.json();
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
-  const feesCollected = Math.max(0, (await getWalletUsdc()) - usdcBefore);
-  out.dailyTransfer = await tryDailyTransfer(feesCollected);
 
   // Fermer la LP
   try   { out.closeLP = await closeLP(base); }
@@ -368,9 +343,9 @@ export async function botLoop({ base, price }) {
       return result;
     }
 
-    // 5 ticks consécutifs en zone de bord → fermer LP (sans conversion forcée en USDC)
+    // 5 ticks consécutifs en zone de bord → fermer LP + split AERO vers wallet externe
     result.action      = 'oor_close';
-    result.closeResult = await closeEdgeZone(base);
+    result.closeResult = await closeEdgeZone(base, isOORLow);
     await logBotTick(kv, result);
     return result;
   }
