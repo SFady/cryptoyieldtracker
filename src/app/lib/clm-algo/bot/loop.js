@@ -9,7 +9,7 @@ import { logBotTick }       from './metrics.js';
 // Module 7 — Orchestrateur cron pool 2 (stratégie 50/50)
 // Règles :
 //   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
-//   1c. Volatilité ±2pt → resserrer/élargir le range (50/50)
+//   1c. Volatilité ±1.5pt → resserrer/élargir le range (50/50)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start
 //   3.  En range      → rien
 
@@ -371,7 +371,7 @@ export async function botLoop({ base, price }) {
   // Prix revenu en range → reset compteur OOR
   if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
 
-  // Règle 1c : volatilité ±2pt → resserrer/élargir le range (50/50)
+  // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (50/50)
   // Uniquement si le prix est proche du centre (±5% du range total) — évite de resizer
   // quand le prix est déjà proche d'un bord, où la Règle 1A est plus appropriée.
   const centerMargin = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
@@ -388,13 +388,13 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen = rangePctActuel;
-      if (p24h < p24hAtOpen - 2) {
+      if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
         result.collect = await runCollect(base, price, targetRatio);
         await logBotTick(kv, result);
         return result;
-      } else if (p24h > p24hAtOpen + 2) {
+      } else if (p24h > p24hAtOpen + 1.5) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
         result.collect = await runCollect(base, price, targetRatio);
