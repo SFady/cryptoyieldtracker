@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage7d, getLastNPrices } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getLastNPrices } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -12,6 +12,20 @@ import { logBotTick }       from './metrics.js';
 //   1c. Volatilité ±1.5pt → resserrer/élargir le range (50/50)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start
 //   3.  En range      → rien
+
+// Ratio WETH de réouverture selon tendance (MM14, ±2%) × côté de sortie du range précédent
+const RATIO_TABLE = {
+  haussiere: { low: 0.8, high: 0.2 },
+  neutre:    { low: 0.5, high: 0.5 },
+  baissiere: { low: 0.2, high: 0.8 },
+};
+
+function getTrendZone(price, avg14d) {
+  if (!avg14d) return 'neutre';
+  if (price > avg14d * 1.02) return 'haussiere';
+  if (price < avg14d * 0.98) return 'baissiere';
+  return 'neutre';
+}
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
@@ -137,6 +151,9 @@ async function closeEdgeZone(base, isLow) {
 
   // Sortie haute : pas de spread check à la réouverture (Règle 2) — on veut rouvrir vite
   if (!isLow) { try { await kv.set('p2_skip_spread_reopen', 1, { ex: 3600 }); } catch (_) {} }
+
+  // Mémorise le côté de sortie pour déterminer le ratio de réouverture (Règle 2, tick suivant)
+  try { await kv.set('p2_last_exit_side', isLow ? 'low' : 'high', { ex: 3600 }); } catch (_) {}
 
   await clearAlgoState();
   return out;
@@ -287,20 +304,16 @@ export async function botLoop({ base, price }) {
   }
 
   // 1. État LP + config runtime + compteur OOR (en parallèle)
-  const [lpState, rtConfig, oorCountRaw, avg7d] = await Promise.all([
+  const [lpState, rtConfig, oorCountRaw, avg14d] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
     kv.get('p2_oor_count').catch(() => null),
-    getPriceAverage7d(),
+    getPriceAverage14d(),
   ]);
 
-  let targetRatio = 0.5;
-  if (avg7d) {
-    if (price < avg7d * 0.97)      targetRatio = 0.7; // baissier → mean reversion haussière
-    else if (price > avg7d * 1.03) targetRatio = 0.3; // haussier → mean reversion baissière
-  }
-  result.anchor7d    = avg7d;
-  result.targetRatio = targetRatio;
+  const trendZone = getTrendZone(price, avg14d);
+  result.anchor7d = avg14d;
+  result.trendZone = trendZone;
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
@@ -379,7 +392,7 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen  = rangePctActuel;
-      const ratio1c     = forceStale6h ? 0.5 : targetRatio;
+      const ratio1c     = 0.5; // pas de côté défini pour un resize (déclenché près du centre) → neutre
       if (forceStale6h) {
         console.log(`[botLoop 1c] range_rebalance_stale6h — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_rebalance_stale6h';
@@ -441,7 +454,17 @@ export async function botLoop({ base, price }) {
       }
     }
 
-    result.autoStart = await autoStart({ base, price, targetRatio });
+    // Ratio de réouverture : table tendance (MM14 ±2%) × côté de sortie du range précédent
+    // (Règle 1A) — sans info de côté (premier démarrage, restauration DB...), neutre 50/50.
+    const lastExitSide = await kv.get('p2_last_exit_side').catch(() => null);
+    let reopenRatio = 0.5;
+    if (lastExitSide === 'low' || lastExitSide === 'high') {
+      reopenRatio = RATIO_TABLE[trendZone][lastExitSide];
+      await kv.del('p2_last_exit_side');
+    }
+    result.reopenRatio = reopenRatio;
+
+    result.autoStart = await autoStart({ base, price, targetRatio: reopenRatio });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
     return result;

@@ -230,9 +230,9 @@ export async function readPriceAnchor7d() {
   try { return await kv.get('p2_price_anchor_7d'); } catch (_) { return null; }
 }
 
-// Moyenne des prix sur 7 jours (1 point/heure, ~168 points) — remplace l'ancre figée ci-dessus
+// Moyenne des prix sur 14 jours (1 point/heure, ~336 points) — remplace l'ancre figée ci-dessus
 const HOURLY_KEY     = 'weth-history-hourly';
-const HOURLY_TTL_MS  = 7 * 24 * 60 * 60 * 1000;
+const HOURLY_TTL_MS  = 14 * 24 * 60 * 60 * 1000;
 
 export async function writeHourlyPrice(price) {
   const now        = Date.now();
@@ -245,7 +245,7 @@ export async function writeHourlyPrice(price) {
   } catch (_) {}
 }
 
-export async function getPriceAverage7d() {
+export async function getPriceAverage14d() {
   try {
     const entries = await kv.zrange(HOURLY_KEY, 0, -1);
     const prices = entries.map(m => {
