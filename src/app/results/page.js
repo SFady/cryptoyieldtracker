@@ -92,6 +92,7 @@ export default function ResultsPage() {
                   <th style={{ padding: "8px 10px" }}>Raison</th>
                   <th style={{ padding: "8px 10px", textAlign: "right" }}>Avant</th>
                   <th style={{ padding: "8px 10px", textAlign: "right" }}>Après</th>
+                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Aero (usdc)</th>
                   <th style={{ padding: "8px 10px", textAlign: "right" }}>Gain/Perte</th>
                 </tr>
               </thead>
@@ -103,6 +104,7 @@ export default function ResultsPage() {
                     <td style={{ padding: "8px 10px", color: "#8888aa" }}>{REASON_LABELS[r.closeReason] ?? (r.closeReason ?? "—")}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: "#e86c00" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
                       {r.delta === null ? "en cours" : `${r.delta >= 0 ? "+" : ""}${r.delta.toFixed(2)} $`}
                     </td>

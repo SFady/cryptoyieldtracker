@@ -91,11 +91,11 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
   return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
 
-async function closeLP(base, keepWeth = true, closeReason = null) {
+async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = null) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason }),
+    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason, feesUsdc }),
     signal:  AbortSignal.timeout(120000),
   });
   return res.json();
@@ -132,7 +132,7 @@ async function closeEdgeZone(base, isLow) {
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
 
-  try   { out.closeLP = await closeLP(base, !isLow, isLow ? 'oor_close_low' : 'oor_close_high'); } // full swap USDC uniquement en sortie basse
+  try   { out.closeLP = await closeLP(base, !isLow, isLow ? 'oor_close_low' : 'oor_close_high', feesCollected); } // full swap USDC uniquement en sortie basse
   catch (e) { out.closeLPError = e.message; }
 
   // Sortie haute : pas de spread check à la réouverture (Règle 2) — on veut rouvrir vite
@@ -166,7 +166,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
   out.aeroSplit = await sendAeroSplit(feesCollected, true); // Règle 1c : toujours 25%/75%
 
   // Fermer la LP
-  try   { out.closeLP = await closeLP(base, true, closeReason); }
+  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected); }
   catch (e) { out.closeLPError = e.message; }
 
   // Réinitialiser l'état algo

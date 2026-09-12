@@ -224,6 +224,7 @@ export async function POST(req) {
   const poolNum          = body.poolNum ?? 2;
   const caseNum          = body.caseNum ?? null;
   const closeReason      = body.closeReason ?? null;
+  const feesUsdc         = body.feesUsdc ?? null;
   const keepWeth           = body.keepWeth === true;
   const sellWethFees       = body.sellWethFees === true;
   const halfFees           = body.halfFees === true;
@@ -861,7 +862,8 @@ export async function POST(req) {
                     SET usdc_on_close = ${finalWalletUsdc},
                         action2       = 'CLOSE_OK',
                         closed_at     = NOW(),
-                        close_reason  = COALESCE(${closeReason}, close_reason)
+                        close_reason  = COALESCE(${closeReason}, close_reason),
+                        fees_usdc     = COALESCE(${feesUsdc}, fees_usdc)
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
         if (!skipActiveToken) {
