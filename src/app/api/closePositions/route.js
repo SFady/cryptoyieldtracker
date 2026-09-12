@@ -887,13 +887,23 @@ export async function POST(req) {
     if (collectedList.length > 0) {
       try {
         for (const tokenId of collectedList) {
-          await sql`UPDATE lp_events
-                    SET usdc_on_close = ${finalWalletUsdc},
-                        action2       = 'CLOSE_OK',
-                        closed_at     = NOW(),
-                        close_reason  = COALESCE(${closeReason}, close_reason),
-                        fees_usdc     = ${totalFeesUsdc}
-                    WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
+          // Colonnes ajoutées récemment (close_reason, fees_usdc) : si la migration n'a pas encore
+          // tourné en prod, on retombe sur les colonnes de base plutôt que de perdre tout l'update.
+          try {
+            await sql`UPDATE lp_events
+                      SET usdc_on_close = ${finalWalletUsdc},
+                          action2       = 'CLOSE_OK',
+                          closed_at     = NOW(),
+                          close_reason  = COALESCE(${closeReason}, close_reason),
+                          fees_usdc     = ${totalFeesUsdc}
+                      WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
+          } catch (_) {
+            await sql`UPDATE lp_events
+                      SET usdc_on_close = ${finalWalletUsdc},
+                          action2       = 'CLOSE_OK',
+                          closed_at     = NOW()
+                      WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
+          }
         }
         if (!skipActiveToken) {
           const prevState = await readLpState(poolNum) ?? {};

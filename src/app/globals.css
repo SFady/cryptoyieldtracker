@@ -410,8 +410,8 @@ tr:hover {
   font-size: 1rem;
 }
 
-@media (max-width: 600px) {
-  /* Results : ne garder que Fermeture, Raison, Gain/Perte */
+/* Results : ne garder que Fermeture, Raison, Gain/Perte en portrait — tout afficher en paysage */
+@media (max-width: 600px) and (orientation: portrait) {
   .results-table th:nth-child(1),
   .results-table td:nth-child(1),
   .results-table th:nth-child(4),
@@ -422,7 +422,9 @@ tr:hover {
   .results-table td:nth-child(6) {
     display: none;
   }
+}
 
+@media (max-width: 600px) {
   .table-large th,
   .table-large td {
     padding: 10px 10px;
