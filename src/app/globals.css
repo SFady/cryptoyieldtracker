@@ -411,7 +411,9 @@ tr:hover {
 }
 
 @media (max-width: 600px) {
-  /* Results : ne garder qu'Ouverture, Fermeture, Raison, Gain/Perte */
+  /* Results : ne garder que Fermeture, Raison, Gain/Perte */
+  .results-table th:nth-child(1),
+  .results-table td:nth-child(1),
   .results-table th:nth-child(4),
   .results-table td:nth-child(4),
   .results-table th:nth-child(5),
