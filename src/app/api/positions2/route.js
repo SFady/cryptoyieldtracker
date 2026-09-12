@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -507,7 +507,7 @@ export async function GET() {
       }));
     } catch (_) {}
 
-    const nextCronAt  = await getNextCronAt();
+    const lastCronAt  = await getLastCronAt();
     const cronWeth    = await getLastTwoPrices();
     const edgeStreak  = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
 
@@ -533,7 +533,7 @@ export async function GET() {
     const lowZoneHits  = lowZoneHist.filter(v => v === '1' || v === 1).length;
     const highZoneHist = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
     const highZoneHits = highZoneHist.filter(v => v === '1' || v === 1).length;
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

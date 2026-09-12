@@ -20,7 +20,7 @@ export default function ProfilePage() {
   const [wethWallet2, setWethWallet2] = useState(null);
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
-  const [nextCronAt2, setNextCronAt2] = useState(null);
+  const [lastCronAt2, setLastCronAt2] = useState(null);
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
@@ -35,7 +35,7 @@ export default function ProfilePage() {
   const [wethWallet3, setWethWallet3] = useState(null);
   const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
   const [percentileRange3, setPercentileRange3] = useState(null);
-  const [nextCronAt3, setNextCronAt3] = useState(null);
+  const [lastCronAt3, setLastCronAt3] = useState(null);
   const [blockedByError3, setBlockedByError3] = useState(false);
   const [blockReason3, setBlockReason3] = useState(null);
   const [rebalanceBlock3, setRebalanceBlock3] = useState(null);
@@ -50,7 +50,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setNextCronAt2(d.nextCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -58,7 +58,7 @@ export default function ProfilePage() {
     if (!SHOW_POOL3) return;
     fetch("/api/positions3")
       .then((r) => r.json())
-      .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setRebalanceBlock3(d.rebalanceBlock ?? null); setWalletShort3(d.walletShort ?? ""); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setNextCronAt3(d.nextCronAt ?? null); })
+      .then((d) => { setBlockedByError3(d.blockedByError ?? false); setBlockReason3(d.blockReason ?? null); setRebalanceBlock3(d.rebalanceBlock ?? null); setWalletShort3(d.walletShort ?? ""); if (d.error) throw new Error(d.error); setPos3(d.positions ?? []); setUsdcWallet3(d.usdcWallet ?? null); setWethWallet3(d.wethWallet ?? null); setWethWalletUSD3(d.wethWalletUSD ?? null); setPercentileRange3(d.percentileRangePct ?? null); setLastCronAt3(d.lastCronAt ?? null); })
       .catch((e) => setError3(e.message))
       .finally(() => setLoading3(false));
   }, []);
@@ -90,13 +90,13 @@ export default function ProfilePage() {
                   Range percentile 24h : {percentileRange2}%
                 </span>
               )}
-              {nextCronAt2 && (
+              {lastCronAt2 && (
                 <span style={{
                   fontSize: "0.65rem", fontFamily: "monospace",
                   padding: "2px 8px", borderRadius: 4,
                   background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#86efac",
                 }}>
-                  Prochain cron : {new Date(nextCronAt2).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  Dernier cron : {new Date(lastCronAt2).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                 </span>
               )}
             </div>
@@ -148,13 +148,13 @@ export default function ProfilePage() {
                   Range percentile 24h : {percentileRange3}%
                 </span>
               )}
-              {nextCronAt3 && (
+              {lastCronAt3 && (
                 <span style={{
                   fontSize: "0.65rem", fontFamily: "monospace",
                   padding: "2px 8px", borderRadius: 4,
                   background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#86efac",
                 }}>
-                  Prochain cron : {new Date(nextCronAt3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  Dernier cron : {new Date(lastCronAt3).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                 </span>
               )}
               {blockedByError3 && (
@@ -593,15 +593,15 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, entryPrice = null }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false }) {
   const lo    = parseFloat(low);
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
-  const entry = entryPrice ? parseFloat(entryPrice) : null;
   const color  = inRange ? "#00e5a0" : "#c97070";
   const center = Math.sqrt(lo * hi);
-  const Pc     = (entry && entry < center) ? (lo + entry) / 2 : center - (hi - lo) / 4;
-  const Pu     = (entry && entry > center) ? (entry + hi) / 2 : center + (hi - lo) / 4;
+  const edgeMargin = (hi - lo) * 0.05;
+  const Pc     = lo + edgeMargin; // zone de bord basse (Règle 1A, 5% du range)
+  const Pu     = hi - edgeMargin; // zone de bord haute (Règle 1A, 5% du range)
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));

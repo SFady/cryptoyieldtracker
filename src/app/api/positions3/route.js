@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { getLastTwoPrices, getPercentileRange, getNextCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
+import { getLastTwoPrices, getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache } from "../../lib/cronKv";
 import { POOL_ADDRESS as POOL } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -532,7 +532,7 @@ export async function GET() {
         percentileRangePct = parseFloat(((pct.p95 - pct.p05) / pct.p05 * 100).toFixed(2));
     } catch (_) {}
 
-    const nextCronAt = await getNextCronAt();
+    const lastCronAt = await getLastCronAt();
 
     let transferHistory = [];
     try {
@@ -586,7 +586,7 @@ export async function GET() {
 
     const cronWeth = await getLastTwoPrices();
 
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, nextCronAt, blockedByError, blockReason, cronWeth, walletShort, rebalanceBlock };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, blockedByError, blockReason, cronWeth, walletShort, rebalanceBlock };
     global._cytPos3Cache = { data };
     await writePositionsCache(3, data);
     return Response.json(data);

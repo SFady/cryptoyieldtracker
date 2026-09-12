@@ -108,6 +108,15 @@ export async function getNextCronAt() {
   } catch (_) { return null; }
 }
 
+// Dernier cron reçu
+export async function getLastCronAt() {
+  try {
+    const lastRun = await kv.get(KEY_LAST_RUN);
+    if (!lastRun) return null;
+    return new Date(Number(lastRun)).toISOString();
+  } catch (_) { return null; }
+}
+
 // État de la dernière position ouverte (CREATE_OK) par pool
 export async function writeLpState(poolNum, data) {
   try { await kv.set(`lp-state-${poolNum}`, data, { ex: LP_STATE_TTL }); } catch (_) {}
