@@ -385,7 +385,7 @@ export async function botLoop({ base, price }) {
   // quand le prix est déjà proche d'un bord, où la Règle 1A est plus appropriée.
   // Exception : au-delà de 6h sans rebalance, on ignore le centre géométrique et on
   // rebalance en 50/50 (évite de rester bloqué indéfiniment sur un range désaligné).
-  const centerMargin   = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
+  const centerMargin   = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.10 : null;
   const nearCenter     = centerPrice !== null && centerMargin !== null && Math.abs(price - centerPrice) <= centerMargin;
   const positionAgeMs  = (hasLP && lpState?.created_at) ? Date.now() - new Date(lpState.created_at).getTime() : null;
   const forceStale6h   = positionAgeMs !== null && positionAgeMs > 6 * 60 * 60 * 1000;
