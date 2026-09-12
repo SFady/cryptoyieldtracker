@@ -5,7 +5,10 @@ export const runtime = "nodejs";
 
 const sql = neon(process.env.DATABASE_URL);
 
-export async function GET() {
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+  const full = searchParams.get("full") === "1";
+
   const [lastRun, count, last10raw, lpState2, lpErr2, lpState3, lpErr3, lpRunning, lastCronResults, botMetrics] = await Promise.all([
     kv.get("cron-last-run"),
     kv.zcard("weth-history"),
@@ -25,6 +28,21 @@ export async function GET() {
       price: parseFloat(last10raw[i]),
       date:  new Date(Number(last10raw[i + 1])).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }),
     });
+  }
+
+  let fullHistory = null;
+  if (full) {
+    try {
+      const raw = await kv.zrange("weth-history", 0, -1);
+      fullHistory = raw.map(m => {
+        const s     = String(m);
+        const colon = s.indexOf(":");
+        return {
+          ts:    colon !== -1 ? Number(s.slice(0, colon)) : null,
+          price: colon !== -1 ? Number(s.slice(colon + 1)) : Number(s),
+        };
+      }).filter(e => e.price > 100 && e.price < 100000);
+    } catch (_) {}
   }
 
   let lastDbRows2 = [];
@@ -60,5 +78,6 @@ export async function GET() {
     lpRunning:      lpRunning ?? null,
     lastCronResults,
     botMetrics:     botMetrics ?? [],
+    ...(full ? { fullHistory } : {}),
   });
 }
