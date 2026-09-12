@@ -84,7 +84,7 @@ export default function ResultsPage() {
           </div>
 
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "monospace", fontSize: "0.8rem" }}>
+            <table className="results-table" style={{ width: "100%", borderCollapse: "collapse", fontFamily: "monospace", fontSize: "0.8rem" }}>
               <thead>
                 <tr style={{ color: "#6666aa", textAlign: "left", borderBottom: "1px solid rgba(124,77,255,0.15)" }}>
                   <th style={{ padding: "8px 10px" }}>Ouverture</th>
