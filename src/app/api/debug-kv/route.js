@@ -9,9 +9,10 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const full = searchParams.get("full") === "1";
 
-  const [lastRun, count, last10raw, lpState2, lpErr2, lpState3, lpErr3, lpRunning, lastCronResults, botMetrics] = await Promise.all([
+  const [lastRun, count, hourlyCount, last10raw, lpState2, lpErr2, lpState3, lpErr3, lpRunning, lastCronResults, botMetrics] = await Promise.all([
     kv.get("cron-last-run"),
     kv.zcard("weth-history"),
+    kv.zcard("weth-history-hourly"),
     kv.zrange("weth-history", 0, 9, { rev: true, withScores: true }),
     kv.get("lp-state-2"),
     kv.get("lp-err-2"),
@@ -71,6 +72,7 @@ export async function GET(req) {
 
   return Response.json({
     totalEntries: count,
+    hourlyEntries: hourlyCount,
     lastRun:      lastRun ? new Date(Number(lastRun)).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) : null,
     last10:       entries,
     pool2: { lpState: lpState2, lpErr: lpErr2, lastDbRows: lastDbRows2 },
