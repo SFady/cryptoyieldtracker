@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { writeCronPrice, getLastTwoPrices, readLpState, writeLpState, acquireRedisLock } from "../../lib/cronKv";
+import { writeCronPrice, writeHourlyPrice, getLastTwoPrices, readLpState, writeLpState, acquireRedisLock } from "../../lib/cronKv";
 import { POOL_ADDRESS } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -74,6 +74,7 @@ async function handle(req) {
 
   // Stocker le prix à chaque minute (tick rapide inclus)
   if (price) { try { await writeCronPrice(price); } catch (_) {} }
+  if (price) { try { await writeHourlyPrice(price); } catch (_) {} }
 
   // Ni OOR ni heure du tick complet → pousser low zone, déclencher si seuil atteint
   let quickLowZone = false;

@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage7d, getLastNPrices } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -236,13 +236,6 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
     if (swapData.ok && !swapData.skipped) result.wethSwapped = swapData.wethSwapped;
   } catch (_) {}
 
-  // 4. Initialiser ancre de tendance si absente (8j TTL → auto-reset)
-  const existingAnchor = await readPriceAnchor7d();
-  if (!existingAnchor) {
-    await writePriceAnchor7d(price);
-    result.anchorSet = price;
-  }
-
   // 5. Sauvegarder la config runtime (sans short)
   const Pa     = pool.tickLowerPrice;
   const Pb     = pool.tickUpperPrice;
@@ -294,20 +287,19 @@ export async function botLoop({ base, price }) {
   }
 
   // 1. État LP + config runtime + compteur OOR (en parallèle)
-  const [lpState, rtConfig, oorCountRaw, anchor7dRaw] = await Promise.all([
+  const [lpState, rtConfig, oorCountRaw, avg7d] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
     kv.get('p2_oor_count').catch(() => null),
-    readPriceAnchor7d(),
+    getPriceAverage7d(),
   ]);
 
-  const anchor7d = anchor7dRaw ? parseFloat(anchor7dRaw) : null;
   let targetRatio = 0.5;
-  if (anchor7d) {
-    if (price < anchor7d * 0.97)      targetRatio = 0.7; // baissier → mean reversion haussière
-    else if (price > anchor7d * 1.03) targetRatio = 0.3; // haussier → mean reversion baissière
+  if (avg7d) {
+    if (price < avg7d * 0.97)      targetRatio = 0.7; // baissier → mean reversion haussière
+    else if (price > avg7d * 1.03) targetRatio = 0.3; // haussier → mean reversion baissière
   }
-  result.anchor7d    = anchor7d;
+  result.anchor7d    = avg7d;
   result.targetRatio = targetRatio;
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;

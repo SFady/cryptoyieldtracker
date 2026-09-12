@@ -229,3 +229,31 @@ export async function writePriceAnchor7d(price) {
 export async function readPriceAnchor7d() {
   try { return await kv.get('p2_price_anchor_7d'); } catch (_) { return null; }
 }
+
+// Moyenne des prix sur 7 jours (1 point/heure, ~168 points) — remplace l'ancre figée ci-dessus
+const HOURLY_KEY     = 'weth-history-hourly';
+const HOURLY_TTL_MS  = 7 * 24 * 60 * 60 * 1000;
+
+export async function writeHourlyPrice(price) {
+  const now        = Date.now();
+  const hourBucket = Math.floor(now / 3600000) * 3600000;
+  try {
+    // Un seul point par heure : on remplace l'éventuelle entrée déjà présente pour ce créneau
+    await kv.zremrangebyscore(HOURLY_KEY, hourBucket, hourBucket);
+    await kv.zadd(HOURLY_KEY, { score: hourBucket, member: `${hourBucket}:${price}` });
+    await kv.zremrangebyscore(HOURLY_KEY, 0, now - HOURLY_TTL_MS);
+  } catch (_) {}
+}
+
+export async function getPriceAverage7d() {
+  try {
+    const entries = await kv.zrange(HOURLY_KEY, 0, -1);
+    const prices = entries.map(m => {
+      const s     = String(m);
+      const colon = s.indexOf(':');
+      return colon !== -1 ? Number(s.slice(colon + 1)) : Number(s);
+    }).filter(p => p > 100 && p < 100000);
+    if (prices.length < 10) return null;
+    return prices.reduce((a, b) => a + b, 0) / prices.length;
+  } catch (_) { return null; }
+}
