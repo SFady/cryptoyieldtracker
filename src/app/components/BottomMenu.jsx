@@ -62,6 +62,19 @@ const BottomMenu = ({ selected }) => {
 
       {isSupervisor && (
         <Link
+          href="/results"
+          aria-label="Results"
+          className={`button ${selected === "results" ? "active" : ""}`}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 3h2v18H3V3zm4 10h2v8H7v-8zm4-6h2v14h-2V7zm4 3h2v11h-2V10zm4-7h2v18h-2V3z" />
+          </svg>
+          Results
+        </Link>
+      )}
+
+      {isSupervisor && (
+        <Link
           href="/test"
           aria-label="Test"
           className={`button ${selected === "test" ? "active" : ""}`}

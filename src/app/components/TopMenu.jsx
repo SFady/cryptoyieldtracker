@@ -58,6 +58,16 @@ export default function TopMenu({ selected, onSelect }) {
           )}
           {isSupervisor && (
             <Link
+              href="/results"
+              className={selected === "results" ? "active" : ""}
+              onClick={() => onSelect && onSelect("results")}
+              aria-current={selected === "results" ? "page" : undefined}
+            >
+              Results
+            </Link>
+          )}
+          {isSupervisor && (
+            <Link
               href="/test"
               className={selected === "test" ? "active" : ""}
               onClick={() => onSelect && onSelect("test")}
