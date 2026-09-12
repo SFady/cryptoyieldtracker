@@ -698,11 +698,19 @@ export async function POST(req) {
         await new Promise(r => setTimeout(r, 2000));
       }
     } catch (e) { console.log(`[sellWethFees] ${e.message ?? e}`); }
+    let wethSwapUsdcReceived = null;
+    let wethSwapUsdcExpected = null;
     if (!keepWeth) try {
       const wethBal = await readBal(WETH, wallet.address);
       if (wethBal > 0n) {
+        wethSwapUsdcExpected = parseFloat(ethers.formatUnits(wethBal, 18)) * wethPriceUsdc;
         swapHash = await swapWethToStable(wethBal, wethPriceUsdc);
         await new Promise(r => setTimeout(r, 2000));
+        // Montant réel reçu (même provider, même requête — fiable pour mesurer le slippage réel)
+        const usdcAfterFullSwap = await readBal(stablecoin, wallet.address).catch(() => usdcBeforeSwaps);
+        wethSwapUsdcReceived = parseFloat(ethers.formatUnits(
+          usdcAfterFullSwap > usdcBeforeSwaps ? usdcAfterFullSwap - usdcBeforeSwaps : 0n, 6
+        ));
       }
     } catch (e) { console.log(`[étape 4 weth swap raté] ${e.message ?? e.shortMessage} — WETH reste dans le wallet, on continue`); }
     // end if (!keepWeth)
@@ -874,6 +882,11 @@ export async function POST(req) {
       finalUsdcRaw:   parseFloat(finalUsdcRaw),
       lpUsdcRaw:      parseFloat(lpUsdcRaw),
       principalUsdc:  parseFloat(principalUsdc),
+      ...(wethSwapUsdcExpected !== null ? {
+        wethSwapUsdcExpected: parseFloat(wethSwapUsdcExpected.toFixed(6)),
+        wethSwapUsdcReceived,
+        wethSwapSlippage: parseFloat((wethSwapUsdcExpected - wethSwapUsdcReceived).toFixed(6)),
+      } : {}),
       ...(unstakeErrors.length > 0 ? { unstakeWarnings: unstakeErrors } : {}),
       ...(fallbackDebug ? { fallbackDebug } : {}),
     });
