@@ -253,7 +253,7 @@ export async function getPriceAverage14d() {
       const colon = s.indexOf(':');
       return colon !== -1 ? Number(s.slice(colon + 1)) : Number(s);
     }).filter(p => p > 100 && p < 100000);
-    if (prices.length < 10) return null;
+    if (prices.length < 168) return null; // au moins 7 jours de points avant d'activer le signal
     return prices.reduce((a, b) => a + b, 0) / prices.length;
   } catch (_) { return null; }
 }
