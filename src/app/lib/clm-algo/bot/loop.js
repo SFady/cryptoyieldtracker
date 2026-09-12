@@ -268,9 +268,15 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   // 6. Total au démarrage (Redis + Neon)
   try {
     const openingTotal = parseFloat(capital.toFixed(2));
+    // openingLp = capital réellement déployé dans la LP, hors solde resté inutilisé dans le wallet
+    // (résidu de swap/arrondi après createPosition + swap-weth-usdc)
+    const [usdcDust, wethDust] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
+    const dustUsd  = usdcDust + wethDust * price;
+    const openingLp = parseFloat(Math.max(0, capital - dustUsd).toFixed(2));
     await kv.set('p2_opening_total', openingTotal, { ex: 30 * 86400 });
-    await kv.set('p2_opening_lp',   openingTotal, { ex: 30 * 86400 });
+    await kv.set('p2_opening_lp',   openingLp, { ex: 30 * 86400 });
     result.openingTotal = openingTotal;
+    result.openingLp    = openingLp;
     if (process.env.DATABASE_URL && pool.tokenId) {
       const sql = neon(process.env.DATABASE_URL);
       await sql`UPDATE lp_events SET total_at_open = ${openingTotal} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
