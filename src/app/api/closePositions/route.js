@@ -225,6 +225,7 @@ export async function POST(req) {
   const caseNum          = body.caseNum ?? null;
   const closeReason      = body.closeReason ?? null;
   const feesUsdc         = body.feesUsdc ?? null;
+  const aeroSplitFraction = body.aeroSplitFraction ?? null;
   const keepWeth           = body.keepWeth === true;
   const sellWethFees       = body.sellWethFees === true;
   const halfFees           = body.halfFees === true;
@@ -768,9 +769,26 @@ export async function POST(req) {
         }
         if (aeroSwapHash) {
           const usdcAfterAeroSwap = await readBal(stablecoin, wallet.address).catch(() => usdcBeforeAeroSwap);
-          aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(
-            usdcAfterAeroSwap > usdcBeforeAeroSwap ? usdcAfterAeroSwap - usdcBeforeAeroSwap : 0n, 6
-          ));
+          const aeroSwapUsdcReceivedRaw = usdcAfterAeroSwap > usdcBeforeAeroSwap ? usdcAfterAeroSwap - usdcBeforeAeroSwap : 0n;
+          aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(aeroSwapUsdcReceivedRaw, 6));
+
+          // Split de ce résidu AERO vers le wallet externe (même logique que sendAeroSplit côté bot,
+          // qui ne peut pas voir ce montant car il s'exécute avant ce swap-ci)
+          if (aeroSplitFraction && aeroSwapUsdcReceivedRaw > 0n) {
+            try {
+              const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
+              if (dest) {
+                const pct = Math.round(aeroSplitFraction * 1000);
+                const toSendRaw = aeroSwapUsdcReceivedRaw * BigInt(pct) / 1000n;
+                if (toSendRaw > 0n) {
+                  const txResidual = await sendTx(wallet, { to: stablecoin, data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSendRaw]) });
+                  await waitForTx(provider, txResidual);
+                  const source = aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct";
+                  await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${parseFloat(ethers.formatUnits(toSendRaw, 6))}, ${source}, ${txResidual.hash}, ${poolNum})`;
+                }
+              }
+            } catch (_) {}
+          }
         }
       }
     } catch (_) {}
