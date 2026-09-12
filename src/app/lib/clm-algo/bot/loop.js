@@ -106,11 +106,11 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
   return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
 
-async function closeLP(base) {
+async function closeLP(base, keepWeth = true) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ keepWeth: true, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true }),
+    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true }),
     signal:  AbortSignal.timeout(120000),
   });
   return res.json();
@@ -147,7 +147,7 @@ async function closeEdgeZone(base, isLow) {
   const feesCollected = Math.max(0, (await getWalletUsdc(rpcUrl)) - usdcBefore);
   out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
 
-  try   { out.closeLP = await closeLP(base); }
+  try   { out.closeLP = await closeLP(base, !isLow); } // full swap USDC uniquement en sortie basse
   catch (e) { out.closeLPError = e.message; }
 
   await clearAlgoState();
