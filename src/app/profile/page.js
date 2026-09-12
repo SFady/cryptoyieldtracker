@@ -99,6 +99,17 @@ export default function ProfilePage() {
                   Dernier cron : {new Date(lastCronAt2).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                 </span>
               )}
+              {pos2 && pos2[0] && pos2[0].isStaked !== undefined && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: pos2[0].isStaked ? "rgba(0,229,160,0.08)" : "rgba(255,159,74,0.08)",
+                  border: `1px solid ${pos2[0].isStaked ? "rgba(0,229,160,0.25)" : "rgba(255,159,74,0.25)"}`,
+                  color: pos2[0].isStaked ? "#00e5a0" : "#ff9f4a",
+                }}>
+                  {pos2[0].isStaked ? "✓ Staké" : "⚠ Non-staké"}
+                </span>
+              )}
             </div>
             {loading2 && <Spinner label="Découverte des positions…" />}
             {error2   && <ErrorBox msg={error2} />}
