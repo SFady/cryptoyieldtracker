@@ -106,11 +106,11 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
   return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
 
-async function closeLP(base, keepWeth = true) {
+async function closeLP(base, keepWeth = true, closeReason = null) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true }),
+    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason }),
     signal:  AbortSignal.timeout(120000),
   });
   return res.json();
@@ -147,7 +147,7 @@ async function closeEdgeZone(base, isLow) {
   const feesCollected = Math.max(0, (await getWalletUsdc(rpcUrl)) - usdcBefore);
   out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
 
-  try   { out.closeLP = await closeLP(base, !isLow); } // full swap USDC uniquement en sortie basse
+  try   { out.closeLP = await closeLP(base, !isLow, isLow ? 'oor_close_low' : 'oor_close_high'); } // full swap USDC uniquement en sortie basse
   catch (e) { out.closeLPError = e.message; }
 
   await clearAlgoState();
@@ -158,7 +158,7 @@ async function closeEdgeZone(base, isLow) {
  * Collecte les AERO (pendant que la position est encore stakée), ferme la LP,
  * puis rouvre immédiatement avec tout le capital disponible au ratio de tendance.
  */
-async function runCollect(base, price, targetRatio = 0.5) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -179,7 +179,7 @@ async function runCollect(base, price, targetRatio = 0.5) {
   out.aeroSplit = await sendAeroSplit(feesCollected, true); // Règle 1c : toujours 25%/75%
 
   // Fermer la LP
-  try   { out.closeLP = await closeLP(base); }
+  try   { out.closeLP = await closeLP(base, true, closeReason); }
   catch (e) { out.closeLPError = e.message; }
 
   // Réinitialiser l'état algo
@@ -397,10 +397,15 @@ export async function botLoop({ base, price }) {
   // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (50/50)
   // Uniquement si le prix est proche du centre (±5% du range total) — évite de resizer
   // quand le prix est déjà proche d'un bord, où la Règle 1A est plus appropriée.
-  const centerMargin = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
-  const nearCenter    = centerPrice !== null && centerMargin !== null && Math.abs(price - centerPrice) <= centerMargin;
-  result.nearCenter1c = hasLP ? nearCenter : null;
-  if (hasLP && centerPrice && nearCenter && !isNaN(rMin) && !isNaN(rMax)) {
+  // Exception : au-delà de 12h sans rebalance, on ignore le centre géométrique et on
+  // rebalance en 50/50 (évite de rester bloqué indéfiniment sur un range désaligné).
+  const centerMargin   = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
+  const nearCenter     = centerPrice !== null && centerMargin !== null && Math.abs(price - centerPrice) <= centerMargin;
+  const positionAgeMs  = (hasLP && lpState?.created_at) ? Date.now() - new Date(lpState.created_at).getTime() : null;
+  const forceStale12h  = positionAgeMs !== null && positionAgeMs > 12 * 60 * 60 * 1000;
+  result.nearCenter1c   = hasLP ? nearCenter : null;
+  result.forceStale12h  = hasLP ? forceStale12h : null;
+  if (hasLP && centerPrice && (nearCenter || forceStale12h) && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
@@ -410,17 +415,24 @@ export async function botLoop({ base, price }) {
       const optimalRange   = p24h;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
-      const p24hAtOpen = rangePctActuel;
-      if (p24h < p24hAtOpen - 1.5) {
+      const p24hAtOpen  = rangePctActuel;
+      const ratio1c     = forceStale12h ? 0.5 : targetRatio;
+      if (forceStale12h) {
+        console.log(`[botLoop 1c] range_rebalance_stale12h — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
+        result.action  = 'range_rebalance_stale12h';
+        result.collect = await runCollect(base, price, ratio1c, 'range_rebalance_stale12h');
+        await logBotTick(kv, result);
+        return result;
+      } else if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price, targetRatio);
+        result.collect = await runCollect(base, price, ratio1c, 'range_shrink_rebalance');
         await logBotTick(kv, result);
         return result;
       } else if (p24h > p24hAtOpen + 1.5) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, targetRatio);
+        result.collect = await runCollect(base, price, ratio1c, 'range_expand_rebalance');
         await logBotTick(kv, result);
         return result;
       }

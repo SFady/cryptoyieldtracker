@@ -223,6 +223,7 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const poolNum          = body.poolNum ?? 2;
   const caseNum          = body.caseNum ?? null;
+  const closeReason      = body.closeReason ?? null;
   const keepWeth           = body.keepWeth === true;
   const sellWethFees       = body.sellWethFees === true;
   const halfFees           = body.halfFees === true;
@@ -851,7 +852,8 @@ export async function POST(req) {
           await sql`UPDATE lp_events
                     SET usdc_on_close = ${finalWalletUsdc},
                         action2       = 'CLOSE_OK',
-                        closed_at     = NOW()
+                        closed_at     = NOW(),
+                        close_reason  = COALESCE(${closeReason}, close_reason)
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
         if (!skipActiveToken) {
