@@ -367,6 +367,23 @@ export async function botLoop({ base, price }) {
       return result;
     }
 
+    // Sortie basse : spread check (marché trop agité → attendre avant de fermer)
+    if (isOORLow) {
+      const recentPrices = await getLastNPrices(20);
+      if (recentPrices.length >= 10) {
+        const minP   = Math.min(...recentPrices);
+        const maxP   = Math.max(...recentPrices);
+        const mid    = (minP + maxP) / 2;
+        const spread = (maxP - minP) / mid * 100;
+        result.spread = parseFloat(spread.toFixed(2));
+        if (spread > 1.5) {
+          result.action = 'oor_close_spread_skip';
+          await logBotTick(kv, result);
+          return result;
+        }
+      }
+    }
+
     // 5 ticks consécutifs en zone de bord → fermer LP + split AERO vers wallet externe
     result.action      = 'oor_close';
     result.closeResult = await closeEdgeZone(base, isOORLow);
