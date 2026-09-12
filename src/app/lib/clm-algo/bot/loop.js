@@ -53,21 +53,6 @@ async function readWalletToken(tokenAddress, decimals, pinnedUrl = null) {
 const getWalletUsdc = (pinnedUrl) => readWalletToken(USDC_ADDRESS, 6, pinnedUrl);
 const getWalletWeth = (pinnedUrl) => readWalletToken(WETH_ADDRESS, 18, pinnedUrl);
 
-// Trouve un RPC qui répond, à réutiliser pour toutes les lectures d'un même cycle
-async function pickWorkingRpc() {
-  for (const url of RPC_URLS) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
-        signal: AbortSignal.timeout(6000),
-      });
-      const json = await res.json();
-      if (json.result) return url;
-    } catch (_) {}
-  }
-  return RPC_URLS[0];
-}
 
 // Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET.
 // Règle 1A (sortie directionnelle) : haut → 50% envoyés/50% gardés ; bas → 25%/75%.
@@ -131,8 +116,6 @@ async function clearAlgoState() {
 async function closeEdgeZone(base, isLow) {
   const out = {};
 
-  const rpcUrl    = await pickWorkingRpc();
-  const usdcBefore = await getWalletUsdc(rpcUrl);
   for (const step of [1, 2]) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
@@ -144,7 +127,9 @@ async function closeEdgeZone(base, isLow) {
       out[`step${step}`] = await r.json();
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
-  const feesCollected = Math.max(0, (await getWalletUsdc(rpcUrl)) - usdcBefore);
+  // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2) —
+  // fiable, contrairement à un diff de solde wallet avant/après sur des requêtes séparées.
+  const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
 
   try   { out.closeLP = await closeLP(base, !isLow, isLow ? 'oor_close_low' : 'oor_close_high'); } // full swap USDC uniquement en sortie basse
@@ -165,8 +150,6 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
-  const rpcUrl     = await pickWorkingRpc();
-  const usdcBefore = await getWalletUsdc(rpcUrl);
   for (const step of [1, 2]) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
@@ -178,7 +161,8 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
       out[`step${step}`] = await r.json();
     } catch (e) { out[`step${step}Error`] = e.message; }
   }
-  const feesCollected = Math.max(0, (await getWalletUsdc(rpcUrl)) - usdcBefore);
+  // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
+  const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   out.aeroSplit = await sendAeroSplit(feesCollected, true); // Règle 1c : toujours 25%/75%
 
   // Fermer la LP

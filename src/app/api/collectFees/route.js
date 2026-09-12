@@ -154,6 +154,20 @@ async function waitForTx(tx) {
   }
 }
 
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+function parseUsdcReceived(receipt, walletAddress) {
+  if (!receipt?.logs) return 0n;
+  const walletTopic = ethers.zeroPadValue(walletAddress, 32).toLowerCase();
+  let total = 0n;
+  for (const log of receipt.logs) {
+    if (!log?.address || log.address.toLowerCase() !== USDC.toLowerCase()) continue;
+    if (!log.topics || log.topics[0] !== TRANSFER_TOPIC) continue;
+    if (!log.topics[2] || log.topics[2].toLowerCase() !== walletTopic) continue;
+    try { total += BigInt(log.data); } catch (_) {}
+  }
+  return total;
+}
+
 async function readTokenIdFromDb(poolNum) {
   let rows = [];
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -304,6 +318,7 @@ async function handleStep2(poolNum, body) {
     } catch (e) { swapWethError = e.message ?? String(e); }
 
     let aeroSwapHash = null;
+    let aeroUsdcReceived = 0n;
     try {
       const aeroBal  = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
@@ -329,14 +344,21 @@ async function handleStep2(poolNum, body) {
             catch (_) { if (pct > 0n) continue; }
             const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
             aeroSwapHash = txSwap.hash;
-            await waitForTx(txSwap);
+            const receipt = await waitForTx(txSwap);
+            // Montant réel reçu, lu depuis les logs Transfer du receipt — fiable même si un
+            // avant/après solde inter-requêtes serait désynchronisé par un RPC load-balancé.
+            aeroUsdcReceived = parseUsdcReceived(receipt, wallet.address);
             break;
           } catch (_) {}
         }
       }
     } catch (_) {}
 
-    return Response.json({ ok: true, swapWethHash, aeroSwapHash, ...(swapWethError ? { swapWethError } : {}) });
+    return Response.json({
+      ok: true, swapWethHash, aeroSwapHash,
+      aeroUsdcReceived: ethers.formatUnits(aeroUsdcReceived, 6),
+      ...(swapWethError ? { swapWethError } : {}),
+    });
   } catch (e) {
     return Response.json({ error: e.message ?? String(e) }, { status: 500 });
   }
