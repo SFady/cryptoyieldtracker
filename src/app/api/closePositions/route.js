@@ -732,6 +732,7 @@ export async function POST(req) {
 
     // 4a. Swap AERO → USDC (non-bloquant)
     let aeroSwapHash = null;
+    let aeroSwapUsdcReceived = 0;
     try {
       const aeroBal = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
@@ -750,6 +751,7 @@ export async function POST(req) {
           const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
           expectedAeroOut = amounts[amounts.length - 1];
         } catch (_) {}
+        const usdcBeforeAeroSwap = await readBal(stablecoin, wallet.address).catch(() => stableBalLp);
         let aeroSwapGas = 300000n;
         for (const pct of [990n, 980n, 970n]) {
           try {
@@ -763,6 +765,12 @@ export async function POST(req) {
             await waitForTx(provider, txAeroSwap);
             break;
           } catch (_) {}
+        }
+        if (aeroSwapHash) {
+          const usdcAfterAeroSwap = await readBal(stablecoin, wallet.address).catch(() => usdcBeforeAeroSwap);
+          aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(
+            usdcAfterAeroSwap > usdcBeforeAeroSwap ? usdcAfterAeroSwap - usdcBeforeAeroSwap : 0n, 6
+          ));
         }
       }
     } catch (_) {}
@@ -855,6 +863,9 @@ export async function POST(req) {
     );
 
     // 6. Mettre à jour usdc_on_close sur les lignes CREATE_OK correspondantes + logger CLOSE_OK
+    // fees_usdc = AERO déjà comptabilisé par le bot (collectFees) + AERO résiduel swappé ici même
+    // (accru entre le getReward de collectFees et l'unstake de closePositions)
+    const totalFeesUsdc = parseFloat(((feesUsdc ?? 0) + aeroSwapUsdcReceived).toFixed(6));
     if (collectedList.length > 0) {
       try {
         for (const tokenId of collectedList) {
@@ -863,7 +874,7 @@ export async function POST(req) {
                         action2       = 'CLOSE_OK',
                         closed_at     = NOW(),
                         close_reason  = COALESCE(${closeReason}, close_reason),
-                        fees_usdc     = COALESCE(${feesUsdc}, fees_usdc)
+                        fees_usdc     = ${totalFeesUsdc}
                     WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
         }
         if (!skipActiveToken) {
@@ -880,6 +891,8 @@ export async function POST(req) {
       collected:    collectedList,
       swapHash,
       aeroSwapHash,
+      aeroSwapUsdcReceived,
+      totalFeesUsdc,
       finalUsdc,
       finalUsdcRaw:   parseFloat(finalUsdcRaw),
       lpUsdcRaw:      parseFloat(lpUsdcRaw),
