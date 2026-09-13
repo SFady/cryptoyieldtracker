@@ -419,7 +419,9 @@ tr:hover {
   .results-table th:nth-child(5),
   .results-table td:nth-child(5),
   .results-table th:nth-child(6),
-  .results-table td:nth-child(6) {
+  .results-table td:nth-child(6),
+  .results-table th:nth-child(7),
+  .results-table td:nth-child(7) {
     display: none;
   }
 }

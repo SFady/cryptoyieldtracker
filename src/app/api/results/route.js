@@ -9,7 +9,7 @@ export async function GET() {
     let rows;
     try {
       rows = await sql`
-        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, created_at, closed_at
+        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, range_min, range_max, range_pct, created_at, closed_at
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
         ORDER BY id DESC
@@ -18,7 +18,7 @@ export async function GET() {
     } catch (_) {
       // close_reason/fees_usdc pas encore migrées en prod
       rows = await sql`
-        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, NULL AS close_reason, NULL AS fees_usdc, created_at, closed_at
+        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, NULL AS close_reason, NULL AS fees_usdc, range_min, range_max, range_pct, created_at, closed_at
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
         ORDER BY id DESC
@@ -67,6 +67,9 @@ export async function GET() {
         aeroUsdc: r.fees_usdc !== null ? parseFloat(r.fees_usdc) : null,
         delta,
         closeReason: r.close_reason,
+        rangeMin: r.range_min !== null ? parseFloat(r.range_min) : null,
+        rangeMax: r.range_max !== null ? parseFloat(r.range_max) : null,
+        rangePct: r.range_pct !== null ? parseFloat(r.range_pct) : null,
       };
     });
 
