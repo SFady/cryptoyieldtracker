@@ -402,6 +402,10 @@ export async function POST(req) {
 
     // 3. Toutes les positions NFT dans le wallet (y compris celles qui viennent d'être unstakées)
     const collectedList = [];
+    // NFT trouvés vides (déjà vidés lors d'une fermeture antérieure, burn resté en échec) : on les
+    // brûle au passage mais on ne leur applique PAS le solde/fees de CETTE fermeture-ci, sinon leur
+    // ligne lp_events hérite à tort des chiffres d'un cycle totalement différent.
+    const emptyBurnedList = [];
     let totalFeesWei0  = 0n;
     let totalFeesUsdc1 = 0n;
 
@@ -466,7 +470,7 @@ export async function POST(req) {
             const burnData = NFPM_IFACE.encodeFunctionData('burn', [tokenId]);
             await sendTx(wallet, { to: posNfpm, data: burnData, gasLimit: 150000n });
           } catch (_) {}
-          collectedList.push(tokenId.toString());
+          emptyBurnedList.push(tokenId.toString());
           continue;
         }
 
@@ -913,10 +917,27 @@ export async function POST(req) {
       } catch (_) {}
     }
 
+    // NFT vides trouvés en dust (burn de rattrapage) : on les marque fermés SANS leur attribuer le
+    // solde/fees de cette fermeture-ci — leur vraie valeur de clôture a été perdue plus tôt, on ne
+    // l'invente pas.
+    for (const tokenId of emptyBurnedList) {
+      try {
+        try {
+          await sql`UPDATE lp_events
+                    SET action2 = 'CLOSE_OK', closed_at = NOW(), close_reason = COALESCE(close_reason, 'orphan_cleanup')
+                    WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
+        } catch (_) {
+          await sql`UPDATE lp_events SET action2 = 'CLOSE_OK', closed_at = NOW()
+                    WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
+        }
+      } catch (_) {}
+    }
+
     return Response.json({
       message:      `Tout fermé. Solde final : $${finalUsdc}`,
       unstaked:     unstakedList,
       collected:    collectedList,
+      emptyBurned:  emptyBurnedList,
       swapHash,
       aeroSwapHash,
       aeroSwapUsdcReceived,
