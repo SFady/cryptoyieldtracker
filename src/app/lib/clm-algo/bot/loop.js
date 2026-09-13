@@ -393,13 +393,10 @@ export async function botLoop({ base, price }) {
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen  = rangePctActuel;
       const ratio1c     = 0.5; // pas de côté défini pour un resize (déclenché près du centre) → neutre
-      if (forceStale6h) {
-        console.log(`[botLoop 1c] range_rebalance_stale6h — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
-        result.action  = 'range_rebalance_stale6h';
-        result.collect = await runCollect(base, price, ratio1c, 'range_rebalance_stale6h');
-        await logBotTick(kv, result);
-        return result;
-      } else if (p24h < p24hAtOpen - 1.5) {
+      // forceStale6h ne fait que lever la contrainte "proche du centre" pour permettre l'évaluation
+      // ci-dessous (au-delà de 6h) — il ne déclenche plus de resize à lui seul, il faut aussi
+      // l'écart de volatilité ±1.5pt.
+      if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
         result.collect = await runCollect(base, price, ratio1c, 'range_shrink_rebalance');
