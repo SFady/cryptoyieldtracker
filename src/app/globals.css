@@ -410,19 +410,30 @@ tr:hover {
   font-size: 1rem;
 }
 
-/* Results : ne garder que Fermeture, Raison, Gain/Perte en portrait — tout afficher en paysage */
+/* Results : ne garder que Fermeture, Raison, Gain en portrait — tout afficher en paysage
+   Colonnes : 1 Ouverture, 2 Fermeture, 3 Tendance, 4 Raison, 5 Range, 6 Avant, 7 Après, 8 Fees, 9 Gain */
 @media (max-width: 600px) and (orientation: portrait) {
   .results-table th:nth-child(1),
   .results-table td:nth-child(1),
-  .results-table th:nth-child(4),
-  .results-table td:nth-child(4),
+  .results-table th:nth-child(3),
+  .results-table td:nth-child(3),
   .results-table th:nth-child(5),
   .results-table td:nth-child(5),
   .results-table th:nth-child(6),
   .results-table td:nth-child(6),
   .results-table th:nth-child(7),
-  .results-table td:nth-child(7) {
+  .results-table td:nth-child(7),
+  .results-table th:nth-child(8),
+  .results-table td:nth-child(8) {
     display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .results-table th,
+  .results-table td {
+    padding: 6px 6px;
+    font-size: 0.68rem;
   }
 }
 
