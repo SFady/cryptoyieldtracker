@@ -427,17 +427,17 @@ export async function botLoop({ base, price }) {
       : null;
     if (p24h !== null) {
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const optimalRange   = p24h;
+      // Même base que la largeur appliquée à l'ouverture (percentile24h × 1.25) — comparaison homogène
+      const optimalRange   = p24h * 1.25;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
-      const p24hAtOpen  = rangePctActuel;
-      if (p24h < p24hAtOpen - 1.5) {
+      if (optimalRange < rangePctActuel - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
         result.collect = await runCollect(base, price, reopenRatio, 'range_shrink_rebalance');
         await logBotTick(kv, result);
         return result;
-      } else if (p24h > p24hAtOpen + 1.5) {
+      } else if (optimalRange > rangePctActuel + 1.5) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
         result.collect = await runCollect(base, price, reopenRatio, 'range_expand_rebalance');
