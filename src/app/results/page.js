@@ -77,7 +77,7 @@ export default function ResultsPage() {
                   <th style={{ padding: "8px 10px" }}>Avant</th>
                   <th style={{ padding: "8px 10px" }}>Après</th>
                   <th style={{ padding: "8px 10px" }}>Fees</th>
-                  <th style={{ padding: "8px 10px" }}>Gain/Perte</th>
+                  <th style={{ padding: "8px 10px" }}>Gain</th>
                 </tr>
               </thead>
               <tbody>
