@@ -22,11 +22,16 @@ function trendLetter(price, avg) {
   return 'N';
 }
 
-// Ratio WETH de réouverture selon tendance MM14j × MM24h (grille 3×3)
+// Ratio WETH de réouverture — MM14j = tendance de fond (directeur), MM24h = signal mean-reversion
+// à l'intérieur de cette tendance (un creux 24h dans une tendance haussière = meilleur point
+// d'achat, d'où le B (MM24h en dessous) qui pousse le ratio vers le haut, pas vers le bas).
+//   HB (tendance haussière + creux 24h)   → 0.8 : meilleur point d'entrée WETH
+//   BH (tendance baissière + rebond 24h)  → 0.2 : meilleur point de sortie WETH
+//   HH / BB (le 24h confirme la tendance, pas de creux/rebond) → ratio plus modéré
 const REOPEN_RATIO_GRID = {
-  H: { H: 0.8, N: 0.7, B: 0.6 },
-  N: { H: 0.6, N: 0.5, B: 0.4 },
-  B: { H: 0.4, N: 0.3, B: 0.2 },
+  H: { H: 0.6, N: 0.7, B: 0.8 },
+  N: { H: 0.4, N: 0.5, B: 0.6 },
+  B: { H: 0.2, N: 0.3, B: 0.4 },
 };
 function reopenRatioFromTrends(t14, t24) {
   return REOPEN_RATIO_GRID[t14]?.[t24] ?? 0.5;
