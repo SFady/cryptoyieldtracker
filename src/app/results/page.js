@@ -73,10 +73,10 @@ export default function ResultsPage() {
                   <th style={{ padding: "8px 10px" }}>Fermeture</th>
                   <th style={{ padding: "8px 10px" }}>Tendance</th>
                   <th style={{ padding: "8px 10px" }}>Raison</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Range</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Avant</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Après</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Fees</th>
+                  <th style={{ padding: "8px 10px" }}>Range</th>
+                  <th style={{ padding: "8px 10px" }}>Avant</th>
+                  <th style={{ padding: "8px 10px" }}>Après</th>
+                  <th style={{ padding: "8px 10px" }}>Fees</th>
                   <th style={{ padding: "8px 10px", textAlign: "right" }}>Gain/Perte</th>
                 </tr>
               </thead>
@@ -87,14 +87,14 @@ export default function ResultsPage() {
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.closedDate ?? "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#a78bfa", fontWeight: 700 }}>{r.openTrend ?? "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#8888aa" }}>{REASON_LABELS[r.closeReason] ?? (r.closeReason ?? "—")}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: "#a78bfa", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "8px 10px", color: "#a78bfa", whiteSpace: "nowrap" }}>
                       {r.rangeMin !== null && r.rangeMax !== null
                         ? `$${r.rangeMin.toFixed(0)}-$${r.rangeMax.toFixed(0)}${r.rangePct !== null ? ` (${r.rangePct.toFixed(2)}%)` : ""}`
                         : "—"}
                     </td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: "#aaaacc" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
                       {r.delta === null ? "en cours" : `${r.delta >= 0 ? "+" : ""}${r.delta.toFixed(2)} $`}
                     </td>
