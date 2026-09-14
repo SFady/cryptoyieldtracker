@@ -147,9 +147,6 @@ async function closeEdgeZone(base, isLow) {
   try   { out.closeLP = await closeLP(base, true, isLow ? 'oor_close_low' : 'oor_close_high', feesCollected, isLow ? 0.25 : 0.5); } // pas de swap forcé, quel que soit le côté
   catch (e) { out.closeLPError = e.message; }
 
-  // Sortie haute : pas de spread check à la réouverture (Règle 2) — on veut rouvrir vite
-  if (!isLow) { try { await kv.set('p2_skip_spread_reopen', 1, { ex: 3600 }); } catch (_) {} }
-
   // Mémorise le côté de sortie pour déterminer le ratio de réouverture (Règle 2, tick suivant)
   try { await kv.set('p2_last_exit_side', isLow ? 'low' : 'high', { ex: 3600 }); } catch (_) {}
 
@@ -431,23 +428,18 @@ export async function botLoop({ base, price }) {
       }
     } catch (_) {}
 
-    // Spread check : marché trop agité → attendre (sauf juste après une sortie haute Règle 1A, où on veut rouvrir vite)
-    const skipSpreadReopen = await kv.get('p2_skip_spread_reopen').catch(() => null);
-    if (skipSpreadReopen) {
-      await kv.del('p2_skip_spread_reopen');
-    } else {
-      const recentPrices = await getLastNPrices(20);
-      if (recentPrices.length >= 10) {
-        const minP   = Math.min(...recentPrices);
-        const maxP   = Math.max(...recentPrices);
-        const mid    = (minP + maxP) / 2;
-        const spread = (maxP - minP) / mid * 100;
-        result.spread = parseFloat(spread.toFixed(2));
-        if (spread > 1.5) {
-          result.action = 'auto_start_spread_skip';
-          await logBotTick(kv, result);
-          return result;
-        }
+    // Spread check : marché trop agité → attendre (appliqué quel que soit le côté de sortie Règle 1A)
+    const recentPrices = await getLastNPrices(20);
+    if (recentPrices.length >= 10) {
+      const minP   = Math.min(...recentPrices);
+      const maxP   = Math.max(...recentPrices);
+      const mid    = (minP + maxP) / 2;
+      const spread = (maxP - minP) / mid * 100;
+      result.spread = parseFloat(spread.toFixed(2));
+      if (spread > 1.5) {
+        result.action = 'auto_start_spread_skip';
+        await logBotTick(kv, result);
+        return result;
       }
     }
 
