@@ -437,6 +437,17 @@ tr:hover {
   }
 }
 
+/* Transferts : colonnes resserrées sur mobile pour que la date tienne sur une ligne
+   (les valeurs desktop sont fixées en inline style, d'où le !important ici uniquement) */
+@media (max-width: 600px) {
+  .transfers-grid {
+    grid-template-columns: 1fr 68px 55px 50px !important;
+    gap: 6px !important;
+    padding: 6px 10px !important;
+    font-size: 0.62rem !important;
+  }
+}
+
 @media (max-width: 600px) {
   .table-large th,
   .table-large td {

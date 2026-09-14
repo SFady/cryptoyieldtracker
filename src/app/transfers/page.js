@@ -91,17 +91,17 @@ function TransferTable({ label, rows, total, page, pages, onPage }) {
         <p style={{ color: "#6666aa", fontFamily: "monospace", fontSize: "0.85rem" }}>Aucun envoi.</p>
       ) : (
         <div style={{ background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 1fr", gap: 12, padding: "6px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.6rem", fontFamily: "monospace", letterSpacing: "1.2px", textTransform: "uppercase", color: "#7766aa", fontWeight: 600 }}>
+          <div className="transfers-grid" style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 1fr", gap: 12, padding: "6px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.6rem", fontFamily: "monospace", letterSpacing: "1.2px", textTransform: "uppercase", color: "#7766aa", fontWeight: 600 }}>
             <span>Date</span>
             <span>Source</span>
             <span style={{ paddingLeft: 20 }}>Montant</span>
             <span>Tx</span>
           </div>
           {rows.map((t, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 1fr", gap: 12, alignItems: "center", padding: "7px 18px", borderBottom: i < rows.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
-              <span style={{ color: "#6666aa" }}>{t.date}</span>
+            <div key={i} className="transfers-grid" style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 1fr", gap: 12, alignItems: "center", padding: "7px 18px", borderBottom: i < rows.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
+              <span style={{ color: "#6666aa", whiteSpace: "nowrap" }}>{t.date}</span>
               <span style={{ color: "#a78bfa", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.source}</span>
-              <span style={{ color: "#00e5a0", fontWeight: 700, paddingLeft: 20 }}>${t.amount}</span>
+              <span style={{ color: "#00e5a0", fontWeight: 700, paddingLeft: 20, whiteSpace: "nowrap" }}>${t.amount}</span>
               <span>
                 {t.txHash ? (
                   <a href={`https://basescan.org/tx/${t.txHash}`} target="_blank" rel="noreferrer" style={{ color: "#4488ff", fontSize: "0.65rem" }}>
