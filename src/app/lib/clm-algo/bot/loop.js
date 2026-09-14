@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getLastNPrices } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -23,6 +23,14 @@ const RATIO_TABLE = {
 function getTrendZone(price, avg14d) {
   // Détection haussière/baissière désactivée temporairement (à la demande) — toujours neutre
   return 'neutre';
+}
+
+// Lettre de tendance vs une moyenne mobile : H (haussier, prix > MM×1.01), B (baissier, prix < MM×0.99), N (neutre)
+function trendLetter(price, avg) {
+  if (!price || avg == null) return 'N';
+  if (price > avg * 1.01) return 'H';
+  if (price < avg * 0.99) return 'B';
+  return 'N';
 }
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
@@ -277,9 +285,16 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
     await kv.set('p2_opening_lp',   openingLp, { ex: 30 * 86400 });
     result.openingTotal = openingTotal;
     result.openingLp    = openingLp;
+
+    // Tendance MM14j × MM24h au moment de l'ouverture (ex: "HB", "NN", "NB"…)
+    const [openAvg14d, openAvg24h] = await Promise.all([getPriceAverage14d(), getPriceAverage24h()]);
+    const openTrend = `${trendLetter(price, openAvg14d)}${trendLetter(price, openAvg24h)}`;
+    await kv.set('p2_open_trend', openTrend, { ex: 30 * 86400 });
+    result.openTrend = openTrend;
+
     if (process.env.DATABASE_URL && pool.tokenId) {
       const sql = neon(process.env.DATABASE_URL);
-      await sql`UPDATE lp_events SET total_at_open = ${openingTotal} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
+      await sql`UPDATE lp_events SET total_at_open = ${openingTotal}, open_trend = ${openTrend} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
     }
   } catch (_) {}
 
