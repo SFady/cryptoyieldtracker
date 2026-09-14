@@ -20,6 +20,8 @@ export default function ProfilePage() {
   const [wethWallet2, setWethWallet2] = useState(null);
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
+  const [avg14d2, setAvg14d2] = useState(null);
+  const [avg24h2, setAvg24h2] = useState(null);
   const [lastCronAt2, setLastCronAt2] = useState(null);
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [oorCount2, setOorCount2]     = useState(0);
@@ -50,7 +52,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -88,6 +90,24 @@ export default function ProfilePage() {
                   background: "rgba(124,77,255,0.08)", border: "1px solid rgba(124,77,255,0.25)", color: "#a78bfa",
                 }}>
                   Range percentile 24h : {percentileRange2}%
+                </span>
+              )}
+              {avg24h2 !== null && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(41,182,240,0.08)", border: "1px solid rgba(41,182,240,0.25)", color: "#29b6f0",
+                }}>
+                  MM24h : ${avg24h2.toFixed(2)}
+                </span>
+              )}
+              {avg14d2 !== null && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(240,180,41,0.08)", border: "1px solid rgba(240,180,41,0.25)", color: "#f0b429",
+                }}>
+                  MM14j : ${avg14d2.toFixed(2)}
                 </span>
               )}
               {lastCronAt2 && (

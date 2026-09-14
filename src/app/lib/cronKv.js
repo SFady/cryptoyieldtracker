@@ -257,3 +257,13 @@ export async function getPriceAverage14d() {
     return prices.reduce((a, b) => a + b, 0) / prices.length;
   } catch (_) { return null; }
 }
+
+// Moyenne des prix sur 24h (points CRON ~1/min, weth-history déjà purgé à 24h dans writeCronPrice)
+export async function getPriceAverage24h() {
+  try {
+    const entries = await kv.zrange(KEY, 0, -1);
+    const prices = entries.map(parsePriceMember).filter(p => p > 100 && p < 100000);
+    if (prices.length < 10) return null;
+    return prices.reduce((a, b) => a + b, 0) / prices.length;
+  } catch (_) { return null; }
+}
