@@ -9,7 +9,8 @@ import { logBotTick }       from './metrics.js';
 // Module 7 — Orchestrateur cron pool 2
 // Règles :
 //   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
-//   1c. Volatilité ±1.5pt → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
+//   1c. Volatilité ±1.5pt (si revenus ≥ AERO) → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
+//   1d. Tendance changée depuis ≥6h (si revenus ≥ AERO) → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
 //   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio dynamique MM14j × MM24h)
 //   3.  En range      → rien
 
@@ -335,15 +336,27 @@ export async function botLoop({ base, price }) {
     getPriceAverage24h(),
   ]);
 
-  // Tendance MM14j × MM24h → ratio de réouverture dynamique (utilisé Règles 1c et 2)
-  const trend14d    = trendLetter(price, avg14d);
-  const trend24h    = trendLetter(price, avg24h);
-  const reopenRatio = reopenRatioFromTrends(trend14d, trend24h);
+  // Tendance MM14j × MM24h → ratio de réouverture dynamique (utilisé Règles 1c, 1d et 2)
+  const trend14d        = trendLetter(price, avg14d);
+  const trend24h        = trendLetter(price, avg24h);
+  const reopenRatio     = reopenRatioFromTrends(trend14d, trend24h);
+  const currentTrendCode = `${trend14d}${trend24h}`;
   result.avg14d      = avg14d;
   result.avg24h      = avg24h;
   result.trend14d    = trend14d;
   result.trend24h    = trend24h;
   result.reopenRatio = reopenRatio;
+  result.currentTrendCode = currentTrendCode;
+
+  // Suivi de la stabilité de la tendance courante (depuis quand le code HH/HB/… n'a pas changé) — pour Règle 1d
+  const trackedTrend = await kv.get('p2_trend_track').catch(() => null);
+  let trendSince = Date.now();
+  if (trackedTrend?.code === currentTrendCode && trackedTrend?.since) {
+    trendSince = trackedTrend.since;
+  } else {
+    await kv.set('p2_trend_track', { code: currentTrendCode, since: trendSince }, { ex: 30 * 86400 }).catch(() => {});
+  }
+  result.trendStableMs = Date.now() - trendSince;
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
@@ -431,6 +444,32 @@ export async function botLoop({ base, price }) {
         await logBotTick(kv, result);
         return result;
       }
+    }
+  }
+
+  // Règle 1d : changement de tendance → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
+  // Même garde-fou revenus que la Règle 1c. Se déclenche si le code de tendance actuel (HH/HB/HN…)
+  // diffère de celui de l'ouverture ET est stable depuis au moins 6h (évite de réagir à un flap).
+  if (hasLP && revenueOk) {
+    // Redis en priorité ; fallback DB uniquement si la clé Redis est absente/expirée
+    let openTrendCode = await kv.get('p2_open_trend').catch(() => null);
+    if (!openTrendCode) {
+      try {
+        const sqlOt = neon(process.env.DATABASE_URL);
+        const rows  = await sqlOt`SELECT open_trend FROM lp_events WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND COALESCE(pool_num, 2) = 2 ORDER BY id DESC LIMIT 1`;
+        openTrendCode = rows[0]?.open_trend ?? null;
+      } catch (_) {}
+    }
+    const trendChanged  = !!openTrendCode && currentTrendCode !== openTrendCode;
+    const trendStable6h = (Date.now() - trendSince) >= 6 * 60 * 60 * 1000;
+    result.openTrendCode = openTrendCode;
+    result.trendChanged  = trendChanged;
+    if (trendChanged && trendStable6h) {
+      console.log(`[botLoop 1d] trend_shift — open=${openTrendCode} current=${currentTrendCode} stableMs=${Date.now() - trendSince}`);
+      result.action  = 'trend_shift_rebalance';
+      result.collect = await runCollect(base, price, reopenRatio, 'trend_shift_rebalance');
+      await logBotTick(kv, result);
+      return result;
     }
   }
 
