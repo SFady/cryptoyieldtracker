@@ -91,16 +91,16 @@ function TransferTable({ label, rows, total, page, pages, onPage }) {
         <p style={{ color: "#6666aa", fontFamily: "monospace", fontSize: "0.85rem" }}>Aucun envoi.</p>
       ) : (
         <div style={{ background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 1fr", padding: "6px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.6rem", fontFamily: "monospace", letterSpacing: "1.2px", textTransform: "uppercase", color: "#7766aa", fontWeight: 600 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 1fr", gap: 12, padding: "6px 18px", background: "rgba(10,10,30,0.7)", borderBottom: "1px solid rgba(124,77,255,0.12)", fontSize: "0.6rem", fontFamily: "monospace", letterSpacing: "1.2px", textTransform: "uppercase", color: "#7766aa", fontWeight: 600 }}>
             <span>Date</span>
             <span>Source</span>
             <span>Montant</span>
             <span>Tx</span>
           </div>
           {rows.map((t, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 1fr", alignItems: "center", padding: "7px 18px", borderBottom: i < rows.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 1fr", gap: 12, alignItems: "center", padding: "7px 18px", borderBottom: i < rows.length - 1 ? "1px solid rgba(124,77,255,0.06)" : "none", fontSize: "0.72rem", fontFamily: "monospace" }}>
               <span style={{ color: "#6666aa" }}>{t.date}</span>
-              <span style={{ color: "#a78bfa", fontWeight: 700 }}>{t.source}</span>
+              <span style={{ color: "#a78bfa", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.source}</span>
               <span style={{ color: "#00e5a0", fontWeight: 700 }}>${t.amount}</span>
               <span>
                 {t.txHash ? (
