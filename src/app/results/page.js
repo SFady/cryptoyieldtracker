@@ -83,8 +83,8 @@ export default function ResultsPage() {
               <tbody>
                 {pageRows.map(r => (
                   <tr key={r.id} style={{ borderBottom: "1px solid rgba(124,77,255,0.06)" }}>
-                    <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.date}</td>
-                    <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.closedDate ?? "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#aaaacc", whiteSpace: "nowrap" }}>{r.date}</td>
+                    <td style={{ padding: "8px 10px", color: "#aaaacc", whiteSpace: "nowrap" }}>{r.closedDate ?? "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#a78bfa", fontWeight: 700 }}>{r.openTrend ?? "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#8888aa" }}>{REASON_LABELS[r.closeReason] ?? (r.closeReason ?? "—")}</td>
                     <td style={{ padding: "8px 10px", color: "#a78bfa", whiteSpace: "nowrap" }}>
@@ -95,7 +95,7 @@ export default function ResultsPage() {
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
-                    <td style={{ padding: "8px 10px", fontWeight: 700, color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
+                    <td style={{ padding: "8px 10px", fontWeight: 700, whiteSpace: "nowrap", color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
                       {r.delta === null ? "en cours" : `${r.delta >= 0 ? "+" : ""}${r.delta.toFixed(2)} $`}
                     </td>
                   </tr>
