@@ -119,6 +119,21 @@ async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = nul
   return res.json();
 }
 
+// Total revenus (pool + AERO + solde wallet − capital déployé) et part AERO de ce total,
+// mêmes formules que l'affichage "Total revenus" / badge AERO sur la page pools.
+async function getRevenueGate(base) {
+  try {
+    const r   = await fetch(`${base}/api/positions2`, { signal: AbortSignal.timeout(15000) });
+    const d   = await r.json();
+    const pos = d.positions?.[0];
+    if (!pos || d.openingLp == null) return null;
+    const totalAeros   = parseFloat(pos.aeroRevenueUSD ?? 0) || 0;
+    const totalRevenus = parseFloat(pos.totalPoolUSD ?? 0) + totalAeros
+      + parseFloat(d.usdcWallet ?? 0) + parseFloat(d.wethWalletUSD ?? 0) - parseFloat(d.openingLp ?? 0);
+    return { totalRevenus, totalAeros };
+  } catch (_) { return null; }
+}
+
 async function clearAlgoState() {
   await Promise.all([
     kv.del(REDIS_KEYS.POSITION_STATE),
@@ -385,20 +400,14 @@ export async function botLoop({ base, price }) {
   // Prix revenu en range → reset compteur OOR
   if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
 
-  // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (50/50)
-  // Uniquement si le prix est proche du centre (±5% du range total) — évite de resizer
-  // quand le prix est déjà proche d'un bord, où la Règle 1A est plus appropriée.
-  // Exception : au-delà de 6h sans rebalance, on ignore le centre géométrique et on
-  // rebalance en 50/50 (évite de rester bloqué indéfiniment sur un range désaligné).
-  const centerMargin   = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.10 : null;
-  const nearCenter     = centerPrice !== null && centerMargin !== null && Math.abs(price - centerPrice) <= centerMargin;
-  const positionAgeMs  = (hasLP && lpState?.created_at) ? Date.now() - new Date(lpState.created_at).getTime() : null;
-  const forceStale6h   = positionAgeMs !== null && positionAgeMs > 6 * 60 * 60 * 1000;
-  result.nearCenter1c  = hasLP ? nearCenter : null;
-  result.forceStale6h  = hasLP ? forceStale6h : null;
-  // stale6h temporairement désactivé comme déclencheur (bloqué à la demande) — la valeur reste
-  // calculée/loggée ci-dessus pour observation, mais n'ouvre plus l'évaluation du resize.
-  if (hasLP && centerPrice && nearCenter && !isNaN(rMin) && !isNaN(rMax)) {
+  // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
+  // Uniquement si le total des revenus (pool + AERO + solde wallet − capital déployé) couvre
+  // au moins la part AERO déjà comptée dedans — évite de resizer (et réaliser une perte) si la
+  // position est globalement perdante hors farming AERO.
+  const revenueGate    = hasLP ? await getRevenueGate(base) : null;
+  const revenueOk      = !!revenueGate && revenueGate.totalRevenus >= revenueGate.totalAeros;
+  result.revenueGate   = revenueGate;
+  if (hasLP && revenueOk && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
@@ -409,9 +418,6 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen  = rangePctActuel;
-      // forceStale6h ne fait que lever la contrainte "proche du centre" pour permettre l'évaluation
-      // ci-dessous (au-delà de 6h) — il ne déclenche plus de resize à lui seul, il faut aussi
-      // l'écart de volatilité ±1.5pt.
       if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
