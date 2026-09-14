@@ -6,31 +6,29 @@ import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRang
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
-// Module 7 — Orchestrateur cron pool 2 (stratégie 50/50)
+// Module 7 — Orchestrateur cron pool 2
 // Règles :
 //   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
-//   1c. Volatilité ±1.5pt → resserrer/élargir le range (50/50)
-//   2.  Aucune pos.   → spread check 20 prix → auto-start
+//   1c. Volatilité ±1.5pt → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
+//   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio dynamique MM14j × MM24h)
 //   3.  En range      → rien
 
-// Ratio WETH de réouverture selon tendance (MM14, ±2%) × côté de sortie du range précédent
-const RATIO_TABLE = {
-  haussiere: { low: 0.8, high: 0.2 },
-  neutre:    { low: 0.7, high: 0.3 },
-  baissiere: { low: 0.2, high: 0.8 },
-};
-
-function getTrendZone(price, avg14d) {
-  // Détection haussière/baissière désactivée temporairement (à la demande) — toujours neutre
-  return 'neutre';
-}
-
-// Lettre de tendance vs une moyenne mobile : H (haussier, prix > MM×1.01), B (baissier, prix < MM×0.99), N (neutre)
+// Lettre de tendance vs une moyenne mobile : H (haussier, prix > MM×1.01), B (baissier, prix < MM×0.99), N (neutre/incertain)
 function trendLetter(price, avg) {
   if (!price || avg == null) return 'N';
   if (price > avg * 1.01) return 'H';
   if (price < avg * 0.99) return 'B';
   return 'N';
+}
+
+// Ratio WETH de réouverture selon tendance MM14j × MM24h (grille 3×3)
+const REOPEN_RATIO_GRID = {
+  H: { H: 0.8, N: 0.7, B: 0.6 },
+  N: { H: 0.6, N: 0.5, B: 0.4 },
+  B: { H: 0.4, N: 0.3, B: 0.2 },
+};
+function reopenRatioFromTrends(t14, t24) {
+  return REOPEN_RATIO_GRID[t14]?.[t24] ?? 0.5;
 }
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
@@ -314,16 +312,23 @@ export async function botLoop({ base, price }) {
   }
 
   // 1. État LP + config runtime + compteur OOR (en parallèle)
-  const [lpState, rtConfig, oorCountRaw, avg14d] = await Promise.all([
+  const [lpState, rtConfig, oorCountRaw, avg14d, avg24h] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
     kv.get('p2_oor_count').catch(() => null),
     getPriceAverage14d(),
+    getPriceAverage24h(),
   ]);
 
-  const trendZone = getTrendZone(price, avg14d);
-  result.anchor7d = avg14d;
-  result.trendZone = trendZone;
+  // Tendance MM14j × MM24h → ratio de réouverture dynamique (utilisé Règles 1c et 2)
+  const trend14d    = trendLetter(price, avg14d);
+  const trend24h    = trendLetter(price, avg24h);
+  const reopenRatio = reopenRatioFromTrends(trend14d, trend24h);
+  result.avg14d      = avg14d;
+  result.avg24h      = avg24h;
+  result.trend14d    = trend14d;
+  result.trend24h    = trend24h;
+  result.reopenRatio = reopenRatio;
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
@@ -404,20 +409,19 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen  = rangePctActuel;
-      const ratio1c     = RATIO_TABLE.neutre.low; // pas de côté défini pour un resize (déclenché près du centre) → neutre 70/30
       // forceStale6h ne fait que lever la contrainte "proche du centre" pour permettre l'évaluation
       // ci-dessous (au-delà de 6h) — il ne déclenche plus de resize à lui seul, il faut aussi
       // l'écart de volatilité ±1.5pt.
       if (p24h < p24hAtOpen - 1.5) {
         console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price, ratio1c, 'range_shrink_rebalance');
+        result.collect = await runCollect(base, price, reopenRatio, 'range_shrink_rebalance');
         await logBotTick(kv, result);
         return result;
       } else if (p24h > p24hAtOpen + 1.5) {
         console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, ratio1c, 'range_expand_rebalance');
+        result.collect = await runCollect(base, price, reopenRatio, 'range_expand_rebalance');
         await logBotTick(kv, result);
         return result;
       }
@@ -458,10 +462,8 @@ export async function botLoop({ base, price }) {
       }
     }
 
-    // Ratio de réouverture : toujours 70/30 pour l'instant (table tendance × côté désactivée)
+    // Ratio de réouverture dynamique selon tendance MM14j × MM24h (calculé plus haut)
     await kv.del('p2_last_exit_side').catch(() => {});
-    const reopenRatio = RATIO_TABLE.neutre.low;
-    result.reopenRatio = reopenRatio;
 
     result.autoStart = await autoStart({ base, price, targetRatio: reopenRatio });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
