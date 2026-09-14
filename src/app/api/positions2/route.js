@@ -194,6 +194,14 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
 }
 
 
+// Tendance prix vs moyenne mobile : haussier si prix > MM×1.01, baissier si prix < MM×0.99, sinon neutre
+function trendFromAverage(price, avg) {
+  if (!price || avg == null) return null;
+  if (price > avg * 1.01) return 'haussier';
+  if (price < avg * 0.99) return 'baissier';
+  return 'neutre';
+}
+
 const sql = neon(process.env.DATABASE_URL);
 
 const POOL_IFACE = new ethers.Interface([
@@ -289,6 +297,9 @@ export async function GET() {
     const cronWeth   = await getLastTwoPrices();
     const avg14d      = await getPriceAverage14d();
     const avg24h      = await getPriceAverage24h();
+    const currentPrice = cronWeth[0] ?? null;
+    const trend14d      = trendFromAverage(currentPrice, avg14d);
+    const trend24h      = trendFromAverage(currentPrice, avg24h);
     const edgeStreak = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
     const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
     let openingTotal = parseFloat((await kv.get('p2_opening_total')) ?? 0) || null;
@@ -307,7 +318,7 @@ export async function GET() {
     const lowZoneHits  = lowZoneHist.filter(v => v === '1' || v === 1).length;
     const highZoneHist = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
     const highZoneHits = highZoneHist.filter(v => v === '1' || v === 1).length;
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h });
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h });
   }
 
   try {
@@ -513,6 +524,9 @@ export async function GET() {
     const cronWeth    = await getLastTwoPrices();
     const avg14d      = await getPriceAverage14d();
     const avg24h      = await getPriceAverage24h();
+    const currentPrice = cronWeth[0] ?? parseFloat(positions[0]?.wethPrice ?? "0") ?? null;
+    const trend14d      = trendFromAverage(currentPrice, avg14d);
+    const trend24h      = trendFromAverage(currentPrice, avg24h);
     const edgeStreak  = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
 
     if (positions.length > 0 && positions[0].rangeLow && positions[0].rangeHigh) {
@@ -537,7 +551,7 @@ export async function GET() {
     const lowZoneHits  = lowZoneHist.filter(v => v === '1' || v === 1).length;
     const highZoneHist = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
     const highZoneHits = highZoneHist.filter(v => v === '1' || v === 1).length;
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
