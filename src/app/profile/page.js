@@ -335,14 +335,15 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
-  // Total revenus = pool + AERO + USDC wallet − ouverture (le résiduel USDC fait partie du capital)
-  const totalRevenus = openingLp != null
-    ? adjustedPoolUSD + aeroUSD + parseFloat(usdcWallet || 0) + parseFloat(wethWalletUSD || 0) - openingLp
+  // Total revenus = pool + AERO + USDC wallet − ouverture (le résiduel USDC fait partie du capital,
+  // donc la référence doit être openingTotal, pas openingLp qui exclut ce résiduel)
+  const totalRevenus = openingTotal != null
+    ? adjustedPoolUSD + aeroUSD + parseFloat(usdcWallet || 0) + parseFloat(wethWalletUSD || 0) - openingTotal
     : openingDelta;
 
   const feePct      = showFeePercent && pos.openTimestamp && totalRevenus != null
     ? (() => {
-        const base  = (openingLp ?? parseFloat(pos.totalPoolUSD)) || 1;
+        const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
         const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
         return ((totalRevenus / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
