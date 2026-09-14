@@ -21,9 +21,7 @@ const RATIO_TABLE = {
 };
 
 function getTrendZone(price, avg14d) {
-  if (!avg14d) return 'neutre';
-  if (price > avg14d * 1.02) return 'haussiere';
-  if (price < avg14d * 0.98) return 'baissiere';
+  // Détection haussière/baissière désactivée temporairement (à la demande) — toujours neutre
   return 'neutre';
 }
 
@@ -394,7 +392,7 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       const p24hAtOpen  = rangePctActuel;
-      const ratio1c     = 0.5; // pas de côté défini pour un resize (déclenché près du centre) → neutre
+      const ratio1c     = RATIO_TABLE.neutre.low; // pas de côté défini pour un resize (déclenché près du centre) → neutre 70/30
       // forceStale6h ne fait que lever la contrainte "proche du centre" pour permettre l'évaluation
       // ci-dessous (au-delà de 6h) — il ne déclenche plus de resize à lui seul, il faut aussi
       // l'écart de volatilité ±1.5pt.
@@ -453,14 +451,9 @@ export async function botLoop({ base, price }) {
       }
     }
 
-    // Ratio de réouverture : table tendance (MM14 ±2%) × côté de sortie du range précédent
-    // (Règle 1A) — sans info de côté (premier démarrage, restauration DB...), neutre 50/50.
-    const lastExitSide = await kv.get('p2_last_exit_side').catch(() => null);
-    let reopenRatio = 0.5;
-    if (lastExitSide === 'low' || lastExitSide === 'high') {
-      reopenRatio = RATIO_TABLE[trendZone][lastExitSide];
-      await kv.del('p2_last_exit_side');
-    }
+    // Ratio de réouverture : toujours 70/30 pour l'instant (table tendance × côté désactivée)
+    await kv.del('p2_last_exit_side').catch(() => {});
+    const reopenRatio = RATIO_TABLE.neutre.low;
     result.reopenRatio = reopenRatio;
 
     result.autoStart = await autoStart({ base, price, targetRatio: reopenRatio });
