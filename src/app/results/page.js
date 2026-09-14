@@ -77,7 +77,7 @@ export default function ResultsPage() {
                   <th style={{ padding: "8px 10px" }}>Avant</th>
                   <th style={{ padding: "8px 10px" }}>Après</th>
                   <th style={{ padding: "8px 10px" }}>Fees</th>
-                  <th style={{ padding: "8px 10px", textAlign: "right" }}>Gain/Perte</th>
+                  <th style={{ padding: "8px 10px" }}>Gain/Perte</th>
                 </tr>
               </thead>
               <tbody>
@@ -95,7 +95,7 @@ export default function ResultsPage() {
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
+                    <td style={{ padding: "8px 10px", fontWeight: 700, color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
                       {r.delta === null ? "en cours" : `${r.delta >= 0 ? "+" : ""}${r.delta.toFixed(2)} $`}
                     </td>
                   </tr>
