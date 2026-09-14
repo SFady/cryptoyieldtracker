@@ -214,12 +214,12 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   result.capital     = parseFloat(capital.toFixed(2));
   result.targetRatio = targetRatio;
 
-  // 2. Range dynamique = 1 × percentile 24h (min 2%, fallback 10%)
+  // 2. Range dynamique = 1.25 × percentile 24h (min 2%, fallback 10%)
   const pct24h   = await getPercentileRange();
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  let rangePct = parseFloat((p24h !== null ? p24h * 2 : 10).toFixed(2));
+  let rangePct = parseFloat((p24h !== null ? p24h * 1.25 : 10).toFixed(2));
 
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
