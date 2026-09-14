@@ -16,7 +16,7 @@ import { logBotTick }       from './metrics.js';
 // Ratio WETH de réouverture selon tendance (MM14, ±2%) × côté de sortie du range précédent
 const RATIO_TABLE = {
   haussiere: { low: 0.8, high: 0.2 },
-  neutre:    { low: 0.5, high: 0.5 },
+  neutre:    { low: 0.7, high: 0.3 },
   baissiere: { low: 0.2, high: 0.8 },
 };
 
@@ -218,7 +218,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  let rangePct = parseFloat((p24h !== null ? p24h * 1.25 : 10).toFixed(2));
+  let rangePct = parseFloat((p24h !== null ? p24h * 2 : 10).toFixed(2));
 
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
@@ -381,7 +381,9 @@ export async function botLoop({ base, price }) {
   const forceStale6h   = positionAgeMs !== null && positionAgeMs > 6 * 60 * 60 * 1000;
   result.nearCenter1c  = hasLP ? nearCenter : null;
   result.forceStale6h  = hasLP ? forceStale6h : null;
-  if (hasLP && centerPrice && (nearCenter || forceStale6h) && !isNaN(rMin) && !isNaN(rMax)) {
+  // stale6h temporairement désactivé comme déclencheur (bloqué à la demande) — la valeur reste
+  // calculée/loggée ci-dessus pour observation, mais n'ouvre plus l'évaluation du resize.
+  if (hasLP && centerPrice && nearCenter && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
