@@ -17,44 +17,24 @@ export default function TransfersPage() {
   const [transfers, setTransfers]       = useState(null);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
-  const [poolNum, setPoolNum]           = useState(2);
   const [page, setPage]                 = useState(1);
   const [wallet2Short, setWallet2Short] = useState("");
-  const [wallet3Short, setWallet3Short] = useState("");
 
   useEffect(() => {
     fetch("/api/transfers")
       .then(r => r.json())
-      .then(d => { if (d.error) throw new Error(d.error); setTransfers(d.transfers ?? []); setWallet2Short(d.wallet2Short ?? ""); setWallet3Short(d.wallet3Short ?? ""); })
+      .then(d => { if (d.error) throw new Error(d.error); setTransfers(d.transfers ?? []); setWallet2Short(d.wallet2Short ?? ""); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { setPage(1); }, [poolNum]);
-
-  const poolRows = transfers?.filter(t => t.poolNum === poolNum) ?? [];
+  const poolRows = transfers ?? [];
   const total    = poolRows.reduce((s, t) => s + parseFloat(t.amount), 0);
   const pages    = Math.max(1, Math.ceil(poolRows.length / PAGE_SIZE));
   const pageRows = poolRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[2, 3].map(n => (
-          <button key={n} onClick={() => setPoolNum(n)}
-            style={{
-              fontFamily: "monospace", fontSize: "0.82rem", fontWeight: 700,
-              padding: "7px 24px", borderRadius: 6, cursor: "pointer",
-              background: poolNum === n ? "rgba(124,77,255,0.25)" : "transparent",
-              border: `1px solid ${poolNum === n ? "rgba(124,77,255,0.6)" : "rgba(124,77,255,0.2)"}`,
-              color: poolNum === n ? "#c4a6ff" : "#666699",
-              transition: "all 0.15s",
-            }}>
-            Pool {n}
-          </button>
-        ))}
-      </div>
-
       {loading && (
         <div style={{ color: "#6666aa", fontFamily: "monospace", padding: "16px 0", display: "flex", alignItems: "center", gap: 10 }}>
           <span className="pulse-dot" />Chargement…
@@ -68,7 +48,7 @@ export default function TransfersPage() {
 
       {transfers && (
         <TransferTable
-          label={poolNum === 2 ? (wallet2Short || `Pool 2`) : (wallet3Short || `Pool 3`)}
+          label={wallet2Short || "Pool 2"}
           rows={pageRows}
           total={total}
           page={page}

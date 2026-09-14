@@ -12,6 +12,7 @@ const REASON_LABELS = {
   range_shrink_rebalance:   "Resserrement",
   range_expand_rebalance:   "Élargissement",
   range_rebalance_stale6h:  "Stale 6h",
+  trend_shift_rebalance:    "Changement de tendance",
 };
 
 export default function ResultsPage() {
