@@ -71,6 +71,7 @@ export default function ResultsPage() {
                 <tr style={{ color: "#6666aa", textAlign: "left", borderBottom: "1px solid rgba(124,77,255,0.15)" }}>
                   <th style={{ padding: "8px 10px" }}>Ouverture</th>
                   <th style={{ padding: "8px 10px" }}>Fermeture</th>
+                  <th style={{ padding: "8px 10px" }}>Tendance</th>
                   <th style={{ padding: "8px 10px" }}>Raison</th>
                   <th style={{ padding: "8px 10px", textAlign: "right" }}>Range</th>
                   <th style={{ padding: "8px 10px", textAlign: "right" }}>Avant</th>
@@ -84,6 +85,7 @@ export default function ResultsPage() {
                   <tr key={r.id} style={{ borderBottom: "1px solid rgba(124,77,255,0.06)" }}>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.date}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.closedDate ?? "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#a78bfa", fontWeight: 700 }}>{r.openTrend ?? "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#8888aa" }}>{REASON_LABELS[r.closeReason] ?? (r.closeReason ?? "—")}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", color: "#a78bfa", whiteSpace: "nowrap" }}>
                       {r.rangeMin !== null && r.rangeMax !== null
