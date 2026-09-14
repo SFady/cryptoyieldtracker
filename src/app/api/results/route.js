@@ -12,6 +12,8 @@ export async function GET() {
         SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, range_min, range_max, range_pct, created_at, closed_at
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
+          AND COALESCE(pool_num, 2) = 2
+          AND (closed_at IS NULL OR closed_at > '2026-09-14 12:00:00+02')
         ORDER BY id DESC
         LIMIT 200
       `;
@@ -21,6 +23,8 @@ export async function GET() {
         SELECT id, token_id, pool_num, total_at_open, usdc_on_close, NULL AS close_reason, NULL AS fees_usdc, range_min, range_max, range_pct, created_at, closed_at
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
+          AND COALESCE(pool_num, 2) = 2
+          AND (closed_at IS NULL OR closed_at > '2026-09-14 12:00:00+02')
         ORDER BY id DESC
         LIMIT 200
       `;

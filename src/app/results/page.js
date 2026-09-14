@@ -25,7 +25,6 @@ export default function ResultsPage() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
-  const [poolNum, setPoolNum] = useState(2);
   const [page, setPage]       = useState(1);
 
   useEffect(() => {
@@ -36,9 +35,7 @@ export default function ResultsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { setPage(1); }, [poolNum]);
-
-  const poolRows = results?.filter(r => r.poolNum === poolNum) ?? [];
+  const poolRows = results ?? [];
   const closedRows = poolRows.filter(r => r.delta !== null);
   const totalDelta  = closedRows.reduce((s, r) => s + r.delta, 0);
   const pages    = Math.max(1, Math.ceil(poolRows.length / PAGE_SIZE));
@@ -46,22 +43,6 @@ export default function ResultsPage() {
 
   return (
     <>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[2, 3].map(n => (
-          <button key={n} onClick={() => setPoolNum(n)}
-            style={{
-              fontFamily: "monospace", fontSize: "0.82rem", fontWeight: 700,
-              padding: "7px 24px", borderRadius: 6, cursor: "pointer",
-              background: poolNum === n ? "rgba(124,77,255,0.25)" : "transparent",
-              border: `1px solid ${poolNum === n ? "rgba(124,77,255,0.6)" : "rgba(124,77,255,0.2)"}`,
-              color: poolNum === n ? "#c4a6ff" : "#666699",
-              transition: "all 0.15s",
-            }}>
-            Pool {n}
-          </button>
-        ))}
-      </div>
-
       {loading && (
         <div style={{ color: "#6666aa", fontFamily: "monospace", padding: "16px 0", display: "flex", alignItems: "center", gap: 10 }}>
           <span className="pulse-dot" />Chargement…
