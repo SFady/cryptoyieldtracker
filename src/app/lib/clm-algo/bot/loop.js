@@ -144,7 +144,7 @@ async function closeEdgeZone(base, isLow) {
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
 
-  try   { out.closeLP = await closeLP(base, !isLow, isLow ? 'oor_close_low' : 'oor_close_high', feesCollected, isLow ? 0.25 : 0.5); } // full swap USDC uniquement en sortie basse
+  try   { out.closeLP = await closeLP(base, true, isLow ? 'oor_close_low' : 'oor_close_high', feesCollected, isLow ? 0.25 : 0.5); } // pas de swap forcé, quel que soit le côté
   catch (e) { out.closeLPError = e.message; }
 
   // Sortie haute : pas de spread check à la réouverture (Règle 2) — on veut rouvrir vite
