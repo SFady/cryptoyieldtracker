@@ -13,8 +13,8 @@ export async function GET() {
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
           AND COALESCE(pool_num, 2) = 2
-          AND created_at >= '2026-09-14 11:00:00+02'
-          AND (closed_at IS NULL OR closed_at > '2026-09-14 11:00:00+02')
+          AND created_at >= '2026-09-15 11:20:00+02'
+          AND (closed_at IS NULL OR closed_at > '2026-09-15 11:20:00+02')
         ORDER BY id DESC
         LIMIT 200
       `;
@@ -25,8 +25,8 @@ export async function GET() {
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
           AND COALESCE(pool_num, 2) = 2
-          AND created_at >= '2026-09-14 11:00:00+02'
-          AND (closed_at IS NULL OR closed_at > '2026-09-14 11:00:00+02')
+          AND created_at >= '2026-09-15 11:20:00+02'
+          AND (closed_at IS NULL OR closed_at > '2026-09-15 11:20:00+02')
         ORDER BY id DESC
         LIMIT 200
       `;
