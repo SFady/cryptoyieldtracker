@@ -47,10 +47,26 @@ export async function GET() {
       `;
     } catch (_) {}
 
+    // Claims AERO manuel/matinal (getReward hors fermeture) — fees_usdc y stocke le delta complet
+    // (part envoyée + part gardée dans le wallet), matché précisément par token_id.
+    let aeroClaimByToken = {};
+    try {
+      const claimRows = await sql`
+        SELECT token_id, fees_usdc
+        FROM lp_events
+        WHERE action1 = 'AERO_CLAIM' AND COALESCE(pool_num, 2) = 2 AND fees_usdc IS NOT NULL
+      `;
+      for (const c of claimRows) {
+        aeroClaimByToken[c.token_id] = (aeroClaimByToken[c.token_id] ?? 0) + parseFloat(c.fees_usdc);
+      }
+    } catch (_) {}
+
     const results = rows.map(r => {
       const before = r.total_at_open !== null ? parseFloat(r.total_at_open) : null;
       let after    = r.usdc_on_close !== null ? parseFloat(r.usdc_on_close) : null;
 
+      // sentOut : part effectivement sortie du wallet (edge_low/high + claims) — à réintégrer dans
+      // "after", sinon l'argent envoyé apparaît comme une perte alors qu'il est juste déplacé.
       let sentOut = 0;
       if (after !== null) {
         const openAt  = new Date(r.created_at).getTime();
@@ -63,6 +79,12 @@ export async function GET() {
       }
       if (sentOut > 0) after = parseFloat((after + sentOut).toFixed(6));
 
+      // Fees affichées = AERO collecté à la fermeture (fees_usdc) + AERO des claims manuel/matinal
+      // sur cette position (delta complet, envoyé + gardé) — edge_low/high ne sont PAS réajoutés
+      // ici, ils sont déjà comptés dans fees_usdc (même close event).
+      const claimTotal = aeroClaimByToken[r.token_id] ?? 0;
+      const aeroUsdc    = (r.fees_usdc !== null ? parseFloat(r.fees_usdc) : 0) + claimTotal;
+
       const delta = (before !== null && after !== null) ? parseFloat((after - before).toFixed(2)) : null;
       return {
         id:         r.id,
@@ -72,7 +94,7 @@ export async function GET() {
         closedDate: r.closed_at ? new Date(r.closed_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }) : null,
         before,
         after,
-        aeroUsdc: r.fees_usdc !== null ? parseFloat(r.fees_usdc) : null,
+        aeroUsdc: (r.fees_usdc !== null || claimTotal > 0) ? parseFloat(aeroUsdc.toFixed(6)) : null,
         delta,
         closeReason: r.close_reason,
         openTrend:  r.open_trend,

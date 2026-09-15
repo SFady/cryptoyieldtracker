@@ -210,13 +210,15 @@ export async function POST(req) {
       }
     } catch (_) {}
 
-    // 5. Envoyer le delta USDC vers DESTINATION_WALLET
-    let transferHash = null;
+    // 5. Envoyer une fraction du delta USDC vers DESTINATION_WALLET, garder le reste dans le wallet
+    let transferHash  = null;
+    let deltaUsdcTotal = 0; // delta complet (envoyé + gardé) — pour le log fees_usdc ci-dessous
     try {
-      const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
+      const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
+      const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
+      deltaUsdcTotal  = parseFloat(ethers.formatUnits(delta, 6));
+      const dest      = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
       if (dest) {
-        const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
-        const delta = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
         const toSend = sendFraction >= 1 ? delta : (delta * BigInt(Math.round(sendFraction * 10000))) / 10000n;
         console.log(`[claimAero] before=${usdcBefore} after=${usdcAfter} delta=${delta} sendFraction=${sendFraction} toSend=${toSend} dest=${dest}`);
         if (toSend > 0n) {
@@ -237,12 +239,15 @@ export async function POST(req) {
       console.log(`[claimAero] transfer erreur: ${e.message ?? e}`);
     }
 
-    // 6. Logger en DB
+    // 6. Logger en DB — fees_usdc = delta complet (envoyé + gardé dans le wallet), pour que la
+    // page Résultats puisse compter la totalité de l'AERO claimé, pas seulement la part envoyée.
     try {
-      await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('AERO_CLAIM', ${rows[0].token_id}, ${poolNum})`;
-    } catch (_) {}
+      await sql`INSERT INTO lp_events (action1, token_id, pool_num, fees_usdc) VALUES ('AERO_CLAIM', ${rows[0].token_id}, ${poolNum}, ${deltaUsdcTotal})`;
+    } catch (_) {
+      try { await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('AERO_CLAIM', ${rows[0].token_id}, ${poolNum})`; } catch (_) {}
+    }
 
-    return Response.json({ ok: true, aeroSwapHash, transferHash });
+    return Response.json({ ok: true, aeroSwapHash, transferHash, deltaUsdcTotal });
 
   } catch (e) {
     const msg = e.message ?? String(e);
