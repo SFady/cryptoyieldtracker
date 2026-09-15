@@ -14,12 +14,10 @@ import { logBotTick }       from './metrics.js';
 //   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio dynamique MM14j × MM24h)
 //   3.  En range      → rien
 
-// Lettre de tendance vs une moyenne mobile : H (haussier, prix > MM×1.01), B (baissier, prix < MM×0.99), N (neutre/incertain)
+// Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire, pas de zone neutre
 function trendLetter(price, avg) {
-  if (!price || avg == null) return 'N';
-  if (price > avg * 1.01) return 'H';
-  if (price < avg * 0.99) return 'B';
-  return 'N';
+  if (!price || avg == null) return 'B';
+  return price >= avg ? 'H' : 'B';
 }
 
 // Ratio WETH de réouverture — MM14j = tendance de fond (directeur), MM24h = signal mean-reversion
@@ -29,9 +27,8 @@ function trendLetter(price, avg) {
 //   BH (tendance baissière + rebond 24h)  → 0.2 : meilleur point de sortie WETH
 //   HH / BB (le 24h confirme la tendance, pas de creux/rebond) → ratio plus modéré
 const REOPEN_RATIO_GRID = {
-  H: { H: 0.6, N: 0.7, B: 0.8 },
-  N: { H: 0.4, N: 0.5, B: 0.6 },
-  B: { H: 0.2, N: 0.3, B: 0.4 },
+  H: { H: 0.6, B: 0.8 },
+  B: { H: 0.2, B: 0.4 },
 };
 function reopenRatioFromTrends(t14, t24) {
   return REOPEN_RATIO_GRID[t14]?.[t24] ?? 0.5;
@@ -305,7 +302,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
     result.openingTotal = openingTotal;
     result.openingLp    = openingLp;
 
-    // Tendance MM14j × MM24h au moment de l'ouverture (ex: "HB", "NN", "NB"…)
+    // Tendance MM14j × MM24h au moment de l'ouverture (ex: "HB", "HH", "BH", "BB")
     const [openAvg14d, openAvg24h] = await Promise.all([getPriceAverage14d(), getPriceAverage24h()]);
     const openTrend = `${trendLetter(price, openAvg14d)}${trendLetter(price, openAvg24h)}`;
     await kv.set('p2_open_trend', openTrend, { ex: 30 * 86400 });
@@ -453,7 +450,7 @@ export async function botLoop({ base, price }) {
   }
 
   // Règle 1d : changement de tendance → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
-  // Même garde-fou revenus que la Règle 1c. Se déclenche si le code de tendance actuel (HH/HB/HN…)
+  // Même garde-fou revenus que la Règle 1c. Se déclenche si le code de tendance actuel (HH/HB/BH/BB)
   // diffère de celui de l'ouverture ET est stable depuis au moins 6h (évite de réagir à un flap).
   if (hasLP && revenueOk) {
     // Redis en priorité ; fallback DB uniquement si la clé Redis est absente/expirée

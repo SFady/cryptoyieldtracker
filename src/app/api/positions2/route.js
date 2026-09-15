@@ -194,12 +194,10 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
 }
 
 
-// Tendance prix vs moyenne mobile : haussier si prix > MM×1.01, baissier si prix < MM×0.99, sinon neutre
+// Tendance prix vs moyenne mobile : haussier si prix ≥ MM, sinon baissier — binaire, pas de zone neutre
 function trendFromAverage(price, avg) {
   if (!price || avg == null) return null;
-  if (price > avg * 1.01) return 'haussier';
-  if (price < avg * 0.99) return 'baissier';
-  return 'neutre';
+  return price >= avg ? 'haussier' : 'baissier';
 }
 
 const sql = neon(process.env.DATABASE_URL);

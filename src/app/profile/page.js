@@ -297,7 +297,6 @@ function TrendArrow({ trend }) {
   const config = {
     haussier: { symbol: "▲", color: "#00e5a0" },
     baissier: { symbol: "▼", color: "#ff3366" },
-    neutre:   { symbol: "➜", color: "#f0b429" },
   }[trend];
   if (!config) return null;
   return <span style={{ color: config.color, fontWeight: 700 }}>{config.symbol}</span>;
