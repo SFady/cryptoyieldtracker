@@ -9,15 +9,15 @@ import { logBotTick }       from './metrics.js';
 // Module 7 — Orchestrateur cron pool 2
 // Règles :
 //   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
-//   1c. [DÉSACTIVÉE] Volatilité ±1.5pt (si revenus ≥ AERO) → resserrer/élargir le range
+//   1c. Volatilité ±1.5pt (si revenus ≥ AERO) → resserrer/élargir le range (percentile24h × Coeff)
 //   1d. [DÉSACTIVÉE] Tendance changée depuis ≥6h (si revenus ≥ AERO) → resserrer/élargir le range
 //   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio 80/20 selon MM14j × côté de sortie
 //       de la précédente 1A, Coeff ×1.5/÷1.5 borné [1,5], range = percentile24h × Coeff)
 //   3.  En range      → rien
 
-// Désactivation temporaire des règles 1c/1d (à la demande) — le calcul/logging reste actif ailleurs,
+// Désactivation temporaire de la règle 1d (à la demande) — le calcul/logging reste actif ailleurs,
 // seul le déclenchement effectif (fermeture + réouverture) est bloqué ici.
-const RULE_1C_ENABLED = false;
+const RULE_1C_ENABLED = true;
 const RULE_1D_ENABLED = false;
 
 // Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire, pas de zone neutre
@@ -187,8 +187,11 @@ async function closeEdgeZone(base, isLow) {
 /**
  * Collecte les AERO (pendant que la position est encore stakée), ferme la LP,
  * puis rouvre immédiatement avec tout le capital disponible au ratio de tendance.
+ * keepCurrentRatio : ignore targetRatio et rouvre avec les proportions WETH/USDC déjà
+ * présentes dans le wallet après fermeture (pas de swap pour forcer un ratio — utilisé
+ * par la Règle 1c, un simple resize de volatilité, pas un signal directionnel).
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -214,8 +217,18 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
   // Réinitialiser l'état algo
   await clearAlgoState();
 
+  // Ratio effectif : soit le ratio cible fourni, soit (keepCurrentRatio) les proportions
+  // WETH/USDC réellement présentes dans le wallet après la fermeture — aucun swap forcé.
+  let effectiveTargetRatio = targetRatio;
+  if (keepCurrentRatio) {
+    const [usdcBal, wethBal] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
+    const capital = usdcBal + wethBal * price;
+    effectiveTargetRatio = capital > 0 ? (wethBal * price) / capital : 0.5;
+    out.keptRatio = parseFloat(effectiveTargetRatio.toFixed(4));
+  }
+
   // Rouvrir LP avec tout le capital disponible au ratio cible
-  out.autoStart = await autoStart({ base, price, targetRatio });
+  out.autoStart = await autoStart({ base, price, targetRatio: effectiveTargetRatio, rangeMultiplier });
 
   // Sauvegarder le nouveau range
   if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
@@ -435,20 +448,21 @@ export async function botLoop({ base, price }) {
       : null;
     if (p24h !== null) {
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      // Même base que la largeur appliquée à l'ouverture (percentile24h × 4) — comparaison homogène
-      const optimalRange   = p24h * 4;
+      const coeff1c         = await readCoeff();
+      const optimalRange    = p24h * coeff1c;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
+      result.coeff1c        = coeff1c;
       if (optimalRange < rangePctActuel - 1.5) {
-        console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
+        console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}% coeff=${coeff1c}`);
         result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price, reopenRatio, 'range_shrink_rebalance');
+        result.collect = await runCollect(base, price, null, 'range_shrink_rebalance', coeff1c, true);
         await logBotTick(kv, result);
         return result;
       } else if (optimalRange > rangePctActuel + 1.5) {
-        console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
+        console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}% coeff=${coeff1c}`);
         result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, reopenRatio, 'range_expand_rebalance');
+        result.collect = await runCollect(base, price, null, 'range_expand_rebalance', coeff1c, true);
         await logBotTick(kv, result);
         return result;
       }
