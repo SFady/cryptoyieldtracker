@@ -1,4 +1,5 @@
 import { kv } from "@vercel/kv";
+import { neon } from "@neondatabase/serverless";
 
 const KEY          = "weth-history";
 const KEY_LAST_RUN = "cron-last-run";
@@ -266,4 +267,33 @@ export async function getPriceAverage24h() {
     if (prices.length < 10) return null;
     return prices.reduce((a, b) => a + b, 0) / prices.length;
   } catch (_) { return null; }
+}
+
+// Coefficient global de l'algo (multiplicateur configurable) — Redis en cache, table algo_settings
+// en fallback durable, défaut 1 si absent des deux.
+export async function readCoeff() {
+  try {
+    const cached = await kv.get('p2_coeff');
+    if (cached !== null && cached !== undefined) return parseFloat(cached);
+  } catch (_) {}
+  try {
+    const sql  = neon(process.env.DATABASE_URL);
+    const rows = await sql`SELECT value FROM algo_settings WHERE key = 'coeff'`;
+    if (rows[0]?.value != null) {
+      const v = parseFloat(rows[0].value);
+      try { await kv.set('p2_coeff', v, { ex: 30 * 86400 }); } catch (_) {}
+      return v;
+    }
+  } catch (_) {}
+  return 1;
+}
+
+export async function writeCoeff(value) {
+  const v = parseFloat(value);
+  try { await kv.set('p2_coeff', v, { ex: 30 * 86400 }); } catch (_) {}
+  try {
+    const sql = neon(process.env.DATABASE_URL);
+    await sql`INSERT INTO algo_settings (key, value) VALUES ('coeff', ${v})
+              ON CONFLICT (key) DO UPDATE SET value = ${v}`;
+  } catch (_) {}
 }
