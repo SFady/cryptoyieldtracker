@@ -428,7 +428,7 @@ export async function botLoop({ base, price }) {
   const revenueGate    = hasLP ? await getRevenueGate(base) : null;
   const revenueOk      = !!revenueGate && revenueGate.totalRevenus >= revenueGate.totalAeros;
   result.revenueGate   = revenueGate;
-  if (hasLP && revenueOk && !isNaN(rMin) && !isNaN(rMax)) {
+  if (RULE_1C_ENABLED && hasLP && revenueOk && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
       ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
@@ -458,7 +458,7 @@ export async function botLoop({ base, price }) {
   // Règle 1d : changement de tendance → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
   // Même garde-fou revenus que la Règle 1c. Se déclenche si le code de tendance actuel (HH/HB/BH/BB)
   // diffère de celui de l'ouverture ET est stable depuis au moins 6h (évite de réagir à un flap).
-  if (hasLP && revenueOk) {
+  if (RULE_1D_ENABLED && hasLP && revenueOk) {
     // Redis en priorité ; fallback DB uniquement si la clé Redis est absente/expirée
     let openTrendCode = await kv.get('p2_open_trend').catch(() => null);
     if (!openTrendCode) {
