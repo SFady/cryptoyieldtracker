@@ -378,10 +378,12 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Zone de bord = 5% du range total de chaque côté (englobe aussi l'OOR complet,
-  // qui n'est qu'un cas particulier de "prix au-delà de rMin/rMax")
-  const edgeMargin = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
-  const isOOR = hasLP && edgeMargin !== null && (price < rMin + edgeMargin || price > rMax - edgeMargin);
+  // Zone de bord : 10% côté bas (les sorties basses ont fait plus mal récemment, on les rend
+  // moins fréquentes), 5% côté haut (englobe aussi l'OOR complet, cas particulier de
+  // "prix au-delà de rMin/rMax")
+  const edgeMarginLow  = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.10 : null;
+  const edgeMarginHigh = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
+  const isOOR = hasLP && edgeMarginLow !== null && (price < rMin + edgeMarginLow || price > rMax - edgeMarginHigh);
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
     ? Math.sqrt(rMin * rMax)
     : null;
@@ -393,9 +395,9 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 1A : zone de bord (5% du range) — 5 ticks consécutifs → fermer LP
+  // Règle 1A : zone de bord (10% bas / 5% haut) — 5 ticks consécutifs → fermer LP
   if (isOOR) {
-    const isOORLow = price < rMin + edgeMargin;
+    const isOORLow = price < rMin + edgeMarginLow;
     const newCount = (parseInt(oorCountRaw) || 0) + 1;
     await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
     await kv.set('p2_oor_low', isOORLow ? 1 : 0, { ex: 30 * 86400 });
