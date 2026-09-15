@@ -270,30 +270,60 @@ export async function getPriceAverage24h() {
 }
 
 // Coefficient global de l'algo (multiplicateur configurable) — Redis en cache, table algo_settings
-// en fallback durable, défaut 1 si absent des deux.
+// en fallback durable, défaut 1 si absent des deux. Décai temporel : /1.1 toutes les 12h sans mise
+// à jour (Règle 2), pour éviter qu'un Coeff élevé reste figé indéfiniment si le prix ne touche plus
+// les bords du range.
+const COEFF_DECAY_MS     = 12 * 60 * 60 * 1000;
+const COEFF_DECAY_FACTOR = 1.1;
+
+async function persistCoeff(value, updatedAt) {
+  try { await kv.set('p2_coeff', value, { ex: 30 * 86400 }); } catch (_) {}
+  try { await kv.set('p2_coeff_updated_at', updatedAt, { ex: 30 * 86400 }); } catch (_) {}
+  try {
+    const sql = neon(process.env.DATABASE_URL);
+    await sql`INSERT INTO algo_settings (key, value) VALUES ('coeff', ${value})
+              ON CONFLICT (key) DO UPDATE SET value = ${value}`;
+  } catch (_) {}
+}
+
 export async function readCoeff() {
+  let value = 1;
   try {
     const cached = await kv.get('p2_coeff');
-    if (cached !== null && cached !== undefined) return parseFloat(cached);
-  } catch (_) {}
-  try {
-    const sql  = neon(process.env.DATABASE_URL);
-    const rows = await sql`SELECT value FROM algo_settings WHERE key = 'coeff'`;
-    if (rows[0]?.value != null) {
-      const v = parseFloat(rows[0].value);
-      try { await kv.set('p2_coeff', v, { ex: 30 * 86400 }); } catch (_) {}
-      return v;
+    if (cached !== null && cached !== undefined) {
+      value = parseFloat(cached);
+    } else {
+      try {
+        const sql  = neon(process.env.DATABASE_URL);
+        const rows = await sql`SELECT value FROM algo_settings WHERE key = 'coeff'`;
+        if (rows[0]?.value != null) {
+          value = parseFloat(rows[0].value);
+          try { await kv.set('p2_coeff', value, { ex: 30 * 86400 }); } catch (_) {}
+        }
+      } catch (_) {}
     }
   } catch (_) {}
-  return 1;
+
+  // Décai temporel — un ou plusieurs paliers de 12h peuvent s'être écoulés depuis la dernière
+  // écriture (ex. bot resté longtemps sans cycle Règle 2) ; on les applique tous d'un coup.
+  try {
+    const updatedAtRaw = await kv.get('p2_coeff_updated_at');
+    if (updatedAtRaw) {
+      const updatedAt = Number(updatedAtRaw);
+      const elapsed    = Date.now() - updatedAt;
+      const steps      = Math.floor(elapsed / COEFF_DECAY_MS);
+      if (steps > 0) {
+        value = Math.max(1, value / Math.pow(COEFF_DECAY_FACTOR, steps));
+        await persistCoeff(value, updatedAt + steps * COEFF_DECAY_MS);
+      }
+    } else {
+      try { await kv.set('p2_coeff_updated_at', Date.now(), { ex: 30 * 86400 }); } catch (_) {}
+    }
+  } catch (_) {}
+
+  return value;
 }
 
 export async function writeCoeff(value) {
-  const v = parseFloat(value);
-  try { await kv.set('p2_coeff', v, { ex: 30 * 86400 }); } catch (_) {}
-  try {
-    const sql = neon(process.env.DATABASE_URL);
-    await sql`INSERT INTO algo_settings (key, value) VALUES ('coeff', ${v})
-              ON CONFLICT (key) DO UPDATE SET value = ${v}`;
-  } catch (_) {}
+  await persistCoeff(parseFloat(value), Date.now());
 }
