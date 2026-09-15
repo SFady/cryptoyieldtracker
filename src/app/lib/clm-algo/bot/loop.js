@@ -378,10 +378,10 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Zone de bord : 10% côté bas (les sorties basses ont fait plus mal récemment, on les rend
-  // moins fréquentes), 5% côté haut (englobe aussi l'OOR complet, cas particulier de
-  // "prix au-delà de rMin/rMax")
-  const edgeMarginLow  = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.10 : null;
+  // Zone de bord : 2% côté bas (zone fine collée au bord réel — exige une baisse plus marquée
+  // avant de déclencher, les sorties basses ont fait plus mal récemment), 5% côté haut (englobe
+  // aussi l'OOR complet, cas particulier de "prix au-delà de rMin/rMax")
+  const edgeMarginLow  = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.02 : null;
   const edgeMarginHigh = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) * 0.05 : null;
   const isOOR = hasLP && edgeMarginLow !== null && (price < rMin + edgeMarginLow || price > rMax - edgeMarginHigh);
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
