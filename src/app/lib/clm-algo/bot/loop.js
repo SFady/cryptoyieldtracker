@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, readCoeff, writeCoeff } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, readCoeff, writeCoeff, wasAeroSentToday, writeAeroSentToday } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -14,6 +14,8 @@ import { logBotTick }       from './metrics.js';
 //   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio 80/20 selon MM14j × côté de sortie
 //       de la précédente 1A, Coeff ×1.5/÷1.5 borné [1,5], range = percentile24h × Coeff)
 //   3.  En range      → rien
+//   Claim matinal (7h Paris) : si aucun AERO envoyé aujourd'hui, retire 25% des AERO accumulés
+//   sans fermer la LP (n'interrompt pas l'évaluation des autres règles ce tick-là).
 
 // Désactivation temporaire de la règle 1d (à la demande) — le calcul/logging reste actif ailleurs,
 // seul le déclenchement effectif (fermeture + réouverture) est bloqué ici.
@@ -114,6 +116,7 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
     await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
                 VALUES (${toSend}, ${isLow ? 'edge_low_25pct' : 'edge_high_50pct'}, ${txHash}, ${2})`;
   } catch (_) {}
+  await writeAeroSentToday(2).catch(() => {});
 
   return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
@@ -381,6 +384,25 @@ export async function botLoop({ base, price }) {
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
+
+  // Claim AERO matinal (7h Paris) : si rien n'a encore été envoyé aujourd'hui, on retire 25% des
+  // AERO accumulés sans fermer la LP (le reste des règles s'évalue normalement après, ce n'est
+  // pas un `return` anticipé).
+  if (hasLP) {
+    const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
+    if (parisHour >= 7 && !(await wasAeroSentToday(2).catch(() => false))) {
+      try {
+        const r = await fetch(`${base}/api/claimAero`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ poolNum: 2, sendFraction: 0.25 }),
+          signal: AbortSignal.timeout(60000),
+        });
+        result.morningClaim = await r.json();
+      } catch (e) { result.morningClaim = { error: e.message }; }
+      // Rien à réclamer (non staké) ou déjà envoyé → pas la peine de retenter à chaque tick jusqu'à demain
+      if (result.morningClaim?.ok || result.morningClaim?.skipped) await writeAeroSentToday(2).catch(() => {});
+    }
+  }
 
   // Lire p2_live_range : range réel (fallback si absent de lpState)
   if (hasLP) {

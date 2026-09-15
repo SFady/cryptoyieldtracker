@@ -142,6 +142,19 @@ export async function wasCollectedToday(poolNum) {
   try { return !!(await kv.get(`fee-today-${poolNum}-${today}`)); } catch (_) { return false; }
 }
 
+// Flag "AERO envoyé aujourd'hui" par pool (date Paris) — distinct de writeCollectedToday
+// (posé côté collecte manuelle uniquement) : couvre à la fois les envois auto (sendAeroSplit,
+// sorties Règle 1A/1c) et le claim matinal 7h.
+export async function writeAeroSentToday(poolNum) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  try { await kv.set(`aero-sent-${poolNum}-${today}`, 1, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+
+export async function wasAeroSentToday(poolNum) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  try { return !!(await kv.get(`aero-sent-${poolNum}-${today}`)); } catch (_) { return false; }
+}
+
 // Lock distribué (remplace lp_events RUNNING) — TTL 5 min géré par Redis
 export async function checkRedisLock() {
   try { return !!(await kv.get("lp-running")); } catch (_) { return false; }

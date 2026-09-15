@@ -32,15 +32,17 @@ export async function GET() {
       `;
     }
 
-    // Transferts vers le wallet externe issus des sorties Règle 1A (edge_low/high) — à réintégrer
-    // dans usdc_on_close, sinon le montant envoyé apparaît comme une perte alors qu'il est juste
-    // déplacé hors du wallet du bot.
+    // Transferts vers le wallet externe (sorties Règle 1A edge_low/high, resizes 1c/1d, claims AERO
+    // manuel ou matinal 7h) — à réintégrer dans usdc_on_close, sinon le montant envoyé apparaît comme
+    // une perte alors qu'il est juste déplacé hors du wallet du bot. Fenêtre = toute la durée de vie
+    // du cycle (created_at → closed_at), pas seulement les minutes précédant la fermeture : un claim
+    // survenant en plein milieu d'un cycle (ex. claim matinal) doit aussi être réintégré.
     let transfers = [];
     try {
       transfers = await sql`
         SELECT amount_usdc, pool_num, created_at
         FROM dest_transfers
-        WHERE source IN ('edge_low_25pct', 'edge_high_50pct')
+        WHERE source IN ('edge_low_25pct', 'edge_high_50pct', 'claimAero', 'morning_claim_25pct')
         ORDER BY created_at ASC
       `;
     } catch (_) {}
@@ -50,13 +52,13 @@ export async function GET() {
       let after    = r.usdc_on_close !== null ? parseFloat(r.usdc_on_close) : null;
 
       let sentOut = 0;
-      if (after !== null && r.closed_at) {
-        const closedAt = new Date(r.closed_at).getTime();
-        const windowMs = 10 * 60 * 1000;
+      if (after !== null) {
+        const openAt  = new Date(r.created_at).getTime();
+        const closeAt = r.closed_at ? new Date(r.closed_at).getTime() : Date.now();
         for (const t of transfers) {
           if ((t.pool_num ?? 2) !== (r.pool_num ?? 2)) continue;
           const tAt = new Date(t.created_at).getTime();
-          if (tAt <= closedAt && closedAt - tAt <= windowMs) sentOut += parseFloat(t.amount_usdc);
+          if (tAt >= openAt && tAt <= closeAt) sentOut += parseFloat(t.amount_usdc);
         }
       }
       if (sentOut > 0) after = parseFloat((after + sentOut).toFixed(6));

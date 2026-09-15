@@ -130,7 +130,11 @@ async function waitForTx(tx) {
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
-  const poolNum = body.poolNum ?? 2;
+  const poolNum      = body.poolNum ?? 2;
+  // sendFraction : part du delta USDC réellement envoyée au wallet externe (le reste reste dans
+  // le wallet du bot) — 1 par défaut (comportement historique du bouton manuel), 0.25 pour le
+  // claim matinal automatique 7h.
+  const sendFraction = Math.min(1, Math.max(0, parseFloat(body.sendFraction ?? 1)));
   let rawTokenId = null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
@@ -213,17 +217,19 @@ export async function POST(req) {
       if (dest) {
         const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
         const delta = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
-        console.log(`[claimAero] before=${usdcBefore} after=${usdcAfter} delta=${delta} dest=${dest}`);
-        if (delta > 0n) {
+        const toSend = sendFraction >= 1 ? delta : (delta * BigInt(Math.round(sendFraction * 10000))) / 10000n;
+        console.log(`[claimAero] before=${usdcBefore} after=${usdcAfter} delta=${delta} sendFraction=${sendFraction} toSend=${toSend} dest=${dest}`);
+        if (toSend > 0n) {
           const txTransfer = await wallet.sendTransaction({
             to: USDC,
-            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, delta]),
+            data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
           });
           transferHash = txTransfer.hash;
           await waitForTx(txTransfer);
           try {
-            const amt = parseFloat(ethers.formatUnits(delta, 6));
-            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${"claimAero"}, ${transferHash}, ${poolNum})`;
+            const amt    = parseFloat(ethers.formatUnits(toSend, 6));
+            const source = sendFraction >= 1 ? "claimAero" : "morning_claim_25pct";
+            await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${source}, ${transferHash}, ${poolNum})`;
           } catch (_) {}
         }
       }
