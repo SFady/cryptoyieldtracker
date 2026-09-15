@@ -2,17 +2,23 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, readCoeff, writeCoeff } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
 // Module 7 — Orchestrateur cron pool 2
 // Règles :
 //   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
-//   1c. Volatilité ±1.5pt (si revenus ≥ AERO) → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
-//   1d. Tendance changée depuis ≥6h (si revenus ≥ AERO) → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
-//   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio dynamique MM14j × MM24h)
+//   1c. [DÉSACTIVÉE] Volatilité ±1.5pt (si revenus ≥ AERO) → resserrer/élargir le range
+//   1d. [DÉSACTIVÉE] Tendance changée depuis ≥6h (si revenus ≥ AERO) → resserrer/élargir le range
+//   2.  Aucune pos.   → spread check 20 prix → auto-start (ratio 80/20 selon MM14j × côté de sortie
+//       de la précédente 1A, Coeff ×1.5/÷1.5 borné [1,5], range = percentile24h × Coeff)
 //   3.  En range      → rien
+
+// Désactivation temporaire des règles 1c/1d (à la demande) — le calcul/logging reste actif ailleurs,
+// seul le déclenchement effectif (fermeture + réouverture) est bloqué ici.
+const RULE_1C_ENABLED = false;
+const RULE_1D_ENABLED = false;
 
 // Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire, pas de zone neutre
 function trendLetter(price, avg) {
@@ -222,7 +228,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null) {
 /**
  * Recrée une position LP avec toute la liquidité disponible au ratio de tendance.
  */
-async function autoStart({ base, price, targetRatio = 0.5 }) {
+async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4 }) {
   const result = { action: 'auto_start' };
 
   // 1. Capital disponible = USDC + WETH dans le wallet
@@ -232,12 +238,12 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   result.capital     = parseFloat(capital.toFixed(2));
   result.targetRatio = targetRatio;
 
-  // 2. Range dynamique = 1.25 × percentile 24h (min 2%, fallback 10%)
+  // 2. Range dynamique = rangeMultiplier × percentile 24h (min 2%, fallback 10%)
   const pct24h   = await getPercentileRange();
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  let rangePct = parseFloat((p24h !== null ? p24h * 4 : 10).toFixed(2));
+  let rangePct = parseFloat((p24h !== null ? p24h * rangeMultiplier : 10).toFixed(2));
 
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
@@ -509,10 +515,31 @@ export async function botLoop({ base, price }) {
       }
     }
 
-    // Ratio de réouverture dynamique selon tendance MM14j × MM24h (calculé plus haut)
+    // Ratio de réouverture + Coeff selon MM14j × côté de sortie de la précédente Règle 1A :
+    //   MM14j haussière + sortie basse → 80% WETH, Coeff ×1.5 (on double la mise sur le creux)
+    //   MM14j haussière + sortie haute → 20% WETH, Coeff ÷1.5 (on sécurise, range resserré)
+    //   MM14j baissière + sortie basse → 20% WETH, Coeff ÷1.5 (on reste léger, range resserré)
+    //   MM14j baissière + sortie haute → 80% WETH, Coeff ×1.5 (on joue le rebond)
+    // Coeff borné [1, 5]. Nouveau range = percentile24h × Coeff (remplace le ×4 fixe pour cette règle).
+    const lastExitSide = await kv.get('p2_last_exit_side').catch(() => null);
     await kv.del('p2_last_exit_side').catch(() => {});
 
-    result.autoStart = await autoStart({ base, price, targetRatio: reopenRatio });
+    const coeffBefore = await readCoeff();
+    let reopenRatio2  = 0.5;
+    let coeffAfter    = coeffBefore;
+    if (lastExitSide === 'low' || lastExitSide === 'high') {
+      const bullishBounce = (trend14d === 'H' && lastExitSide === 'low') || (trend14d === 'B' && lastExitSide === 'high');
+      reopenRatio2 = bullishBounce ? 0.8 : 0.2;
+      coeffAfter   = bullishBounce ? coeffBefore * 1.5 : coeffBefore / 1.5;
+      coeffAfter   = Math.min(5, Math.max(1, coeffAfter));
+      await writeCoeff(coeffAfter);
+    }
+    result.lastExitSide = lastExitSide;
+    result.coeffBefore  = coeffBefore;
+    result.coeffAfter   = coeffAfter;
+    result.reopenRatio2 = reopenRatio2;
+
+    result.autoStart = await autoStart({ base, price, targetRatio: reopenRatio2, rangeMultiplier: coeffAfter });
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
     return result;
