@@ -240,7 +240,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   const p24h     = pct24h && pct24h.cnt >= 10 && pct24h.p05 > 0
     ? (pct24h.p95 - pct24h.p05) / pct24h.p05 * 100
     : null;
-  let rangePct = parseFloat((p24h !== null ? p24h * 1.25 : 10).toFixed(2));
+  let rangePct = parseFloat((p24h !== null ? p24h * 4 : 10).toFixed(2));
 
   const halfFrac = rangePct / 200;
   const minPrice = parseFloat((price / (1 + halfFrac)).toFixed(2));
@@ -432,8 +432,8 @@ export async function botLoop({ base, price }) {
       : null;
     if (p24h !== null) {
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      // Même base que la largeur appliquée à l'ouverture (percentile24h × 1.25) — comparaison homogène
-      const optimalRange   = p24h * 1.25;
+      // Même base que la largeur appliquée à l'ouverture (percentile24h × 4) — comparaison homogène
+      const optimalRange   = p24h * 4;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
       if (optimalRange < rangePctActuel - 1.5) {
