@@ -532,7 +532,13 @@ export async function botLoop({ base, price }) {
 
   // Règles 2 (zone basse) et 3 (zone haute) : confirmées sur 5 ticks consécutifs, en réutilisant
   // le compteur p2_oor_count/p2_oor_low et les dots déjà affichés sur la page pools (RangeBar).
-  const lowTrigger  = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.25 * (rMax - rMin) : null;
+  // Zone basse : une fois le range déjà à 20% (plafond atteint par des doublements précédents),
+  // le seuil se resserre à range/8 (au lieu de range/4) — le doublement classique replace toujours
+  // le prix juste sous le seuil à range/4 (cf. simulation, ratio 75% pousse le centre vers le haut),
+  // alors qu'à range/8 sans redoubler la marge après réouverture redevient positive.
+  const rangePctNow     = (hasLP && !isNaN(rMin) && !isNaN(rMax) && rMin > 0) ? (rMax - rMin) / rMin * 100 : null;
+  const lowTriggerFrac  = (rangePctNow !== null && rangePctNow >= 20) ? 0.125 : 0.25;
+  const lowTrigger  = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + lowTriggerFrac * (rMax - rMin) : null;
   const halfPoint   = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5  * (rMax - rMin) : null;
   const inLowZone   = lowTrigger !== null && price <= lowTrigger;
   const inHighZone  = !inLowZone && halfPoint !== null && price >= halfPoint;
@@ -551,15 +557,19 @@ export async function botLoop({ base, price }) {
     }
 
     if (inLowZone) {
-      // Règle 2 : collecte AERO (25% envoyé/75% gardé), ferme et rouvre avec le range doublé,
-      // sans swap — sauf si WETH > 80% de la position, où l'on cap à 75% WETH.
+      // Règle 2 : collecte AERO (25% envoyé/75% gardé), swap vers un ratio fixe 75% WETH (plus de
+      // "garder le ratio actuel" — trop proche du bord bas, ça recentrait le nouveau range de façon
+      // imprévisible, cf. simulation). Range : doublé tant qu'on est sous 20% ; une fois 20% atteint,
+      // on ne redouble plus (même largeur) — le seuil à range/8 (ci-dessus) suffit alors à garder
+      // une marge positive après réouverture.
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const newRangePct    = rangePctActuel * 2;
+      const alreadyAt20    = rangePctActuel >= 20;
+      const newRangePct    = alreadyAt20 ? rangePctActuel : Math.min(rangePctActuel * 2, 20);
       result.action          = 'low_zone_rebalance';
       result.lowTrigger      = parseFloat(lowTrigger.toFixed(2));
       result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
       result.newRangePct     = parseFloat(newRangePct.toFixed(2));
-      result.collect = await runCollect(base, price, null, 'low_zone_rebalance', 4, true, newRangePct, { trigger: 0.80, target: 0.75 });
+      result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct);
       await logBotTick(kv, result);
       return result;
     }
