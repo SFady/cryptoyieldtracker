@@ -7,6 +7,7 @@ import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
 // Module 7 — Orchestrateur cron pool 2
+// BOT_ENABLED = false actuellement → tout est désactivé (voir plus bas).
 // Règles :
 //   1A. Zone de bord (5% du range, englobe OOR) 5 ticks consécutifs → fermer LP
 //   1c. Volatilité ±1.5pt (si revenus ≥ AERO) → resserrer/élargir le range (percentile24h × Coeff)
@@ -16,6 +17,11 @@ import { logBotTick }       from './metrics.js';
 //   3.  En range      → rien
 //   Claim matinal (7h Paris) : si aucun AERO envoyé aujourd'hui, retire 25% des AERO accumulés
 //   sans fermer la LP (n'interrompt pas l'évaluation des autres règles ce tick-là).
+
+// Coupe-circuit global : si false, botLoop() ne fait plus rien du tout (aucune règle, aucun claim
+// matinal) — la position ouverte reste telle quelle, en attente. Le code de chaque règle reste
+// intact, prêt à repartir en repassant ce flag à true.
+const BOT_ENABLED = false;
 
 // Désactivation temporaire de la règle 1d (à la demande) — le calcul/logging reste actif ailleurs,
 // seul le déclenchement effectif (fermeture + réouverture) est bloqué ici.
@@ -348,6 +354,12 @@ export async function botLoop({ base, price }) {
   if (!price) {
     result.skipped = true;
     result.reason  = 'prix indisponible';
+    return result;
+  }
+
+  if (!BOT_ENABLED) {
+    result.action = 'bot_disabled';
+    await logBotTick(kv, result);
     return result;
   }
 
