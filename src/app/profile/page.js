@@ -81,6 +81,14 @@ export default function ProfilePage() {
             + parseFloat(wethWalletUSD2 || 0)
           : null;
         const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
+
+        // Low trigger Règle 2 : rMin + range/4 (ou range/8 une fois le range à 20% ou plus)
+        const rLow2  = parseFloat(pos2?.[0]?.rangeLow ?? "0");
+        const rHigh2 = parseFloat(pos2?.[0]?.rangeHigh ?? "0");
+        const rangePctNow2 = rLow2 > 0 ? (rHigh2 - rLow2) / rLow2 * 100 : null;
+        const lowTriggerFrac2 = rangePctNow2 !== null && rangePctNow2 >= 20 ? 0.125 : 0.25;
+        const lowTrigger2 = rLow2 > 0 ? rLow2 + lowTriggerFrac2 * (rHigh2 - rLow2) : null;
+
         return (
           <>
             <SectionHeader label="WETH / USDC" wallet={walletShort2} positions={pos2} totalOverride={total2} openingTotal={openingTotal2} mt />
@@ -92,6 +100,15 @@ export default function ProfilePage() {
                   background: "rgba(124,77,255,0.08)", border: "1px solid rgba(124,77,255,0.25)", color: "#a78bfa",
                 }}>
                   Range percentile 24h : {percentileRange2}%
+                </span>
+              )}
+              {lowTrigger2 !== null && (
+                <span style={{
+                  fontSize: "0.65rem", fontFamily: "monospace",
+                  padding: "2px 8px", borderRadius: 4,
+                  background: "rgba(240,150,41,0.08)", border: "1px solid rgba(240,150,41,0.25)", color: "#f0a029",
+                }}>
+                  Low trigger : ${lowTrigger2.toFixed(2)}
                 </span>
               )}
               {avg24h2 !== null && (
