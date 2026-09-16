@@ -493,7 +493,8 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Lire p2_live_range : range réel (fallback si absent de lpState)
+  // Lire p2_live_range : range réel (fallback si absent de lpState) + prix d'entrée (réouverture)
+  let entryPrice = null;
   if (hasLP) {
     const lr = await readP2Range();
     if (rMin == null || isNaN(rMin)) {
@@ -503,6 +504,7 @@ export async function botLoop({ base, price }) {
         console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
       }
     }
+    if (lr?.entry) entryPrice = parseFloat(lr.entry);
   }
 
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
@@ -532,13 +534,13 @@ export async function botLoop({ base, price }) {
 
   // Règles 2 (zone basse) et 3 (zone haute) : confirmées sur 5 ticks consécutifs, en réutilisant
   // le compteur p2_oor_count/p2_oor_low et les dots déjà affichés sur la page pools (RangeBar).
-  // Zone basse : une fois le range déjà à 20% (plafond atteint par des doublements précédents),
-  // le seuil se resserre à range/8 (au lieu de range/4) — le doublement classique replace toujours
-  // le prix juste sous le seuil à range/4 (cf. simulation, ratio 75% pousse le centre vers le haut),
-  // alors qu'à range/8 sans redoubler la marge après réouverture redevient positive.
-  const rangePctNow     = (hasLP && !isNaN(rMin) && !isNaN(rMax) && rMin > 0) ? (rMax - rMin) / rMin * 100 : null;
-  const lowTriggerFrac  = (rangePctNow !== null && rangePctNow >= 20) ? 0.125 : 0.25;
-  const lowTrigger  = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + lowTriggerFrac * (rMax - rMin) : null;
+  // Zone basse : seuil = milieu de rMin et du prix de réouverture (pas une fraction fixe du range).
+  // Un ratio >50% (ex. 75%) pousse le centre du range au-dessus du prix de réouverture, donc ce
+  // prix reste toujours strictement au-dessus du milieu [rMin, entry] — marge positive garantie
+  // dès le premier rebalance (cf. simulation), contrairement à range/4 ou range/8 fixes.
+  const lowTrigger  = (hasLP && !isNaN(rMin) && entryPrice !== null && entryPrice > rMin)
+    ? (rMin + entryPrice) / 2
+    : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.25 * (rMax - rMin) : null; // fallback si entry indisponible
   const halfPoint   = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5  * (rMax - rMin) : null;
   const inLowZone   = lowTrigger !== null && price <= lowTrigger;
   const inHighZone  = !inLowZone && halfPoint !== null && price >= halfPoint;

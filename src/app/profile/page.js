@@ -82,12 +82,12 @@ export default function ProfilePage() {
           : null;
         const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
 
-        // Low trigger Règle 2 : rMin + range/4 (ou range/8 une fois le range à 20% ou plus)
+        // Low trigger Règle 2 : milieu de rMin et du prix de réouverture (entryPrice)
         const rLow2  = parseFloat(pos2?.[0]?.rangeLow ?? "0");
         const rHigh2 = parseFloat(pos2?.[0]?.rangeHigh ?? "0");
-        const rangePctNow2 = rLow2 > 0 ? (rHigh2 - rLow2) / rLow2 * 100 : null;
-        const lowTriggerFrac2 = rangePctNow2 !== null && rangePctNow2 >= 20 ? 0.125 : 0.25;
-        const lowTrigger2 = rLow2 > 0 ? rLow2 + lowTriggerFrac2 * (rHigh2 - rLow2) : null;
+        const lowTrigger2 = (rLow2 > 0 && entryPrice2 && entryPrice2 > rLow2)
+          ? (rLow2 + entryPrice2) / 2
+          : (rLow2 > 0 ? rLow2 + 0.25 * (rHigh2 - rLow2) : null);
 
         return (
           <>
@@ -653,14 +653,15 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, entryPrice = null }) {
   const lo    = parseFloat(low);
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
   const color  = inRange ? "#00e5a0" : "#c97070";
   const center = Math.sqrt(lo * hi);
   const edgeMargin = (hi - lo) * 0.05;
-  const Pc     = lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : rMin + 25% du range)
+  const entry  = parseFloat(entryPrice);
+  const Pc     = (!isNaN(entry) && entry > lo) ? (lo + entry) / 2 : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : milieu de rMin et prix de réouverture)
   const Pu     = hi - edgeMargin; // zone de bord haute (Règle 1A, 5% du range)
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
