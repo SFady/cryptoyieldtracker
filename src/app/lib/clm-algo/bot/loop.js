@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, readCoeff, wasAeroSentToday, writeAeroSentToday } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasAeroSentToday, writeAeroSentToday } from '../../cronKv.js';
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -607,21 +607,19 @@ export async function botLoop({ base, price }) {
       : null;
     if (p24h !== null) {
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const coeff1c         = await readCoeff();
-      const optimalRange    = p24h * coeff1c;
+      const optimalRange    = p24h * 4;
       result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
       result.optimalRange   = parseFloat(optimalRange.toFixed(2));
-      result.coeff1c        = coeff1c;
       if (optimalRange < rangePctActuel - 1.5) {
-        console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}% coeff=${coeff1c}`);
+        console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price, null, 'range_shrink_rebalance', coeff1c, true);
+        result.collect = await runCollect(base, price, null, 'range_shrink_rebalance', 4, true);
         await logBotTick(kv, result);
         return result;
       } else if (optimalRange > rangePctActuel + 1.5) {
-        console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}% coeff=${coeff1c}`);
+        console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
         result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, null, 'range_expand_rebalance', coeff1c, true);
+        result.collect = await runCollect(base, price, null, 'range_expand_rebalance', 4, true);
         await logBotTick(kv, result);
         return result;
       }
