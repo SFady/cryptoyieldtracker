@@ -28,7 +28,6 @@ export default function ProfilePage() {
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
-  const [entryPrice2, setEntryPrice2] = useState(null);
   const [lowTriggerApi2, setLowTriggerApi2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
@@ -55,7 +54,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -174,7 +173,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} entryPrice={entryPrice2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} lowTrigger={lowTrigger2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -347,7 +346,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, entryPrice = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, lowTrigger = null, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -469,7 +468,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} entryPrice={entryPrice} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} lowTrigger={lowTrigger} />
         )}
       </div>
 
@@ -653,16 +652,14 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, entryPrice = null }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, lowTrigger = null }) {
   const lo    = parseFloat(low);
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
   const color  = inRange ? "#00e5a0" : "#c97070";
   const center = Math.sqrt(lo * hi);
-  const edgeMargin = (hi - lo) * 0.05;
-  const entry  = parseFloat(entryPrice);
-  const Pc     = (!isNaN(entry) && entry > lo) ? (lo + entry) / 2 : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : milieu de rMin et prix de réouverture)
-  const Pu     = hi - edgeMargin; // zone de bord haute (Règle 1A, 5% du range)
+  const Pc     = (lowTrigger != null && !isNaN(lowTrigger)) ? lowTrigger : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : trigger stocké par le bot, défaut rMin + 25%)
+  const Pu     = lo + 0.5 * (hi - lo); // déclencheur haut (Règle 3 : point milieu du range)
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));

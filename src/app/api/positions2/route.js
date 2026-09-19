@@ -530,7 +530,11 @@ export async function GET() {
 
     if (positions.length > 0 && positions[0].rangeLow && positions[0].rangeHigh) {
       const existingRange = await kv.get('p2_live_range').catch(() => null);
-      await writeP2Range(positions[0].rangeLow, positions[0].rangeHigh, existingRange?.entry ? parseFloat(existingRange.entry) : null);
+      await writeP2Range(
+        positions[0].rangeLow, positions[0].rangeHigh,
+        existingRange?.entry ? parseFloat(existingRange.entry) : null,
+        existingRange?.lowTrigger ? parseFloat(existingRange.lowTrigger) : null,
+      );
     }
 
     const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;

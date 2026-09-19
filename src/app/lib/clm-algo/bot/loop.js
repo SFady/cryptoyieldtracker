@@ -314,8 +314,10 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
     const newRMin = out.autoStart.pool.tickLowerPrice;
     const newRMax = out.autoStart.pool.tickUpperPrice;
+    // Plafonné au milieu de [newRMin, prix de réouverture] : garantit que le prix reste au-dessus du
+    // trigger dès la réouverture (sinon re-déclenchement immédiat en boucle si le prix a décroché).
     const newLowTrigger = (lowTriggerMode === 'halve' && oldLowTrigger !== null)
-      ? (oldLowTrigger + newRMin) / 2
+      ? Math.min((oldLowTrigger + newRMin) / 2, (newRMin + price) / 2)
       : newRMin + 0.25 * (newRMax - newRMin);
     out.newLowTrigger = parseFloat(newLowTrigger.toFixed(2));
     await writeP2Range(newRMin, newRMax, price, newLowTrigger);
