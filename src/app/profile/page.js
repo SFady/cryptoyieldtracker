@@ -666,6 +666,8 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
   const dotLeftPc = trackPct(Pc);
   const dotLeftPu = trackPct(Pu);
   const dotLeftC  = trackPct(center);
+  const dotLeftE1 = trackPct(lo + 0.05 * (hi - lo)); // repère 5% du bord bas
+  const dotLeftE2 = trackPct(hi - 0.05 * (hi - lo)); // repère 5% du bord haut
   return (
     <div style={{ width: "100%" }}>
       <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 4 }}>
@@ -675,6 +677,8 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
           <div style={{ position: "absolute", left: `${dotLeftC}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(120,120,200,0.5)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPc}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(240,180,40,0.55)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPu}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(41,182,240,0.55)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
           <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
           <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
           <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
