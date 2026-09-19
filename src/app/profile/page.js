@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
   const [entryPrice2, setEntryPrice2] = useState(null);
+  const [lowTriggerApi2, setLowTriggerApi2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
   const [openingTotal2, setOpeningTotal2] = useState(null);
@@ -54,7 +55,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setEntryPrice2(d.entryPrice ?? null); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -82,12 +83,11 @@ export default function ProfilePage() {
           : null;
         const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
 
-        // Low trigger Règle 2 : milieu de rMin et du prix de réouverture (entryPrice)
+        // Low trigger Règle 2 : valeur stockée par le bot (se rapproche de rMin à chaque sortie
+        // basse répétée, reset à rMin + 25% sur sortie haute/Règle 4) — fallback 25% si jamais stocké
         const rLow2  = parseFloat(pos2?.[0]?.rangeLow ?? "0");
         const rHigh2 = parseFloat(pos2?.[0]?.rangeHigh ?? "0");
-        const lowTrigger2 = (rLow2 > 0 && entryPrice2 && entryPrice2 > rLow2)
-          ? (rLow2 + entryPrice2) / 2
-          : (rLow2 > 0 ? rLow2 + 0.25 * (rHigh2 - rLow2) : null);
+        const lowTrigger2 = lowTriggerApi2 ?? (rLow2 > 0 ? rLow2 + 0.25 * (rHigh2 - rLow2) : null);
 
         return (
           <>

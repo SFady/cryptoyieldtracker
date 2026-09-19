@@ -312,11 +312,12 @@ export async function GET() {
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
     const liveRange    = await kv.get('p2_live_range').catch(() => null);
     const entryPrice   = liveRange?.entry ? parseFloat(liveRange.entry) : null;
+    const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHist  = await kv.lrange('p2_low_zone_hist',  0, 14).catch(() => []);
     const lowZoneHits  = lowZoneHist.filter(v => v === '1' || v === 1).length;
     const highZoneHist = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
     const highZoneHits = highZoneHist.filter(v => v === '1' || v === 1).length;
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h });
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h });
   }
 
   try {
@@ -545,11 +546,12 @@ export async function GET() {
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
     const liveRange    = await kv.get('p2_live_range').catch(() => null);
     const entryPrice   = liveRange?.entry ? parseFloat(liveRange.entry) : null;
+    const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHist  = await kv.lrange('p2_low_zone_hist',  0, 14).catch(() => []);
     const lowZoneHits  = lowZoneHist.filter(v => v === '1' || v === 1).length;
     const highZoneHist = await kv.lrange('p2_high_zone_hist', 0, 14).catch(() => []);
     const highZoneHits = highZoneHist.filter(v => v === '1' || v === 1).length;
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
