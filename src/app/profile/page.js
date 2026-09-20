@@ -657,7 +657,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
   const color  = inRange ? "#00e5a0" : "#c97070";
-  const center = Math.sqrt(lo * hi);
   const Pc     = (lowTrigger != null && !isNaN(lowTrigger)) ? lowTrigger : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : trigger stocké par le bot, défaut rMin + 25%)
   const Pu     = lo + 0.5 * (hi - lo); // déclencheur haut (Règle 3 : point milieu du range)
   const TS = 8, TE = 92;
@@ -665,7 +664,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));
   const dotLeftPc = trackPct(Pc);
   const dotLeftPu = trackPct(Pu);
-  const dotLeftC  = trackPct(center);
   const dotLeftE1 = trackPct(lo + 0.05 * (hi - lo)); // repère 5% du bord bas
   const dotLeftE2 = trackPct(hi - 0.05 * (hi - lo)); // repère 5% du bord haut
   return (
@@ -674,7 +672,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
         {/* Barre */}
         <div style={{ flex: 1, position: "relative" }}>
           <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: "50%", transform: "translateY(-50%)", height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
-          <div style={{ position: "absolute", left: `${dotLeftC}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(120,120,200,0.5)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPc}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(240,180,40,0.55)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPu}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(41,182,240,0.55)" }} />
           <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
