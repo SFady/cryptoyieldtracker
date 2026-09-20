@@ -302,6 +302,11 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
     out.spread = parseFloat(spread.toFixed(2));
     if (spread > 1.5) {
       out.reopenSkippedSpread = true;
+      // Mémorise les paramètres de la réouverture voulue : la Règle 1 (aucune position) les
+      // reprendra au tick suivant au lieu d'ouvrir en 50/50 avec le percentile brut.
+      await kv.set('p2_pending_reopen', {
+        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger,
+      }, { ex: 24 * 3600 }).catch(() => {});
       return out;
     }
   }
@@ -309,21 +314,26 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Rouvrir LP avec tout le capital disponible au ratio cible
   out.autoStart = await autoStart({ base, price, targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct });
 
-  // Sauvegarder le nouveau range + low trigger : 'halve' = se rapproche du nouveau rMin (sortie
-  // basse répétée), sinon reset à rMin + 25% du nouveau range (sortie haute, règle 4, défaut).
-  if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
-    const newRMin = out.autoStart.pool.tickLowerPrice;
-    const newRMax = out.autoStart.pool.tickUpperPrice;
-    // Plafonné au milieu de [newRMin, prix de réouverture] : garantit que le prix reste au-dessus du
-    // trigger dès la réouverture (sinon re-déclenchement immédiat en boucle si le prix a décroché).
-    const newLowTrigger = (lowTriggerMode === 'halve' && oldLowTrigger !== null)
-      ? Math.min((oldLowTrigger + newRMin) / 2, (newRMin + price) / 2)
-      : newRMin + 0.25 * (newRMax - newRMin);
-    out.newLowTrigger = parseFloat(newLowTrigger.toFixed(2));
-    await writeP2Range(newRMin, newRMax, price, newLowTrigger);
-  }
+  // Sauvegarder le nouveau range + low trigger (et purger une éventuelle réouverture en attente)
+  await saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger);
+  await kv.del('p2_pending_reopen').catch(() => {});
 
   return out;
+}
+
+// Sauvegarde le range réouvert + low trigger : 'halve' = se rapproche du nouveau rMin (sortie basse
+// répétée), sinon reset à rMin + 25% du nouveau range (sortie haute, Règle 4, défaut).
+async function saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger) {
+  if (!out.autoStart?.pool?.tickLowerPrice || !out.autoStart?.pool?.tickUpperPrice) return;
+  const newRMin = out.autoStart.pool.tickLowerPrice;
+  const newRMax = out.autoStart.pool.tickUpperPrice;
+  // Plafonné au milieu de [newRMin, prix de réouverture] : garantit que le prix reste au-dessus du
+  // trigger dès la réouverture (sinon re-déclenchement immédiat en boucle si le prix a décroché).
+  const newLowTrigger = (lowTriggerMode === 'halve' && oldLowTrigger !== null)
+    ? Math.min((oldLowTrigger + newRMin) / 2, (newRMin + price) / 2)
+    : newRMin + 0.25 * (newRMax - newRMin);
+  out.newLowTrigger = parseFloat(newLowTrigger.toFixed(2));
+  await writeP2Range(newRMin, newRMax, price, newLowTrigger);
 }
 
 /**
@@ -707,7 +717,24 @@ export async function botLoop({ base, price }) {
     }
 
     // Nouvelle Règle 1 : aucune position → ouvrir au range percentile24h brut (×1), 50/50 WETH/USDC.
-    result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+    // Sauf si une réouverture a été retardée par le spread check (Règles 2/3/4) : on reprend alors
+    // exactement ses paramètres (ratio, largeur, trigger) au lieu de repartir de zéro.
+    const pending = await kv.get('p2_pending_reopen').catch(() => null);
+    if (pending) {
+      result.autoStart = await autoStart({
+        base, price,
+        targetRatio:      pending.targetRatio ?? 0.5,
+        rangeMultiplier:  pending.rangeMultiplier ?? 1,
+        explicitRangePct: pending.explicitRangePct ?? null,
+      });
+      result.pendingReopen = true;
+      if (!result.autoStart.skipped && !result.autoStart.error) {
+        await saveRangeAndLowTrigger(result, price, pending.lowTriggerMode ?? 'reset', pending.oldLowTrigger ?? null);
+        await kv.del('p2_pending_reopen').catch(() => {});
+      }
+    } else {
+      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+    }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
     return result;
