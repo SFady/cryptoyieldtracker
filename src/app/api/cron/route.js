@@ -76,7 +76,10 @@ async function handle(req) {
   if (price) { try { await writeCronPrice(price); } catch (_) {} }
   if (price) { try { await writeHourlyPrice(price); } catch (_) {} }
 
-  // Ni OOR ni heure du tick complet → pousser low zone, déclencher si seuil atteint
+  // Ni OOR ni heure du tick complet → pousser low zone, déclencher si seuil atteint.
+  // Fenêtre glissante "10 hits parmi les 15 derniers ticks" via bitmask (SETBIT/BITCOUNT, 15 bits
+  // sur 2 octets, bit 15 jamais utilisé) au lieu d'une liste (lrange+lpush+ltrim) : même sémantique
+  // (freeze une fois le seuil atteint, pas d'écriture supplémentaire), 1 commande Redis de moins.
   let quickLowZone = false;
   if (!isFullTick && !quickOOR && price && liveRange?.min && liveRange?.max) {
     const rMin   = parseFloat(liveRange.min);
@@ -86,18 +89,17 @@ async function handle(req) {
     const Pc = (entry && entry < center) ? (rMin + entry) / 2 : center - (rMax - rMin) / 4;
     const inLowZone = price > rMin && price < Pc;
     try {
-      const hist = await kv.lrange('p2_low_zone_hist', 0, 14);
-      const hits = hist.filter(v => v === '1' || v === 1).length;
+      const bitPos = Math.floor(Date.now() / 60000) % 15;
+      const hits = await kv.bitcount('p2_low_zone_bits', 0, 1);
       if (hits >= 10) {
         quickLowZone = true; // tomber dans le chemin bot loop
       } else {
-        await kv.lpush('p2_low_zone_hist', inLowZone ? '1' : '0');
-        await kv.ltrim('p2_low_zone_hist', 0, 14);
+        await kv.setbit('p2_low_zone_bits', bitPos, inLowZone ? 1 : 0);
       }
     } catch (_) {}
   }
 
-  // Zone haute : déclencher si seuil atteint
+  // Zone haute : déclencher si seuil atteint (même mécanisme bitmask)
   let quickHighZone = false;
   if (!isFullTick && !quickOOR && !quickLowZone && price && liveRange?.min && liveRange?.max) {
     const rMin   = parseFloat(liveRange.min);
@@ -107,13 +109,12 @@ async function handle(req) {
     const Pu = (entry && entry > center) ? (entry + rMax) / 2 : center + (rMax - rMin) / 4;
     const inUpperZone = price > Pu && price < rMax;
     try {
-      const hist = await kv.lrange('p2_high_zone_hist', 0, 14);
-      const hits = hist.filter(v => v === '1' || v === 1).length;
+      const bitPos = Math.floor(Date.now() / 60000) % 15;
+      const hits = await kv.bitcount('p2_high_zone_bits', 0, 1);
       if (hits >= 10) {
         quickHighZone = true;
       } else {
-        await kv.lpush('p2_high_zone_hist', inUpperZone ? '1' : '0');
-        await kv.ltrim('p2_high_zone_hist', 0, 14);
+        await kv.setbit('p2_high_zone_bits', bitPos, inUpperZone ? 1 : 0);
       }
     } catch (_) {}
   }
