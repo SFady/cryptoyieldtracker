@@ -738,6 +738,7 @@ export async function POST(req) {
     // 4a. Swap AERO → USDC (non-bloquant)
     let aeroSwapHash = null;
     let aeroSwapUsdcReceived = 0;
+    let aeroResidualError = null;
     try {
       const aeroBal = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
@@ -768,8 +769,12 @@ export async function POST(req) {
             const txAeroSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
             aeroSwapHash = txAeroSwap.hash;
             await waitForTx(provider, txAeroSwap);
+            aeroResidualError = null;
             break;
-          } catch (_) {}
+          } catch (e) { aeroResidualError = e.message ?? String(e); }
+        }
+        if (!aeroSwapHash && aeroResidualError) {
+          console.log(`[closePositions aeroSwap résiduel] échec — bal=${ethers.formatUnits(aeroBal, 18)} — ${aeroResidualError}`);
         }
         if (aeroSwapHash) {
           const usdcAfterAeroSwap = await readBal(stablecoin, wallet.address).catch(() => usdcBeforeAeroSwap);
@@ -790,12 +795,31 @@ export async function POST(req) {
                   const source = aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct";
                   await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${parseFloat(ethers.formatUnits(toSendRaw, 6))}, ${source}, ${txResidual.hash}, ${poolNum})`;
                 }
+              } else {
+                aeroResidualError = 'no_dest_wallet';
               }
-            } catch (_) {}
+            } catch (e) { aeroResidualError = e.message ?? String(e); }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) { aeroResidualError = e.message ?? String(e); }
+
+    // Trace systématique en base (même en succès) — sinon un échec de ce split résiduel
+    // (le point le plus silencieux du flux AERO) ne laisse aucune trace analysable après coup.
+    if (aeroSplitFraction) {
+      await logEvent({
+        action1:  'AERO_SPLIT_RESIDUAL',
+        action2:  aeroResidualError ? 'ISSUE' : 'OK',
+        error_msg: aeroResidualError ? JSON.stringify({ aeroSwapUsdcReceived, aeroResidualError }) : null,
+        pool_num: poolNum,
+      });
+      if (aeroResidualError) {
+        await sendErrorEmail(
+          '[CryptoYieldTracker] AERO résiduel non transféré — closePositions',
+          `poolNum: ${poolNum}\naeroSwapUsdcReceived: ${aeroSwapUsdcReceived}\naeroSplitFraction: ${aeroSplitFraction}\nerreur: ${aeroResidualError}`,
+        );
+      }
+    }
 
     // 4b. Transfert des fees converties vers DESTINATION_WALLET (skippé si noTransfer=true)
     try {

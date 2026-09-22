@@ -6,6 +6,24 @@ import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRang
 import { NFPM_ADDRESS } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
+async function sendErrorEmail(subject, body) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body:    JSON.stringify({
+        from:    'onboarding@resend.dev',
+        to:      'sylvain.fady@gmail.com',
+        subject,
+        html:    `<pre style="font-family:monospace">${body}</pre>`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (_) {}
+}
+
 // Module 7 — Orchestrateur cron pool 2
 // BOT_ENABLED = true — seules les Règles 1, 2, 3, 4 ci-dessous sont actives (anciennes 1c/1d désactivées).
 // Nouveau jeu de règles :
@@ -140,6 +158,37 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
   return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
 
+// Persiste systématiquement le résultat du split AERO en base (lp_events, pas de TTL — contrairement
+// au log Redis p2_algo_metrics qui expire au bout de 7 jours) et alerte par email en cas d'échec
+// anormal (claim/swap AERO cassé côté collectFees, RPC down, wallet dest mal configuré) — pour
+// éviter de reproduire l'incident du 22/09 (rebalance à 5h15, AERO non transféré, aucune trace
+// exploitable après coup).
+async function logAndAlertAeroSplit(out, feesCollected) {
+  try {
+    const sqlDb = neon(process.env.DATABASE_URL);
+    const detail = JSON.stringify({
+      feesCollected,
+      aeroBalance:   out.step2?.aeroBalance ?? null,
+      aeroSwapError: out.step2?.aeroSwapError ?? null,
+      aeroSplit:     out.aeroSplit,
+    });
+    await sqlDb`INSERT INTO lp_events (action1, action2, error_msg, pool_num)
+                VALUES ('AERO_SPLIT', ${out.aeroSplit?.ok ? 'OK' : 'ISSUE'}, ${detail}, ${2})`;
+  } catch (_) {}
+
+  if (!out.aeroSplit?.ok) {
+    const isRealFailure = !!out.step2?.aeroSwapError
+      || out.aeroSplit?.error === 'transfer_failed'
+      || out.aeroSplit?.skipped === 'no_dest_wallet';
+    if (isRealFailure) {
+      await sendErrorEmail(
+        '[CryptoYieldTracker] AERO non transféré — sendAeroSplit',
+        `feesCollected: ${feesCollected}\naeroBalance (step2): ${out.step2?.aeroBalance ?? 'n/a'}\naeroSwapError: ${out.step2?.aeroSwapError ?? 'n/a'}\naeroSplit: ${JSON.stringify(out.aeroSplit)}`,
+      );
+    }
+  }
+}
+
 async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = null, aeroSplitFraction = null) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
@@ -212,6 +261,7 @@ async function closeEdgeZone(base, isLow) {
   // fiable, contrairement à un diff de solde wallet avant/après sur des requêtes séparées.
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
+  await logAndAlertAeroSplit(out, feesCollected);
 
   try   { out.closeLP = await closeLP(base, true, isLow ? 'oor_close_low' : 'oor_close_high', feesCollected, isLow ? 0.25 : 0.5); } // pas de swap forcé, quel que soit le côté
   catch (e) { out.closeLPError = e.message; }
@@ -256,6 +306,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit);
+  await logAndAlertAeroSplit(out, feesCollected);
 
   // Fermer la LP
   try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, aeroLowSplit ? 0.25 : 0.5); }

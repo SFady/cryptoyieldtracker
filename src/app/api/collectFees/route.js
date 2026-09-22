@@ -319,8 +319,11 @@ async function handleStep2(poolNum, body) {
 
     let aeroSwapHash = null;
     let aeroUsdcReceived = 0n;
+    let aeroBalance = "0";
+    let aeroSwapError = null;
     try {
       const aeroBal  = await readBal(AERO, wallet.address);
+      aeroBalance = ethers.formatUnits(aeroBal, 18);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
       if (aeroBal >= MIN_AERO) {
         await waitForTx(await wallet.sendTransaction({
@@ -348,16 +351,20 @@ async function handleStep2(poolNum, body) {
             // Montant réel reçu, lu depuis les logs Transfer du receipt — fiable même si un
             // avant/après solde inter-requêtes serait désynchronisé par un RPC load-balancé.
             aeroUsdcReceived = parseUsdcReceived(receipt, wallet.address);
+            aeroSwapError = null;
             break;
-          } catch (_) {}
+          } catch (e) { aeroSwapError = e.message ?? String(e); }
         }
       }
-    } catch (_) {}
+    } catch (e) { aeroSwapError = e.message ?? String(e); }
+    if (aeroSwapError) console.log(`[collectFees step2 aeroSwap] échec — bal=${aeroBalance} — ${aeroSwapError}`);
 
     return Response.json({
       ok: true, swapWethHash, aeroSwapHash,
       aeroUsdcReceived: ethers.formatUnits(aeroUsdcReceived, 6),
+      aeroBalance,
       ...(swapWethError ? { swapWethError } : {}),
+      ...(aeroSwapError ? { aeroSwapError } : {}),
     });
   } catch (e) {
     return Response.json({ error: e.message ?? String(e) }, { status: 500 });
