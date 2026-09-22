@@ -240,6 +240,8 @@ async function clearAlgoState() {
     kv.del('p2_live_range'),
     kv.del('p2_oor_count'),
     kv.del('p2_oor_low'),
+    kv.del('p2_low_zone_bits'),
+    kv.del('p2_high_zone_bits'),
   ]);
 }
 

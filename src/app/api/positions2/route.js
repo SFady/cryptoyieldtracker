@@ -312,9 +312,10 @@ export async function GET() {
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
     const liveRange    = await kv.get('p2_live_range').catch(() => null);
     const entryPrice   = liveRange?.entry ? parseFloat(liveRange.entry) : null;
+    const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h });
+    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h });
   }
 
   try {
@@ -527,7 +528,14 @@ export async function GET() {
 
     if (positions.length > 0 && positions[0].rangeLow && positions[0].rangeHigh) {
       const existingRange = await kv.get('p2_live_range').catch(() => null);
-      await writeP2Range(positions[0].rangeLow, positions[0].rangeHigh, existingRange?.entry ? parseFloat(existingRange.entry) : null);
+      // Préserve entry/lowTrigger déjà stockés — un writeP2Range sans ces valeurs les efface
+      // silencieusement (kv.set remplace tout l'objet), ce qui réinitialisait le vrai trigger
+      // évolutif du bot (Règle 2, mode "halve") à chaque simple rafraîchissement de la page.
+      await writeP2Range(
+        positions[0].rangeLow, positions[0].rangeHigh,
+        existingRange?.entry ? parseFloat(existingRange.entry) : null,
+        existingRange?.lowTrigger ? parseFloat(existingRange.lowTrigger) : null,
+      );
     }
 
     const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
@@ -543,9 +551,10 @@ export async function GET() {
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
     const liveRange    = await kv.get('p2_live_range').catch(() => null);
     const entryPrice   = liveRange?.entry ? parseFloat(liveRange.entry) : null;
+    const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

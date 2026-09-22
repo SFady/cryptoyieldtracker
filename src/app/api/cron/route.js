@@ -80,39 +80,43 @@ async function handle(req) {
   // Fenêtre glissante "10 hits parmi les 15 derniers ticks" via bitmask (SETBIT/BITCOUNT, 15 bits
   // sur 2 octets, bit 15 jamais utilisé) au lieu d'une liste (lrange+lpush+ltrim) : même sémantique
   // (freeze une fois le seuil atteint, pas d'écriture supplémentaire), 1 commande Redis de moins.
+  // Seuils : lit le vrai lowTrigger stocké par le bot (p2_live_range.lowTrigger, cf. loop.js) au
+  // lieu de recalculer une approximation — sinon ce pré-check peut diverger du vrai seuil utilisé
+  // par botLoop() (notamment après une sortie basse répétée, qui rapproche lowTrigger de rMin) et
+  // ne jamais s'armer alors que le bot est réellement en zone basse.
   let quickLowZone = false;
   if (!isFullTick && !quickOOR && price && liveRange?.min && liveRange?.max) {
-    const rMin   = parseFloat(liveRange.min);
-    const rMax   = parseFloat(liveRange.max);
-    const entry  = liveRange.entry ? parseFloat(liveRange.entry) : null;
-    const center = Math.sqrt(rMin * rMax);
-    const Pc = (entry && entry < center) ? (rMin + entry) / 2 : center - (rMax - rMin) / 4;
+    const rMin = parseFloat(liveRange.min);
+    const rMax = parseFloat(liveRange.max);
+    const Pc = liveRange.lowTrigger ? parseFloat(liveRange.lowTrigger) : rMin + 0.25 * (rMax - rMin);
     const inLowZone = price > rMin && price < Pc;
     try {
       const bitPos = Math.floor(Date.now() / 60000) % 15;
       const hits = await kv.bitcount('p2_low_zone_bits', 0, 1);
       if (hits >= 10) {
         quickLowZone = true; // tomber dans le chemin bot loop
+        await kv.del('p2_low_zone_bits').catch(() => {}); // sinon reste figé "déclenché" indéfiniment
       } else {
         await kv.setbit('p2_low_zone_bits', bitPos, inLowZone ? 1 : 0);
       }
     } catch (_) {}
   }
 
-  // Zone haute : déclencher si seuil atteint (même mécanisme bitmask)
+  // Zone haute : déclencher si seuil atteint (même mécanisme bitmask) — seuil = milieu arithmétique
+  // du range (rMin + 50%), identique à halfPoint dans loop.js (pas de valeur stockée côté haut,
+  // contrairement au lowTrigger : ce seuil est fixe tant que le range ne bouge pas).
   let quickHighZone = false;
   if (!isFullTick && !quickOOR && !quickLowZone && price && liveRange?.min && liveRange?.max) {
-    const rMin   = parseFloat(liveRange.min);
-    const rMax   = parseFloat(liveRange.max);
-    const entry  = liveRange.entry ? parseFloat(liveRange.entry) : null;
-    const center = Math.sqrt(rMin * rMax);
-    const Pu = (entry && entry > center) ? (entry + rMax) / 2 : center + (rMax - rMin) / 4;
+    const rMin = parseFloat(liveRange.min);
+    const rMax = parseFloat(liveRange.max);
+    const Pu = rMin + 0.5 * (rMax - rMin);
     const inUpperZone = price > Pu && price < rMax;
     try {
       const bitPos = Math.floor(Date.now() / 60000) % 15;
       const hits = await kv.bitcount('p2_high_zone_bits', 0, 1);
       if (hits >= 10) {
         quickHighZone = true;
+        await kv.del('p2_high_zone_bits').catch(() => {});
       } else {
         await kv.setbit('p2_high_zone_bits', bitPos, inUpperZone ? 1 : 0);
       }
