@@ -757,6 +757,10 @@ tr:hover {
 
 /* ── MOBILE OVERRIDES ── */
 @media (max-width: 600px) {
+  .hide-mobile {
+    display: none !important;
+  }
+
   th, td {
     padding: 10px 8px;
     font-size: 1rem;
