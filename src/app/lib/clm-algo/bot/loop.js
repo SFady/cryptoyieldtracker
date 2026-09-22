@@ -288,7 +288,7 @@ async function closeEdgeZone(base, isLow) {
  * si le marché est trop agité, la réouverture est sautée (capital laissé dans le wallet), la
  * Règle 1 la reprendra au tick suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -353,6 +353,11 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
     out.spread = parseFloat(spread.toFixed(2));
     if (spread > 1.5) {
       out.reopenSkippedSpread = true;
+      // Mémorise les paramètres de la réouverture voulue : la Règle 1 (aucune position) les
+      // reprendra au tick suivant au lieu d'ouvrir en 50/50 avec le percentile brut.
+      await kv.set('p2_pending_reopen', {
+        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger,
+      }, { ex: 24 * 3600 }).catch(() => {});
       return out;
     }
   }
@@ -360,12 +365,26 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Rouvrir LP avec tout le capital disponible au ratio cible
   out.autoStart = await autoStart({ base, price, targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct });
 
-  // Sauvegarder le nouveau range
-  if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
-    await writeP2Range(out.autoStart.pool.tickLowerPrice, out.autoStart.pool.tickUpperPrice, price);
-  }
+  // Sauvegarder le nouveau range + low trigger (et purger une éventuelle réouverture en attente)
+  await saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger);
+  await kv.del('p2_pending_reopen').catch(() => {});
 
   return out;
+}
+
+// Sauvegarde le range réouvert + low trigger : 'halve' = se rapproche du nouveau rMin (sortie basse
+// répétée), sinon reset à rMin + 25% du nouveau range (sortie haute, Règle 4, défaut).
+async function saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger) {
+  if (!out.autoStart?.pool?.tickLowerPrice || !out.autoStart?.pool?.tickUpperPrice) return;
+  const newRMin = out.autoStart.pool.tickLowerPrice;
+  const newRMax = out.autoStart.pool.tickUpperPrice;
+  // Plafonné au milieu de [newRMin, prix de réouverture] : garantit que le prix reste au-dessus du
+  // trigger dès la réouverture (sinon re-déclenchement immédiat en boucle si le prix a décroché).
+  const newLowTrigger = (lowTriggerMode === 'halve' && oldLowTrigger !== null)
+    ? Math.min((oldLowTrigger + newRMin) / 2, (newRMin + price) / 2)
+    : newRMin + 0.25 * (newRMax - newRMin);
+  out.newLowTrigger = parseFloat(newLowTrigger.toFixed(2));
+  await writeP2Range(newRMin, newRMax, price, newLowTrigger);
 }
 
 /**
@@ -544,8 +563,8 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Lire p2_live_range : range réel (fallback si absent de lpState) + prix d'entrée (réouverture)
-  let entryPrice = null;
+  // Lire p2_live_range : range réel (fallback si absent de lpState) + low trigger stocké
+  let storedLowTrigger = null;
   if (hasLP) {
     const lr = await readP2Range();
     if (rMin == null || isNaN(rMin)) {
@@ -555,7 +574,7 @@ export async function botLoop({ base, price }) {
         console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
       }
     }
-    if (lr?.entry) entryPrice = parseFloat(lr.entry);
+    if (lr?.lowTrigger) storedLowTrigger = parseFloat(lr.lowTrigger);
   }
 
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
@@ -585,13 +604,12 @@ export async function botLoop({ base, price }) {
 
   // Règles 2 (zone basse) et 3 (zone haute) : confirmées sur 5 ticks consécutifs, en réutilisant
   // le compteur p2_oor_count/p2_oor_low et les dots déjà affichés sur la page pools (RangeBar).
-  // Zone basse : seuil = milieu de rMin et du prix de réouverture (pas une fraction fixe du range).
-  // Un ratio >50% (ex. 75%) pousse le centre du range au-dessus du prix de réouverture, donc ce
-  // prix reste toujours strictement au-dessus du milieu [rMin, entry] — marge positive garantie
-  // dès le premier rebalance (cf. simulation), contrairement à range/4 ou range/8 fixes.
-  const lowTrigger  = (hasLP && !isNaN(rMin) && entryPrice !== null && entryPrice > rMin)
-    ? (rMin + entryPrice) / 2
-    : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.25 * (rMax - rMin) : null; // fallback si entry indisponible
+  // Zone basse : seuil stocké explicitement (p2_live_range.lowTrigger), pas dérivé du prix de
+  // réouverture — il se rapproche de rMin à chaque sortie basse répétée (voir Règle 2 plus bas) et
+  // se réinitialise à rMin + 25% du range sur sortie haute / Règle 4 / première ouverture.
+  const lowTrigger  = (hasLP && storedLowTrigger !== null)
+    ? storedLowTrigger
+    : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.25 * (rMax - rMin) : null; // fallback si jamais stocké (1ère ouverture)
   const halfPoint   = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5  * (rMax - rMin) : null;
   const inLowZone   = lowTrigger !== null && price <= lowTrigger;
   const inHighZone  = !inLowZone && halfPoint !== null && price >= halfPoint;
@@ -622,7 +640,7 @@ export async function botLoop({ base, price }) {
       result.lowTrigger      = parseFloat(lowTrigger.toFixed(2));
       result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
       result.newRangePct     = parseFloat(newRangePct.toFixed(2));
-      result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct);
+      result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct, null, null, true, 'halve', lowTrigger);
       await logBotTick(kv, result);
       return result;
     }
@@ -750,7 +768,24 @@ export async function botLoop({ base, price }) {
     }
 
     // Nouvelle Règle 1 : aucune position → ouvrir au range percentile24h brut (×1), 50/50 WETH/USDC.
-    result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+    // Sauf si une réouverture a été retardée par le spread check (Règles 2/3/4) : on reprend alors
+    // exactement ses paramètres (ratio, largeur, trigger) au lieu de repartir de zéro.
+    const pending = await kv.get('p2_pending_reopen').catch(() => null);
+    if (pending) {
+      result.autoStart = await autoStart({
+        base, price,
+        targetRatio:      pending.targetRatio ?? 0.5,
+        rangeMultiplier:  pending.rangeMultiplier ?? 1,
+        explicitRangePct: pending.explicitRangePct ?? null,
+      });
+      result.pendingReopen = true;
+      if (!result.autoStart.skipped && !result.autoStart.error) {
+        await saveRangeAndLowTrigger(result, price, pending.lowTriggerMode ?? 'reset', pending.oldLowTrigger ?? null);
+        await kv.del('p2_pending_reopen').catch(() => {});
+      }
+    } else {
+      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+    }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
     return result;
