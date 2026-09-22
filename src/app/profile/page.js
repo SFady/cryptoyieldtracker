@@ -668,25 +668,31 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
   const color  = inRange ? "#00e5a0" : "#c97070";
   const Pc     = (lowTrigger != null && !isNaN(lowTrigger)) ? lowTrigger : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : trigger stocké par le bot, défaut rMin + 25%)
   const Pu     = lo + 0.5 * (hi - lo); // déclencheur haut (Règle 3 : point milieu du range)
+  const centerP = Math.sqrt(lo * hi); // point central géométrique (même formule que centerPrice côté bot)
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));
   const dotLeftPc = trackPct(Pc);
   const dotLeftPu = trackPct(Pu);
+  const dotLeftC  = trackPct(centerP);
   const dotLeftE1 = trackPct(lo + 0.05 * (hi - lo)); // repère 5% du bord bas
   const dotLeftE2 = trackPct(hi - 0.05 * (hi - lo)); // repère 5% du bord haut
   return (
     <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 48, gap: 4 }}>
         {/* Barre */}
         <div style={{ flex: 1, position: "relative" }}>
           <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: "50%", transform: "translateY(-50%)", height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPc}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(240,180,40,0.55)" }} />
           <div style={{ position: "absolute", left: `${dotLeftPu}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(41,182,240,0.55)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftC}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(167,139,250,0.55)" }} />
           <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
           <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
           <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
           <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
+          <span style={{ position: "absolute", left: `${dotLeftPc}%`, bottom: 11, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(240,180,40,0.9)", whiteSpace: "nowrap" }}>${Pc.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${dotLeftPu}%`, bottom: 11, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(41,182,240,0.9)", whiteSpace: "nowrap" }}>${Pu.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${dotLeftC}%`, bottom: 11, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(167,139,250,0.9)", whiteSpace: "nowrap" }}>${centerP.toFixed(0)}</span>
           <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
           <span style={{ position: "absolute", left: `${TE}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
         </div>
