@@ -19,6 +19,8 @@ export default function ProfilePage() {
   const [usdcWallet2, setUsdcWallet2] = useState(null);
   const [wethWallet2, setWethWallet2] = useState(null);
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
+  const [ethWallet2, setEthWallet2] = useState(null);
+  const [ethWalletUSD2, setEthWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [avg14d2, setAvg14d2] = useState(null);
   const [avg24h2, setAvg24h2] = useState(null);
@@ -54,7 +56,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -173,7 +175,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} lowTrigger={lowTrigger2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} lowTrigger={lowTrigger2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -346,7 +348,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, edgeStreak = null, oorCount = 0, oorLow = false, lowTrigger = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, lowTrigger = null, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -493,6 +495,13 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           {wethWallet !== null && (
             <TokenRow token={{ symbol: "WETH", balance: wethWallet ?? "0.000000", usd: wethWalletUSD ?? "0.00" }} accent="#627eea" />
           )}
+        </Section>
+      )}
+
+      {/* Gas (ETH natif Base) */}
+      {ethWallet !== null && (
+        <Section label="Gas">
+          <TokenRow token={{ symbol: "ETH", balance: ethWallet ?? "0.000000", usd: ethWalletUSD ?? "0.00" }} accent="#eaf6ff" />
         </Section>
       )}
 
