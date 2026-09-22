@@ -687,9 +687,9 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
           <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
           <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
           <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
-          <span style={{ position: "absolute", left: `${dotLeftPu}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(41,182,240,0.9)", whiteSpace: "nowrap" }}>${Pu.toFixed(0)}</span>
           <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
           <span style={{ position: "absolute", left: `${dotLeftPc}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(240,180,40,0.9)", whiteSpace: "nowrap" }}>${Pc.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${dotLeftPu}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(41,182,240,0.9)", whiteSpace: "nowrap" }}>${Pu.toFixed(0)}</span>
           <span style={{ position: "absolute", left: `${TE}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
         </div>
         {/* Panel droit */}
