@@ -103,15 +103,6 @@ export default function ProfilePage() {
                   Range percentile 24h : {percentileRange2}%
                 </span>
               )}
-              {lowTrigger2 !== null && (
-                <span style={{
-                  fontSize: "0.65rem", fontFamily: "monospace",
-                  padding: "2px 8px", borderRadius: 4,
-                  background: "rgba(240,150,41,0.08)", border: "1px solid rgba(240,150,41,0.25)", color: "#f0a029",
-                }}>
-                  Low trigger : ${lowTrigger2.toFixed(2)}
-                </span>
-              )}
               {avg24h2 !== null && (
                 <span style={{
                   fontSize: "0.65rem", fontFamily: "monospace",
