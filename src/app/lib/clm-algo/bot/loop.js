@@ -290,7 +290,7 @@ async function closeEdgeZone(base, isLow) {
  * si le marché est trop agité, la réouverture est sautée (capital laissé dans le wallet), la
  * Règle 1 la reprendra au tick suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null, skipAeroSplit = false) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -307,11 +307,14 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   }
   // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
-  out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit);
+  // skipAeroSplit : règle qui doit garder 100% des fees/AERO dans la position (pas d'envoi externe
+  // ce cycle) — on n'appelle même pas sendAeroSplit pour éviter toute tentative de transfert.
+  out.aeroSplit = skipAeroSplit ? { skipped: 'rule_no_external_send' } : await sendAeroSplit(feesCollected, aeroLowSplit);
   await logAndAlertAeroSplit(out, feesCollected);
 
-  // Fermer la LP
-  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, aeroLowSplit ? 0.25 : 0.5); }
+  // Fermer la LP — aeroSplitFraction=null coupe aussi le split résiduel côté closePositions
+  // (sinon il enverrait quand même une part de l'AERO résiduel swappé pendant la fermeture)
+  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAeroSplit ? null : (aeroLowSplit ? 0.25 : 0.5)); }
   catch (e) { out.closeLPError = e.message; }
 
   // Fermeture ratée (exception ou {error} dans la réponse) → ne pas ouvrir une nouvelle position
@@ -683,6 +686,32 @@ export async function botLoop({ base, price }) {
   const revenueGate    = hasLP ? await getRevenueGate(base) : null;
   const revenueOk      = !!revenueGate && revenueGate.totalRevenus >= revenueGate.totalAeros;
   result.revenueGate   = revenueGate;
+
+  // Règle 1e : range bloqué au plafond 20% (la Règle 2 ne double plus, cf. alreadyAt20 plus haut)
+  // alors que la volatilité 24h est redescendue très bas (≤2%, range devenu inutilement large) et
+  // que la position reste gagnante sur le cycle en cours (gain ≥ 0) → resserre à 2×percentile sans
+  // changer la proportion WETH/USDC actuelle (keepCurrentRatio, aucun swap forcé) et sans envoyer
+  // la part AERO/fees au wallet externe ce coup-ci (tout reste dans la position/le wallet).
+  if (hasLP && !isNaN(rMin) && !isNaN(rMax) && revenueGate && revenueGate.totalRevenus >= 0) {
+    const rangePctActuel = (rMax - rMin) / rMin * 100;
+    if (rangePctActuel >= 20) {
+      const pctData = await getPercentileRange();
+      const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
+        ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
+        : null;
+      if (p24h !== null && p24h <= 2) {
+        console.log(`[botLoop 1e] range_cap_shrink — actuel=${rangePctActuel.toFixed(2)}% p24h=${p24h.toFixed(2)}% gain=${revenueGate.totalRevenus.toFixed(2)}`);
+        result.action          = 'range_cap_shrink';
+        result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
+        result.percentileRange = parseFloat(p24h.toFixed(2));
+        result.newRangePct     = parseFloat((p24h * 2).toFixed(2));
+        result.collect = await runCollect(base, price, null, 'range_cap_shrink', 4, true, p24h * 2, null, null, true, 'reset', null, true);
+        await logBotTick(kv, result);
+        return result;
+      }
+    }
+  }
+
   if (RULE_1C_ENABLED && hasLP && revenueOk && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0

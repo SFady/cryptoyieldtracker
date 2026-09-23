@@ -11,6 +11,7 @@ const REASON_LABELS = {
   oor_close_high:           "Sortie haute",
   range_shrink_rebalance:   "Resserrement",
   range_expand_rebalance:   "Élargissement",
+  range_cap_shrink:         "Resserrement (plafond 20%)",
   range_rebalance_stale6h:  "Stale 6h",
   trend_shift_rebalance:    "Changement de tendance",
 };
