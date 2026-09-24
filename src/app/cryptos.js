@@ -23,11 +23,20 @@ export const cryptosSet2 = [
   { crypto: "bittensor", symbol: "TAO", montant: 0.3, investi: 116 },
 ];
 
+export const cryptosSet4 = [
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.00187141, investi: 116 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.02414785, investi: 116 },
+  { crypto: "bittensor", symbol: "TAO", montant: 0.3, investi: 116 },
+];
+
 export function getCryptos(param) {
   if (param === "set1") {
     return cryptosSet1;
   } else if (param === "set2") {
     return cryptosSet2;
+  }
+  else if (param === "set4") {
+    return cryptosSet4;
   }
   return []; // default empty array if no match
 }

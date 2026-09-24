@@ -46,5 +46,18 @@ export async function login(formData) {
     return { success: true };
   }
 
+  if (username === "infamousBird" && password === "InfB486=#") {
+    cookies().set({
+      name: "session",
+      value: "set4",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 365 * 60 * 60 * 24, // 365 jours
+    });
+    return { success: true };
+  }
+
   return { success: false };
 }
