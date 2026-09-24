@@ -31,21 +31,13 @@ export default function HomePage() {
   const totalDailyDelta = dailyDelta.reduce((acc, val) => acc + val, 0);
   const moyenne = ((totalGainsFixes + totalDailyDelta) / gainsFixes.length).toFixed(2);
 
-  // Set4 — ligne "BOTS" dynamique : 100 + 100×(total des envois / 600), pas un vrai token
-  const [transfersTotal, setTransfersTotal] = useState(0);
-  useEffect(() => {
-    if (activeUser !== "set4") return;
-    fetch("/api/transfers")
-      .then((r) => r.json())
-      .then((d) => {
-        const sum = (d.transfers ?? []).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-        setTransfersTotal(sum);
-      })
-      .catch(() => {});
-  }, [activeUser]);
+  // Set4 — ligne "BOTS" dynamique : 100$ capitalisés à 2.3%/mois composé, depuis janvier 2026
+  // (N = mois pleins écoulés depuis janvier ; janvier = 0, février = 1, etc.)
+  const monthsSinceJan2026 = (new Date().getFullYear() - 2026) * 12 + new Date().getMonth();
+  const botsValue = 100 * Math.pow(1.023, Math.max(0, monthsSinceJan2026));
 
   const cryptos = activeUser === "set4"
-    ? [...getCryptos(activeUser), { symbol: "BOTS", investi: 100, fixedValue: 100 + 100 * (transfersTotal / 600) }]
+    ? [...getCryptos(activeUser), { symbol: "BOTS", investi: 100, fixedValue: botsValue }]
     : getCryptos(activeUser);
 
   const { prices, error, tokenMap } = useCryptoPrices();
