@@ -204,6 +204,7 @@ export default function HomePage() {
         <thead>
           <tr>
             <th>Crypto</th>
+            <th style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>Gain/Perte (%)</th>
             <th style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>Investi ($)</th>
             <th style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>Valeur ($)</th>
           </tr>
@@ -217,17 +218,23 @@ export default function HomePage() {
               return { ...item, total, diff };
             })
             .sort((a, b) => a.symbol.localeCompare(b.symbol))
-            .map((item, index) => (
-              <tr key={index}>
-                <td>{item.symbol}</td>
-                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                  {item.investi}
-                </td>
-                <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                  {item.total ? formatPrice(item.total) : "N/A"}
-                </td>
-              </tr>
-            ))}
+            .map((item, index) => {
+              const pct = item.investi ? (item.diff / item.investi) * 100 : null;
+              return (
+                <tr key={index}>
+                  <td>{item.symbol}</td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: pct == null ? "#6666aa" : pct >= 0 ? "#00e5a0" : "#c97070", fontWeight: 700 }}>
+                    {pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`}
+                  </td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {item.investi}
+                  </td>
+                  <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {item.total ? formatPrice(item.total) : "N/A"}
+                  </td>
+                </tr>
+              );
+            })}
         </tbody>
       </table>
     </>
