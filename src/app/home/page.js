@@ -13,6 +13,18 @@ function formatPrice(price) {
   });
 }
 
+// Pseudo-aléatoire déterministe (même seed → même résultat) : le delta jour ne bouge qu'une
+// fois par jour (stable pendant la journée), pas à chaque rendu.
+function seededRandom(seedStr) {
+  let h = 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = (h << 5) - h + seedStr.charCodeAt(i);
+    h |= 0;
+  }
+  const x = Math.sin(h) * 10000;
+  return x - Math.floor(x); // [0, 1)
+}
+
 export default function HomePage() {
 
   const { activeUser } = useAuth();
@@ -31,10 +43,18 @@ export default function HomePage() {
   const totalDailyDelta = dailyDelta.reduce((acc, val) => acc + val, 0);
   const moyenne = ((totalGainsFixes + totalDailyDelta) / gainsFixes.length).toFixed(2);
 
-  // Set4 — ligne "BOTS" dynamique : 100$ capitalisés à 2.3%/mois composé, depuis janvier 2026
-  // (N = mois pleins écoulés depuis janvier ; janvier = 0, février = 1, etc.)
-  const monthsSinceJan2026 = (new Date().getFullYear() - 2026) * 12 + new Date().getMonth();
-  const botsValue = 100 * Math.pow(1.023, Math.max(0, monthsSinceJan2026));
+  // Set4 — ligne "BOTS" dynamique : 100$ capitalisés jour par jour (taux quotidien équivalent à
+  // 2.3%/mois composé, depuis janvier 2026) + un léger delta aléatoire qui change chaque jour
+  // (seedé sur la date → stable pendant la journée, bouge le lendemain) pour ne pas avoir une
+  // courbe parfaitement lisse.
+  const DAILY_RATE = Math.pow(1.023, 1 / 30.44) - 1;
+  const startDate  = new Date(Date.UTC(2026, 0, 1));
+  const nowDate    = new Date();
+  const todayUTC   = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
+  const daysSinceStart = Math.max(0, Math.floor((todayUTC - startDate) / 86400000));
+  const dateKey    = todayUTC.toISOString().slice(0, 10);
+  const dailyJitter = (seededRandom(dateKey) - 0.5) * 0.008; // ±0.4%
+  const botsValue  = 100 * Math.pow(1 + DAILY_RATE, daysSinceStart) * (1 + dailyJitter);
 
   const cryptos = activeUser === "set4"
     ? [...getCryptos(activeUser), { symbol: "BOTS", investi: 100, fixedValue: botsValue }]
