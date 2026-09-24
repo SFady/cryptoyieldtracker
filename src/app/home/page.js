@@ -31,13 +31,29 @@ export default function HomePage() {
   const totalDailyDelta = dailyDelta.reduce((acc, val) => acc + val, 0);
   const moyenne = ((totalGainsFixes + totalDailyDelta) / gainsFixes.length).toFixed(2);
 
-  const cryptos = getCryptos(activeUser);
+  // Set4 — ligne "BOTS" dynamique : 100 + 100×(total des envois / 600), pas un vrai token
+  const [transfersTotal, setTransfersTotal] = useState(0);
+  useEffect(() => {
+    if (activeUser !== "set4") return;
+    fetch("/api/transfers")
+      .then((r) => r.json())
+      .then((d) => {
+        const sum = (d.transfers ?? []).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+        setTransfersTotal(sum);
+      })
+      .catch(() => {});
+  }, [activeUser]);
+
+  const cryptos = activeUser === "set4"
+    ? [...getCryptos(activeUser), { symbol: "BOTS", investi: 100, fixedValue: 100 + 100 * (transfersTotal / 600) }]
+    : getCryptos(activeUser);
 
   const { prices, error, tokenMap } = useCryptoPrices();
 
   if (activeUser !== "set3" && Object.keys(prices).length === 0) return <p>Loading...</p>;
 
   const totalGlobal = cryptos.reduce((sum, item) => {
+    if (item.fixedValue !== undefined) return sum + item.fixedValue;
     const price = prices[item.crypto];
     const total = price ? item.montant * price : 0;
     return sum + total;
@@ -183,8 +199,8 @@ export default function HomePage() {
         <tbody>
           {cryptos
             .map((item) => {
-              const price = prices[item.crypto];
-              const total = price ? item.montant * price : 0;
+              const price = item.fixedValue !== undefined ? null : prices[item.crypto];
+              const total = item.fixedValue !== undefined ? item.fixedValue : (price ? item.montant * price : 0);
               const diff = total - item.investi;
               return { ...item, total, diff };
             })
