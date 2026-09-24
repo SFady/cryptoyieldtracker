@@ -26,8 +26,8 @@ export const cryptosSet2 = [
 export const cryptosSet4 = [
   { crypto: "aave", symbol: "AAVE", montant: 1.2, investi: 100 },
   { crypto: "bitcoin", symbol: "BTC", montant: 0.00225, investi: 100 },
-  { crypto: "ethereum", symbol: "ETH", montant: 0.0495, investi: 100 },
-  { crypto: "chainlink", symbol: "LINK", montant: 9.34, investi: 100 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.0495, investi: 150 },
+  { crypto: "chainlink", symbol: "LINK", montant: 9.34, investi: 150 },
   { crypto: "ondo-finance", symbol: "ONDO", montant: 89.26, investi: 50 },
   { crypto: "pendle", symbol: "PENDLE", montant: 17, investi: 50 },
   { crypto: "solana", symbol: "SOL", montant: 0.413, investi: 50 },
