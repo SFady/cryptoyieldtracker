@@ -18,7 +18,7 @@ export async function GET() {
     "reserve-rights-token", "syrup", "akash-network", "nervos-network", "gamercoin",
     "aerodrome-finance", "kaspa", "io", "alephium", "coredaoorg", "ankr",
     "qubic-network", "nosana", "hatom", "defit", "jito-governance-token",
-    "ondo-finance", "solana", "pyth-network"
+    "ondo-finance", "solana", "pyth-network", "stax-token"
   ];
 
   try {

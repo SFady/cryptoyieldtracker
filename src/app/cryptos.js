@@ -27,6 +27,8 @@ export const cryptosSet4 = [
   { crypto: "bitcoin", symbol: "BTC", montant: 0.00187141, investi: 116 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.02414785, investi: 116 },
   { crypto: "bittensor", symbol: "TAO", montant: 0.3, investi: 116 },
+  { crypto: "stax-token", symbol: "STAX", montant: 135, investi: 100 },
+
 ];
 
 export function getCryptos(param) {
