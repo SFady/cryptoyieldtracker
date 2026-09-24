@@ -32,7 +32,7 @@ export const cryptosSet4 = [
   { crypto: "pendle", symbol: "PENDLE", montant: 1, investi: 1 },
   { crypto: "solana", symbol: "SOL", montant: 1, investi: 1 },
   { crypto: "blockstack", symbol: "STX", montant: 1, investi: 1 },
-  { crypto: "bittensor", symbol: "TAO", montant: 0.4, investi: 100 },
+  { crypto: "bittensor", symbol: "TAO", montant: 0.26, investi: 100 },
 ];
 
 export function getCryptos(param) {

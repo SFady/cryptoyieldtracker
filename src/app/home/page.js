@@ -188,7 +188,7 @@ export default function HomePage() {
               const diff = total - item.investi;
               return { ...item, total, diff };
             })
-            .sort((a, b) => b.diff - a.diff)
+            .sort((a, b) => a.symbol.localeCompare(b.symbol))
             .map((item, index) => (
               <tr key={index}>
                 <td>{item.symbol}</td>
