@@ -24,8 +24,8 @@ export const cryptosSet2 = [
 ];
 
 export const cryptosSet4 = [
-  { crypto: "bitcoin", symbol: "BTC", montant: 0.00187141, investi: 116 },
-  { crypto: "ethereum", symbol: "ETH", montant: 0.02414785, investi: 116 },
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.0015, investi: 100 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.033, investi: 100 },
   { crypto: "bittensor", symbol: "TAO", montant: 0.3, investi: 116 },
   { crypto: "blockstack", symbol: "STX", montant: 1, investi: 1 },
   { crypto: "chainlink", symbol: "LINK", montant: 1, investi: 1 },
