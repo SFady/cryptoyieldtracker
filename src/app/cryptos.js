@@ -24,7 +24,7 @@ export const cryptosSet2 = [
 ];
 
 export const cryptosSet4 = [
-  { crypto: "aave", symbol: "AAVE", montant: 1.2, investi: 100 },
+  { crypto: "aave", symbol: "AAVE", montant: 0.72, investi: 100 },
   { crypto: "bitcoin", symbol: "BTC", montant: 0.00225, investi: 150 },
   { crypto: "ethereum", symbol: "ETH", montant: 0.0495, investi: 150 },
   { crypto: "chainlink", symbol: "LINK", montant: 9.34, investi: 100 },
