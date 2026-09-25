@@ -24,15 +24,15 @@ export const cryptosSet2 = [
 ];
 
 export const cryptosSet4 = [
-  { crypto: "aave", symbol: "AAVE", montant: 0.72, investi: 100 },
-  { crypto: "bitcoin", symbol: "BTC", montant: 0.00225, investi: 150 },
-  { crypto: "ethereum", symbol: "ETH", montant: 0.0495, investi: 150 },
-  { crypto: "chainlink", symbol: "LINK", montant: 9.34, investi: 100 },
-  { crypto: "ondo-finance", symbol: "ONDO", montant: 89.26, investi: 50 },
-  { crypto: "pendle", symbol: "PENDLE", montant: 17, investi: 50 },
-  { crypto: "solana", symbol: "SOL", montant: 0.413, investi: 50 },
-  { crypto: "blockstack", symbol: "STX", montant: 138.7, investi: 50 },
-  { crypto: "bittensor", symbol: "TAO", montant: 0.405, investi: 150 },
+  { crypto: "aave", symbol: "AAVE", montant: 0.72, investi: 113 },
+  { crypto: "bitcoin", symbol: "BTC", montant: 0.00326, investi: 230 },
+  { crypto: "ethereum", symbol: "ETH", montant: 0.0842, investi: 233 },
+  { crypto: "chainlink", symbol: "LINK", montant: 9.34, investi: 116 },
+  { crypto: "ondo-finance", symbol: "ONDO", montant: 112.25, investi: 62 },
+  { crypto: "pendle", symbol: "PENDLE", montant: 18, investi: 49 },
+  { crypto: "solana", symbol: "SOL", montant: 0.446, investi: 52 },
+  { crypto: "blockstack", symbol: "STX", montant: 158.7, investi: 52 },
+  { crypto: "bittensor", symbol: "TAO", montant: 0.459, investi: 145 },
 ];
 
 export function getCryptos(param) {
