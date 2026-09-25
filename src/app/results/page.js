@@ -14,6 +14,7 @@ const REASON_LABELS = {
   range_cap_shrink:         "Resserrement (plafond 20%)",
   range_rebalance_stale6h:  "Stale 6h",
   trend_shift_rebalance:    "Changement de tendance",
+  low_recovery_rebalance:   "Reprise après sortie basse",
 };
 
 export default function ResultsPage() {
@@ -87,7 +88,19 @@ export default function ResultsPage() {
                     <td style={{ padding: "8px 10px", color: "#aaaacc", whiteSpace: "nowrap" }}>{r.date}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc", whiteSpace: "nowrap" }}>{r.closedDate ?? "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#a78bfa", fontWeight: 700 }}>{r.openTrend ?? "—"}</td>
-                    <td style={{ padding: "8px 10px", color: "#8888aa" }}>{REASON_LABELS[r.closeReason] ?? (r.closeReason ?? "—")}</td>
+                    <td style={{ padding: "8px 10px" }}>
+                      {r.closeReason === 'low_recovery_rebalance' ? (
+                        <span style={{
+                          fontSize: "0.7rem", fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap",
+                          padding: "2px 8px", borderRadius: 4,
+                          background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.35)", color: "#f0b429",
+                        }}>
+                          {REASON_LABELS[r.closeReason]}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#8888aa" }}>{REASON_LABELS[r.closeReason] ?? (r.closeReason ?? "—")}</span>
+                      )}
+                    </td>
                     <td style={{ padding: "8px 10px", color: "#a78bfa", whiteSpace: "nowrap" }}>
                       {r.rangeMin !== null && r.rangeMax !== null
                         ? `$${r.rangeMin.toFixed(0)}-$${r.rangeMax.toFixed(0)}${r.rangePct !== null ? ` (${r.rangePct.toFixed(2)}%)` : ""}`

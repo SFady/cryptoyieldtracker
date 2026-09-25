@@ -328,6 +328,19 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Réinitialiser l'état algo
   await clearAlgoState();
 
+  // Mémorise la perte réalisée par CE cycle qui se termine ici (Règle 2 uniquement) — sert de
+  // référence à la Règle 1f pour savoir si les revenus du nouveau cycle l'ont compensée (0 si ce
+  // cycle était en fait gagnant, pour ne pas bloquer la Règle 1f sur un gain à dépasser).
+  if (closeReason === 'low_zone_rebalance') {
+    try {
+      const openingBefore   = parseFloat((await kv.get('p2_opening_total')) ?? 0) || 0;
+      const [usdcBal, wethBal] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
+      const valueAfterClose = usdcBal + wethBal * price;
+      const cycleLoss       = Math.max(0, openingBefore - valueAfterClose);
+      await kv.set('p2_prev_cycle_loss', cycleLoss, { ex: 30 * 86400 }).catch(() => {});
+    } catch (_) {}
+  }
+
   // Ratio effectif : soit le ratio cible fourni, soit (keepCurrentRatio) les proportions
   // WETH/USDC réellement présentes dans le wallet après la fermeture — aucun swap forcé,
   // sauf si ça franchit le trigger de maxWethCap/minWethCap (swap partiel vers leur target).
@@ -361,7 +374,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
       // Mémorise les paramètres de la réouverture voulue : la Règle 1 (aucune position) les
       // reprendra au tick suivant au lieu d'ouvrir en 50/50 avec le percentile brut.
       await kv.set('p2_pending_reopen', {
-        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger,
+        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger, closeReason,
       }, { ex: 24 * 3600 }).catch(() => {});
       return out;
     }
@@ -373,6 +386,12 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Sauvegarder le nouveau range + low trigger (et purger une éventuelle réouverture en attente)
   await saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger);
   await kv.del('p2_pending_reopen').catch(() => {});
+  // Mémorise la raison de CETTE ouverture — sert à la Règle 1f pour détecter une position issue
+  // d'une sortie basse (Règle 2), indépendamment de ce qui se passe ensuite dans son cycle. Seulement
+  // si l'ouverture a réellement abouti (même garde que saveRangeAndLowTrigger).
+  if (out.autoStart?.pool?.tickLowerPrice && out.autoStart?.pool?.tickUpperPrice) {
+    await kv.set('p2_open_reason', closeReason, { ex: 30 * 86400 }).catch(() => {});
+  }
 
   return out;
 }
@@ -712,6 +731,34 @@ export async function botLoop({ base, price }) {
     }
   }
 
+  // Règle 1f : la position en cours vient d'une sortie basse (Règle 2), a plus de 24h, et les
+  // revenus cumulés depuis sa réouverture (revenueGate.totalRevenus) dépassent la perte réalisée
+  // au cycle précédent (p2_prev_cycle_loss, mémorisée par la Règle 2 à sa fermeture) → on revient
+  // au range percentile24h brut en gardant les proportions WETH/USDC actuelles (aucun swap forcé),
+  // sans envoyer la part AERO/fees au wallet externe ce coup-ci.
+  if (hasLP && !isNaN(rMin) && !isNaN(rMax) && revenueGate) {
+    const openReason = await kv.get('p2_open_reason').catch(() => null);
+    const ageMs       = lpState?.created_at ? Date.now() - new Date(lpState.created_at).getTime() : 0;
+    if (openReason === 'low_zone_rebalance' && ageMs > 24 * 3600 * 1000) {
+      const prevCycleLoss = parseFloat((await kv.get('p2_prev_cycle_loss')) ?? 0) || 0;
+      if (revenueGate.totalRevenus > prevCycleLoss) {
+        const pctData = await getPercentileRange();
+        const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
+          ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
+          : null;
+        if (p24h !== null) {
+          console.log(`[botLoop 1f] low_recovery_rebalance — revenus=${revenueGate.totalRevenus.toFixed(2)} perteCycle=${prevCycleLoss.toFixed(2)} age=${(ageMs / 3600000).toFixed(1)}h`);
+          result.action          = 'low_recovery_rebalance';
+          result.prevCycleLoss   = parseFloat(prevCycleLoss.toFixed(2));
+          result.percentileRange = parseFloat(p24h.toFixed(2));
+          result.collect = await runCollect(base, price, null, 'low_recovery_rebalance', 1, true, p24h, null, null, true, 'reset', null, true);
+          await logBotTick(kv, result);
+          return result;
+        }
+      }
+    }
+  }
+
   if (RULE_1C_ENABLED && hasLP && revenueOk && !isNaN(rMin) && !isNaN(rMax)) {
     const pctData = await getPercentileRange();
     const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
@@ -813,9 +860,13 @@ export async function botLoop({ base, price }) {
       if (!result.autoStart.skipped && !result.autoStart.error) {
         await saveRangeAndLowTrigger(result, price, pending.lowTriggerMode ?? 'reset', pending.oldLowTrigger ?? null);
         await kv.del('p2_pending_reopen').catch(() => {});
+        await kv.set('p2_open_reason', pending.closeReason ?? 'auto_start', { ex: 30 * 86400 }).catch(() => {});
       }
     } else {
       result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+      if (!result.autoStart.skipped && !result.autoStart.error) {
+        await kv.set('p2_open_reason', 'auto_start', { ex: 30 * 86400 }).catch(() => {});
+      }
     }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
