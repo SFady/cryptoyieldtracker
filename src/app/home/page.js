@@ -54,10 +54,10 @@ export default function HomePage() {
   const daysSinceStart = Math.max(0, Math.floor((todayUTC - startDate) / 86400000));
   const dateKey    = todayUTC.toISOString().slice(0, 10);
   const dailyJitter = (seededRandom(dateKey) - 0.5) * 0.008; // ±0.4%
-  const botsValue  = 100 * Math.pow(1 + DAILY_RATE, daysSinceStart) * (1 + dailyJitter);
+  const botsValue  = 111 * Math.pow(1 + DAILY_RATE, daysSinceStart) * (1 + dailyJitter);
 
   const cryptos = activeUser === "set4"
-    ? [...getCryptos(activeUser), { symbol: "BOTS", investi: 100, fixedValue: botsValue }]
+    ? [...getCryptos(activeUser), { symbol: "BOTS", investi: 111, fixedValue: botsValue }]
     : getCryptos(activeUser);
 
   const { prices, error, tokenMap } = useCryptoPrices();
