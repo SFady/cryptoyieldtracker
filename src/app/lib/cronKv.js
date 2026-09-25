@@ -220,12 +220,14 @@ export async function readCollectErr(poolNum) {
   try { const v = await kv.get(`fee-err-${poolNum}`); return v === null ? null : !!v; } catch (_) { return null; }
 }
 
-// Cache des données positions (60 s — évite les requêtes SQL Neon à chaque chargement de page)
+// Cache des données positions (4 min — le bot tick toutes les ~5-6 min via getWethRatio/
+// getRevenueGate, donc un TTL de 15s ne servait à rien et retapait Neon à chaque tick, 24h/24,
+// empêchant le compute Neon de jamais se mettre en veille sur le plan free)
 export async function readPositionsCache(poolNum) {
   try { return await kv.get(`positions-cache-${poolNum}`); } catch (_) { return null; }
 }
 export async function writePositionsCache(poolNum, data) {
-  try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 15 }); } catch (_) {}
+  try { await kv.set(`positions-cache-${poolNum}`, data, { ex: 240 }); } catch (_) {}
 }
 
 // Bank de fees journalières (5%/30 par jour vers DESTINATION_WALLET)
