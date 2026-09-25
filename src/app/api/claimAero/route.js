@@ -176,14 +176,26 @@ export async function POST(req) {
       return Response.json({ skipped: true, reason: "Position non stakée — rien à réclamer" });
     }
 
+    // getReward peut revert sans que ce soit anormal (rien d'accru à cet instant, position tout
+    // juste stakée, etc.) — comme dans collectFees step1, on tolère et on continue : l'étape swap
+    // ci-dessous n'aura simplement rien à convertir. Ne PAS transformer ça en erreur fatale, sinon
+    // la Règle 5 (claim périodique 24h) retenterait à chaque tick indéfiniment en repayant du gas.
+    // Marge de 50% sur l'estimation (comme retry-stake) : l'estimation par défaut peut être un peu
+    // juste sur ce gauge et faire reverter la tx pour manque de gas alors que l'appel est valide
+    // (constaté : un eth_call identique rejoué après coup réussit sans problème).
+    let getRewardOk = true;
     try {
-      const tx = await wallet.sendTransaction({
-        to: gaugeAddr,
-        data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]),
-      });
+      const data = GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]);
+      let gasLimit = 400000n;
+      try {
+        const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data });
+        gasLimit = est * 3n / 2n;
+      } catch (_) {}
+      const tx = await wallet.sendTransaction({ to: gaugeAddr, data, gasLimit });
       await waitForTx(tx);
     } catch (e) {
-      throw new Error(`[getReward] ${e.message ?? e}`);
+      getRewardOk = false;
+      console.log(`[claimAero getReward] ${e.message ?? e}`);
     }
 
     // 4. Swap AERO → USDC
@@ -247,7 +259,7 @@ export async function POST(req) {
       try { await sql`INSERT INTO lp_events (action1, token_id, pool_num) VALUES ('AERO_CLAIM', ${rows[0].token_id}, ${poolNum})`; } catch (_) {}
     }
 
-    return Response.json({ ok: true, aeroSwapHash, transferHash, deltaUsdcTotal });
+    return Response.json({ ok: true, getRewardOk, aeroSwapHash, transferHash, deltaUsdcTotal });
 
   } catch (e) {
     const msg = e.message ?? String(e);
