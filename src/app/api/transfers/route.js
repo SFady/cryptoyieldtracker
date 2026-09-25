@@ -14,6 +14,10 @@ function formatSource(source) {
   const m = source.match(/^cas(\d+)/i);
   if (m) return `Cas ${m[1]}`;
   if (source === "claimAero") return "Claim";
+  if (source === "periodic_24h_claim") return "Claim 25% / 24h";
+  if (source === "morning_claim_25pct") return "Claim matinal 25%";
+  if (source === "edge_low_25pct") return "Sortie basse 25%";
+  if (source === "edge_high_50pct") return "Sortie haute 50%";
   return source;
 }
 
@@ -28,11 +32,12 @@ export async function GET() {
       LIMIT 100
     `;
     const fmt = rows.map(r => ({
-      date:    new Date(r.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }),
-      amount:  parseFloat(r.amount_usdc).toFixed(2),
-      source:  formatSource(r.source),
-      txHash:  r.tx_hash ?? "",
-      poolNum: r.pool_num ?? 2,
+      date:      new Date(r.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }),
+      amount:    parseFloat(r.amount_usdc).toFixed(2),
+      source:    formatSource(r.source),
+      rawSource: r.source ?? null,
+      txHash:    r.tx_hash ?? "",
+      poolNum:   r.pool_num ?? 2,
     }));
     return Response.json({ transfers: fmt, wallet2Short, wallet3Short });
   } catch (e) {

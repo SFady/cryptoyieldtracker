@@ -230,7 +230,7 @@ export async function POST(req) {
           await waitForTx(txTransfer);
           try {
             const amt    = parseFloat(ethers.formatUnits(toSend, 6));
-            const source = sendFraction >= 1 ? "claimAero" : "morning_claim_25pct";
+            const source = body.source ?? (sendFraction >= 1 ? "claimAero" : "morning_claim_25pct");
             await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${amt}, ${source}, ${transferHash}, ${poolNum})`;
           } catch (_) {}
         }

@@ -32,17 +32,17 @@ export async function GET() {
       `;
     }
 
-    // Transferts vers le wallet externe (sorties Règle 1A edge_low/high, resizes 1c/1d, claims AERO
-    // manuel ou matinal 7h) — à réintégrer dans usdc_on_close, sinon le montant envoyé apparaît comme
-    // une perte alors qu'il est juste déplacé hors du wallet du bot. Fenêtre = toute la durée de vie
-    // du cycle (created_at → closed_at), pas seulement les minutes précédant la fermeture : un claim
-    // survenant en plein milieu d'un cycle (ex. claim matinal) doit aussi être réintégré.
+    // Transferts vers le wallet externe (sorties Règles 2/3/1e/1f, claims AERO manuel, matinal 7h
+    // [désactivé] ou périodique 24h [Règle 5]) — à réintégrer dans usdc_on_close, sinon le montant
+    // envoyé apparaît comme une perte alors qu'il est juste déplacé hors du wallet du bot. Fenêtre =
+    // toute la durée de vie du cycle (created_at → closed_at), pas seulement les minutes précédant
+    // la fermeture : un claim survenant en plein milieu d'un cycle doit aussi être réintégré.
     let transfers = [];
     try {
       transfers = await sql`
         SELECT amount_usdc, pool_num, created_at
         FROM dest_transfers
-        WHERE source IN ('edge_low_25pct', 'edge_high_50pct', 'claimAero', 'morning_claim_25pct')
+        WHERE source IN ('edge_low_25pct', 'edge_high_50pct', 'claimAero', 'morning_claim_25pct', 'periodic_24h_claim')
         ORDER BY created_at ASC
       `;
     } catch (_) {}

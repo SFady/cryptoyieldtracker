@@ -154,6 +154,9 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
                 VALUES (${toSend}, ${isLow ? 'edge_low_25pct' : 'edge_high_50pct'}, ${txHash}, ${2})`;
   } catch (_) {}
   await writeAeroSentToday(2).catch(() => {});
+  // Compte aussi comme un envoi externe pour la Règle 5 (claim périodique 24h) — évite un envoi
+  // redondant peu après si une sortie de zone vient déjà d'en déclencher un.
+  await kv.set('p2_last_aero_send_at', Date.now(), { ex: 30 * 86400 }).catch(() => {});
 
   return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
 }
@@ -584,6 +587,30 @@ export async function botLoop({ base, price }) {
       } catch (e) { result.morningClaim = { error: e.message }; }
       // Rien à réclamer (non staké) ou déjà envoyé → pas la peine de retenter à chaque tick jusqu'à demain
       if (result.morningClaim?.ok || result.morningClaim?.skipped) await writeAeroSentToday(2).catch(() => {});
+    }
+  }
+
+  // Règle 5 : si aucun envoi vers le wallet externe (Règles 2/3/1e/1f ou ce claim lui-même) n'a eu
+  // lieu depuis 24h glissantes, réclame les AERO accumulés sans fermer la LP et en envoie 25% au
+  // wallet externe (75% restent en solde USDC non utilisé dans le wallet du bot) — garantit un
+  // minimum d'envoi régulier même quand le marché reste calme (aucune sortie de zone déclenchée).
+  // Sur skip (rien à réclamer/non stakée) on repousse quand même le compteur de 24h, pour ne pas
+  // retenter à chaque tick jusqu'à ce qu'il y ait effectivement quelque chose à claim.
+  const PERIODIC_AERO_CLAIM_ENABLED = true;
+  if (PERIODIC_AERO_CLAIM_ENABLED && hasLP) {
+    const lastSendAt = parseInt(await kv.get('p2_last_aero_send_at').catch(() => null)) || 0;
+    if (Date.now() - lastSendAt > 24 * 3600 * 1000) {
+      try {
+        const r = await fetch(`${base}/api/claimAero`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ poolNum: 2, sendFraction: 0.25, source: 'periodic_24h_claim' }),
+          signal: AbortSignal.timeout(60000),
+        });
+        result.periodicClaim = await r.json();
+      } catch (e) { result.periodicClaim = { error: e.message }; }
+      if (result.periodicClaim?.ok || result.periodicClaim?.skipped) {
+        await kv.set('p2_last_aero_send_at', Date.now(), { ex: 30 * 86400 }).catch(() => {});
+      }
     }
   }
 
