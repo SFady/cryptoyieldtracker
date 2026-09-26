@@ -202,35 +202,40 @@ async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = nul
   return res.json();
 }
 
-// Total revenus (pool + AERO + solde wallet − capital déployé) et part AERO de ce total,
-// mêmes formules que l'affichage "Total revenus" / badge AERO sur la page pools.
-async function getRevenueGate(base) {
-  try {
-    const r   = await fetch(`${base}/api/positions2`, { signal: AbortSignal.timeout(15000) });
-    const d   = await r.json();
-    const pos = d.positions?.[0];
-    if (!pos || d.openingLp == null) return null;
-    const totalAeros   = parseFloat(pos.aeroRevenueUSD ?? 0) || 0;
-    const totalRevenus = parseFloat(pos.totalPoolUSD ?? 0) + totalAeros
-      + parseFloat(d.usdcWallet ?? 0) + parseFloat(d.wethWalletUSD ?? 0) - parseFloat(d.openingLp ?? 0);
-    return { totalRevenus, totalAeros };
-  } catch (_) { return null; }
-}
-
-// Part de la valeur totale (LP + wallet) actuellement en WETH — pour la Règle 4 (plancher WETH).
-async function getWethRatio(base) {
+// Snapshot partagé (part WETH + total revenus/AERO) pour les vérifications non urgentes (Règles 4,
+// 1e, 1f) — rafraîchi au maximum une fois toutes les ~20 minutes (au lieu d'à chaque tick, soit
+// toutes les 5 min) pour réduire nettement la fréquence à laquelle le bot sollicite Neon : chaque
+// appel à /api/positions2 y fait plusieurs requêtes, et un compute Neon sollicité au moins une fois
+// toutes les 5 min ne se rendort jamais (quota d'heures de calcul du plan free explosé le 26/09).
+// Les sorties de zone (Règles 2/3, détection du prix hors range) restent lues depuis Redis à chaque
+// tick, sans changement — seules ces vérifications secondaires tolèrent une donnée vieille de
+// quelques minutes.
+async function getGateSnapshot(base) {
+  const cached = await kv.get('p2_gate_snapshot').catch(() => null);
+  if (cached) return cached;
   try {
     const r   = await fetch(`${base}/api/positions2`, { signal: AbortSignal.timeout(15000) });
     const d   = await r.json();
     const pos = d.positions?.[0];
     if (!pos) return null;
-    const wethPoolUsd = parseFloat(pos.pool?.find(t => t.symbol === 'WETH')?.usd ?? 0);
-    const usdcPoolUsd = parseFloat(pos.pool?.find(t => t.symbol === 'USDC')?.usd ?? 0);
+
+    const wethPoolUsd   = parseFloat(pos.pool?.find(t => t.symbol === 'WETH')?.usd ?? 0);
+    const usdcPoolUsd   = parseFloat(pos.pool?.find(t => t.symbol === 'USDC')?.usd ?? 0);
     const wethWalletUsd = parseFloat(d.wethWalletUSD ?? 0);
     const usdcWalletUsd = parseFloat(d.usdcWallet ?? 0);
-    const totalUsd = wethPoolUsd + usdcPoolUsd + wethWalletUsd + usdcWalletUsd;
-    if (totalUsd <= 0) return null;
-    return (wethPoolUsd + wethWalletUsd) / totalUsd;
+    const totalUsd      = wethPoolUsd + usdcPoolUsd + wethWalletUsd + usdcWalletUsd;
+    const wethRatio     = totalUsd > 0 ? (wethPoolUsd + wethWalletUsd) / totalUsd : null;
+
+    let revenueGate = null;
+    if (d.openingLp != null) {
+      const totalAeros   = parseFloat(pos.aeroRevenueUSD ?? 0) || 0;
+      const totalRevenus = parseFloat(pos.totalPoolUSD ?? 0) + totalAeros + usdcWalletUsd + wethWalletUsd - parseFloat(d.openingLp ?? 0);
+      revenueGate = { totalRevenus, totalAeros };
+    }
+
+    const snapshot = { wethRatio, revenueGate };
+    await kv.set('p2_gate_snapshot', snapshot, { ex: 20 * 60 }).catch(() => {});
+    return snapshot;
   } catch (_) { return null; }
 }
 
@@ -642,7 +647,7 @@ export async function botLoop({ base, price }) {
   // (swap partiel), quel que soit l'endroit du range où se trouve le prix. Vérifiée à chaque tick,
   // pas de streak de confirmation (contrairement aux Règles 2/3).
   if (hasLP) {
-    const wethRatio = await getWethRatio(base);
+    const wethRatio = (await getGateSnapshot(base))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
     if (wethRatio !== null && wethRatio < 0.05) {
       const rangePctActuel = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) / rMin * 100 : null;
@@ -729,7 +734,7 @@ export async function botLoop({ base, price }) {
   // Uniquement si le total des revenus (pool + AERO + solde wallet − capital déployé) couvre
   // au moins la part AERO déjà comptée dedans — évite de resizer (et réaliser une perte) si la
   // position est globalement perdante hors farming AERO.
-  const revenueGate    = hasLP ? await getRevenueGate(base) : null;
+  const revenueGate    = hasLP ? (await getGateSnapshot(base))?.revenueGate ?? null : null;
   const revenueOk      = !!revenueGate && revenueGate.totalRevenus >= revenueGate.totalAeros;
   result.revenueGate   = revenueGate;
 
