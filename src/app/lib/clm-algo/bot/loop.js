@@ -41,8 +41,9 @@ async function sendErrorEmail(subject, body) {
 //       à un prix haut).
 //   Ancienne Règle 1A (zone de bord 5%) : supprimée, devenue inatteignable (Règles 2/3 couvrent
 //   déjà ses zones et s'évaluent avant).
-//   Anciennes Règles 1c et 1d [toutes deux désactivées] : code encore présent plus bas, pas
-//   encore supprimé, mais RULE_1C_ENABLED/RULE_1D_ENABLED = false → jamais évaluées.
+//   Ancienne Règle 1c [désactivée] : code encore présent plus bas, pas encore supprimé, mais
+//   RULE_1C_ENABLED = false → jamais évaluée. Ancienne Règle 1d (et le calcul de tendance MM14j ×
+//   MM24h qui ne servait qu'à elle) : supprimée le 26/09, plus aucune règle active n'en dépendait.
 //   Claim matinal (7h Paris) [DÉSACTIVÉ, MORNING_CLAIM_ENABLED = false] : si aucun AERO envoyé
 //   aujourd'hui, retire 25% des AERO accumulés sans fermer la LP.
 //   Réouvertures Règles 2/3/4 : spread check (1,5% sur 20 derniers prix, même seuil que la Règle 1)
@@ -54,29 +55,16 @@ async function sendErrorEmail(subject, body) {
 // intact, prêt à repartir en repassant ce flag à true.
 const BOT_ENABLED = true;
 
-// Anciennes règles 1c/1d désactivées — seules les nouvelles Règles 1, 2, 3, 4 sont actives.
+// Ancienne règle 1c désactivée — seules les nouvelles Règles 1, 2, 3, 4 (+ 1e/1f/5) sont actives.
 const RULE_1C_ENABLED = false;
-const RULE_1D_ENABLED = false;
 const MORNING_CLAIM_ENABLED = false;
 
-// Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire, pas de zone neutre
+// Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire,
+// pas de zone neutre. Utilisé uniquement par autoStart() pour le code "open_trend" affiché (colonne
+// Tendance de la page Résultats) — pas par une règle de décision.
 function trendLetter(price, avg) {
   if (!price || avg == null) return 'B';
   return price >= avg ? 'H' : 'B';
-}
-
-// Ratio WETH de réouverture — MM14j = tendance de fond (directeur), MM24h = signal mean-reversion
-// à l'intérieur de cette tendance (un creux 24h dans une tendance haussière = meilleur point
-// d'achat, d'où le B (MM24h en dessous) qui pousse le ratio vers le haut, pas vers le bas).
-//   HB (tendance haussière + creux 24h)   → 0.8 : meilleur point d'entrée WETH
-//   BH (tendance baissière + rebond 24h)  → 0.2 : meilleur point de sortie WETH
-//   HH / BB (le 24h confirme la tendance, pas de creux/rebond) → ratio plus modéré
-const REOPEN_RATIO_GRID = {
-  H: { H: 0.6, B: 0.8 },
-  B: { H: 0.2, B: 0.4 },
-};
-function reopenRatioFromTrends(t14, t24) {
-  return REOPEN_RATIO_GRID[t14]?.[t24] ?? 0.5;
 }
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
@@ -623,35 +611,12 @@ export async function botLoop({ base, price }) {
   }
 
   // 1. État LP + config runtime + compteur OOR (en parallèle)
-  const [lpState, rtConfig, oorCountRaw, avg14d, avg24h] = await Promise.all([
+  const [lpState, rtConfig, oorCountRaw] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
     kv.get('p2_oor_count').catch(() => null),
-    getPriceAverage14d(),
-    getPriceAverage24h(),
   ]);
 
-  // Tendance MM14j × MM24h → ratio de réouverture dynamique (utilisé Règles 1c, 1d et 2)
-  const trend14d        = trendLetter(price, avg14d);
-  const trend24h        = trendLetter(price, avg24h);
-  const reopenRatio     = reopenRatioFromTrends(trend14d, trend24h);
-  const currentTrendCode = `${trend14d}${trend24h}`;
-  result.avg14d      = avg14d;
-  result.avg24h      = avg24h;
-  result.trend14d    = trend14d;
-  result.trend24h    = trend24h;
-  result.reopenRatio = reopenRatio;
-  result.currentTrendCode = currentTrendCode;
-
-  // Suivi de la stabilité de la tendance courante (depuis quand le code HH/HB/… n'a pas changé) — pour Règle 1d
-  const trackedTrend = await kv.get('p2_trend_track').catch(() => null);
-  let trendSince = Date.now();
-  if (trackedTrend?.code === currentTrendCode && trackedTrend?.since) {
-    trendSince = trackedTrend.since;
-  } else {
-    await kv.set('p2_trend_track', { code: currentTrendCode, since: trendSince }, { ex: 30 * 86400 }).catch(() => {});
-  }
-  result.trendStableMs = Date.now() - trendSince;
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
@@ -897,31 +862,6 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Règle 1d : changement de tendance → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
-  // Même garde-fou revenus que la Règle 1c. Se déclenche si le code de tendance actuel (HH/HB/BH/BB)
-  // diffère de celui de l'ouverture ET est stable depuis au moins 6h (évite de réagir à un flap).
-  if (RULE_1D_ENABLED && hasLP && revenueOk) {
-    // Redis en priorité ; fallback DB uniquement si la clé Redis est absente/expirée
-    let openTrendCode = await kv.get('p2_open_trend').catch(() => null);
-    if (!openTrendCode) {
-      try {
-        const sqlOt = neon(process.env.DATABASE_URL);
-        const rows  = await sqlOt`SELECT open_trend FROM lp_events WHERE action1 = 'CREATE_OK' AND action2 IS NULL AND COALESCE(pool_num, 2) = 2 ORDER BY id DESC LIMIT 1`;
-        openTrendCode = rows[0]?.open_trend ?? null;
-      } catch (_) {}
-    }
-    const trendChanged  = !!openTrendCode && currentTrendCode !== openTrendCode;
-    const trendStable6h = (Date.now() - trendSince) >= 6 * 60 * 60 * 1000;
-    result.openTrendCode = openTrendCode;
-    result.trendChanged  = trendChanged;
-    if (trendChanged && trendStable6h) {
-      console.log(`[botLoop 1d] trend_shift — open=${openTrendCode} current=${currentTrendCode} stableMs=${Date.now() - trendSince}`);
-      result.action  = 'trend_shift_rebalance';
-      result.collect = await runCollect(base, price, reopenRatio, 'trend_shift_rebalance');
-      await logBotTick(kv, result);
-      return result;
-    }
-  }
 
   // Règle 2 : aucune position → auto-start
   if (!hasLP) {

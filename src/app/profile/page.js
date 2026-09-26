@@ -22,10 +22,6 @@ export default function ProfilePage() {
   const [ethWallet2, setEthWallet2] = useState(null);
   const [ethWalletUSD2, setEthWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
-  const [avg14d2, setAvg14d2] = useState(null);
-  const [avg24h2, setAvg24h2] = useState(null);
-  const [trend14d2, setTrend14d2] = useState(null);
-  const [trend24h2, setTrend24h2] = useState(null);
   const [lastCronAt2, setLastCronAt2] = useState(null);
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [oorCount2, setOorCount2]     = useState(0);
@@ -56,7 +52,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAvg14d2(d.avg14d ?? null); setAvg24h2(d.avg24h ?? null); setTrend14d2(d.trend14d ?? null); setTrend24h2(d.trend24h ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowTriggerApi2(d.lowTrigger ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -101,28 +97,6 @@ export default function ProfilePage() {
                   background: "rgba(124,77,255,0.08)", border: "1px solid rgba(124,77,255,0.25)", color: "#a78bfa",
                 }}>
                   Range percentile 24h : {percentileRange2}%
-                </span>
-              )}
-              {avg24h2 !== null && (
-                <span style={{
-                  fontSize: "0.65rem", fontFamily: "monospace",
-                  padding: "2px 8px", borderRadius: 4,
-                  background: "rgba(41,182,240,0.08)", border: "1px solid rgba(41,182,240,0.25)", color: "#29b6f0",
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                }}>
-                  <TrendArrow trend={trend24h2} />
-                  MM24h : ${avg24h2.toFixed(2)}
-                </span>
-              )}
-              {avg14d2 !== null && (
-                <span style={{
-                  fontSize: "0.65rem", fontFamily: "monospace",
-                  padding: "2px 8px", borderRadius: 4,
-                  background: "rgba(240,180,41,0.08)", border: "1px solid rgba(240,180,41,0.25)", color: "#f0b429",
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                }}>
-                  <TrendArrow trend={trend14d2} />
-                  MM14j : ${avg14d2.toFixed(2)}
                 </span>
               )}
               {lastCronAt2 && (
@@ -299,16 +273,6 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
       )}
     </div>
   );
-}
-
-function TrendArrow({ trend }) {
-  if (!trend) return null;
-  const config = {
-    haussier: { symbol: "▲", color: "#00e5a0" },
-    baissier: { symbol: "▼", color: "#ff3366" },
-  }[trend];
-  if (!config) return null;
-  return <span style={{ color: config.color, fontWeight: 700 }}>{config.symbol}</span>;
 }
 
 function Spinner({ label }) {

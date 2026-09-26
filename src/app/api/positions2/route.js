@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { getLastTwoPrices, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
+import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -194,12 +194,6 @@ function getAmounts(sqrtP, sqrtA, sqrtB, liq) {
 }
 
 
-// Tendance prix vs moyenne mobile : haussier si prix ≥ MM, sinon baissier — binaire, pas de zone neutre
-function trendFromAverage(price, avg) {
-  if (!price || avg == null) return null;
-  return price >= avg ? 'haussier' : 'baissier';
-}
-
 const sql = neon(process.env.DATABASE_URL);
 
 const POOL_IFACE = new ethers.Interface([
@@ -292,12 +286,6 @@ async function buildPosition(tokenId, ethCall, openData) {
 export async function GET() {
   const cached = await readPositionsCache(2);
   if (cached) {
-    const cronWeth   = await getLastTwoPrices();
-    const avg14d      = await getPriceAverage14d();
-    const avg24h      = await getPriceAverage24h();
-    const currentPrice = cronWeth[0] ?? null;
-    const trend14d      = trendFromAverage(currentPrice, avg14d);
-    const trend24h      = trendFromAverage(currentPrice, avg24h);
     const edgeStreak = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
     const hedgeFees  = parseFloat((await kv.get('p2_hedge_fees')) ?? 0) || 0;
     let openingTotal = parseFloat((await kv.get('p2_opening_total')) ?? 0) || null;
@@ -315,7 +303,7 @@ export async function GET() {
     const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
-    return Response.json({ ...cached, cronWeth, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h });
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits });
   }
 
   try {
@@ -547,12 +535,6 @@ export async function GET() {
     } catch (_) {}
 
     const lastCronAt  = await getLastCronAt();
-    const cronWeth    = await getLastTwoPrices();
-    const avg14d      = await getPriceAverage14d();
-    const avg24h      = await getPriceAverage24h();
-    const currentPrice = cronWeth[0] ?? parseFloat(positions[0]?.wethPrice ?? "0") ?? null;
-    const trend14d      = trendFromAverage(currentPrice, avg14d);
-    const trend24h      = trendFromAverage(currentPrice, avg24h);
     const edgeStreak  = (await kv.get('p2_edge_streak')) ?? { zone: null, count: 0 };
 
     if (positions.length > 0 && positions[0].rangeLow && positions[0].rangeHigh) {
@@ -583,7 +565,7 @@ export async function GET() {
     const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, cronWeth, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, avg14d, avg24h, trend14d, trend24h };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
