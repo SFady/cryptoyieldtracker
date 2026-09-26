@@ -3,7 +3,7 @@ import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
 import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasAeroSentToday, writeAeroSentToday } from '../../cronKv.js';
-import { NFPM_ADDRESS } from '../../config.js';
+import { NFPM_ADDRESS, POOL_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
 async function sendErrorEmail(subject, body) {
@@ -119,6 +119,50 @@ async function readWalletToken(tokenAddress, decimals, pinnedUrl = null) {
 const getWalletUsdc = (pinnedUrl) => readWalletToken(USDC_ADDRESS, 6, pinnedUrl);
 const getWalletWeth = (pinnedUrl) => readWalletToken(WETH_ADDRESS, 18, pinnedUrl);
 
+// ── Valorisation directe de la position (Règles 4/1e/1f) sans passer par /api/positions2 ─────────
+// Mêmes adresses/formules que positions2 et claimAero, dupliquées ici pour que le bot puisse
+// calculer sa part WETH et ses revenus totaux à partir de Redis + RPC uniquement, sans toucher Neon.
+const VOTER      = '0x16613524e02ad97eDfeF371bC883F2F5d6C480A5';
+const AERO       = '0x940181a94A35A4569E4529A3CDfB74e38FD98631';
+const V2_ROUTER  = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43';
+const V2_FACTORY = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
+const VOTER_IFACE       = new ethers.Interface(['function gauges(address pool) view returns (address)']);
+const GAUGE_EARNED_IFACE = new ethers.Interface(['function earned(address account, uint256 tokenId) view returns (uint256)']);
+const V2_ROUTER_IFACE   = new ethers.Interface(['function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)']);
+
+async function ethCall(to, data) {
+  for (const url of RPC_URLS) {
+    try {
+      const res  = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] }),
+        signal: AbortSignal.timeout(6000),
+      });
+      const json = await res.json();
+      if (json.result && json.result !== '0x') return json.result;
+    } catch (_) {}
+  }
+  throw new Error(`eth_call(${to}) échoué sur tous les RPCs`);
+}
+
+async function getAeroUsdValue(tokenId) {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey || !tokenId) return 0;
+  const wallet = new ethers.Wallet(privateKey.trim());
+  const gaugeHex   = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData('gauges', [POOL_ADDRESS_2]));
+  const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult('gauges', gaugeHex);
+  if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress) return 0;
+  const earnedHex = await ethCall(gaugeAddr, GAUGE_EARNED_IFACE.encodeFunctionData('earned', [wallet.address, BigInt(tokenId)]));
+  const [earned]  = GAUGE_EARNED_IFACE.decodeFunctionResult('earned', earnedHex);
+  const aeroAmt   = Number(earned) / 1e18;
+  if (aeroAmt <= 0) return 0;
+  const routes    = [{ from: AERO, to: USDC_ADDRESS, stable: false, factory: V2_FACTORY }];
+  const amtsHex   = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData('getAmountsOut', [ethers.parseUnits('1', 18), routes]));
+  const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult('getAmountsOut', amtsHex);
+  const aeroPrice = parseFloat(ethers.formatUnits(amounts[1], 6));
+  return aeroAmt * aeroPrice;
+}
+
 
 // Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET.
 // Règle 1A (sortie directionnelle) : haut → 50% envoyés/50% gardés ; bas → 25%/75%.
@@ -204,15 +248,42 @@ async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = nul
 
 // Snapshot partagé (part WETH + total revenus/AERO) pour les vérifications non urgentes (Règles 4,
 // 1e, 1f) — rafraîchi au maximum une fois toutes les ~20 minutes (au lieu d'à chaque tick, soit
-// toutes les 5 min) pour réduire nettement la fréquence à laquelle le bot sollicite Neon : chaque
-// appel à /api/positions2 y fait plusieurs requêtes, et un compute Neon sollicité au moins une fois
-// toutes les 5 min ne se rendort jamais (quota d'heures de calcul du plan free explosé le 26/09).
-// Les sorties de zone (Règles 2/3, détection du prix hors range) restent lues depuis Redis à chaque
-// tick, sans changement — seules ces vérifications secondaires tolèrent une donnée vieille de
-// quelques minutes.
-async function getGateSnapshot(base) {
-  const cached = await kv.get('p2_gate_snapshot').catch(() => null);
-  if (cached) return cached;
+// toutes les 5 min). Calculé directement depuis Redis + RPC (liquidityL stocké par autoStart,
+// wallet balances, AERO earned du gauge) — sans passer par /api/positions2 ni par Neon, tant que le
+// nécessaire est disponible en Redis. Sinon (ex. position recréée via retry-stake, qui n'écrit pas
+// liquidityL), repli sur l'ancienne méthode (positions2, qui elle touche Neon).
+// Contexte : un compute Neon sollicité au moins une fois toutes les 5 min ne se rendort jamais
+// (quota d'heures de calcul du plan free explosé le 26/09) ; les sorties de zone (Règles 2/3,
+// détection du prix hors range) restent lues depuis Redis à chaque tick, sans changement — seules
+// ces vérifications secondaires tolèrent une donnée vieille de quelques minutes.
+async function getGateSnapshotDirect(lpState, rtConfig, rMin, rMax, price) {
+  const tokenId = lpState?.token_id;
+  const L       = rtConfig?.liquidityL;
+  if (!tokenId || !L || isNaN(rMin) || isNaN(rMax) || !price) return null;
+
+  const sqrtPa = Math.sqrt(rMin);
+  const sqrtPb = Math.sqrt(rMax);
+  const sqrtPc = Math.sqrt(Math.min(Math.max(price, rMin), rMax));
+  const wethPoolUsd = L * (1 / sqrtPc - 1 / sqrtPb) * price;
+  const usdcPoolUsd = L * (sqrtPc - sqrtPa);
+
+  const [wethWalletUsdRaw, usdcWalletUsd, totalAeros] = await Promise.all([
+    getWalletWeth(), getWalletUsdc(), getAeroUsdValue(tokenId).catch(() => 0),
+  ]);
+  const wethWalletUsd = wethWalletUsdRaw * price;
+  const totalUsd      = wethPoolUsd + usdcPoolUsd + wethWalletUsd + usdcWalletUsd;
+  const wethRatio     = totalUsd > 0 ? (wethPoolUsd + wethWalletUsd) / totalUsd : null;
+
+  let openingLp = parseFloat((await kv.get('p2_opening_lp').catch(() => null)) ?? 0) || null;
+  let revenueGate = null;
+  if (openingLp != null) {
+    const totalRevenus = wethPoolUsd + usdcPoolUsd + totalAeros + usdcWalletUsd + wethWalletUsd - openingLp;
+    revenueGate = { totalRevenus, totalAeros };
+  }
+  return { wethRatio, revenueGate };
+}
+
+async function getGateSnapshotViaApi(base) {
   try {
     const r   = await fetch(`${base}/api/positions2`, { signal: AbortSignal.timeout(15000) });
     const d   = await r.json();
@@ -232,11 +303,20 @@ async function getGateSnapshot(base) {
       const totalRevenus = parseFloat(pos.totalPoolUSD ?? 0) + totalAeros + usdcWalletUsd + wethWalletUsd - parseFloat(d.openingLp ?? 0);
       revenueGate = { totalRevenus, totalAeros };
     }
-
-    const snapshot = { wethRatio, revenueGate };
-    await kv.set('p2_gate_snapshot', snapshot, { ex: 20 * 60 }).catch(() => {});
-    return snapshot;
+    return { wethRatio, revenueGate };
   } catch (_) { return null; }
+}
+
+async function getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price) {
+  const cached = await kv.get('p2_gate_snapshot').catch(() => null);
+  if (cached) return cached;
+
+  const snapshot = (await getGateSnapshotDirect(lpState, rtConfig, rMin, rMax, price).catch(() => null))
+    ?? (await getGateSnapshotViaApi(base));
+  if (!snapshot) return null;
+
+  await kv.set('p2_gate_snapshot', snapshot, { ex: 20 * 60 }).catch(() => {});
+  return snapshot;
 }
 
 async function clearAlgoState() {
@@ -647,7 +727,7 @@ export async function botLoop({ base, price }) {
   // (swap partiel), quel que soit l'endroit du range où se trouve le prix. Vérifiée à chaque tick,
   // pas de streak de confirmation (contrairement aux Règles 2/3).
   if (hasLP) {
-    const wethRatio = (await getGateSnapshot(base))?.wethRatio ?? null;
+    const wethRatio = (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
     if (wethRatio !== null && wethRatio < 0.05) {
       const rangePctActuel = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) / rMin * 100 : null;
@@ -734,7 +814,7 @@ export async function botLoop({ base, price }) {
   // Uniquement si le total des revenus (pool + AERO + solde wallet − capital déployé) couvre
   // au moins la part AERO déjà comptée dedans — évite de resizer (et réaliser une perte) si la
   // position est globalement perdante hors farming AERO.
-  const revenueGate    = hasLP ? (await getGateSnapshot(base))?.revenueGate ?? null : null;
+  const revenueGate    = hasLP ? (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.revenueGate ?? null : null;
   const revenueOk      = !!revenueGate && revenueGate.totalRevenus >= revenueGate.totalAeros;
   result.revenueGate   = revenueGate;
 
