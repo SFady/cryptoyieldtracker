@@ -53,7 +53,7 @@ async function sendErrorEmail(subject, body) {
 // Coupe-circuit global : si false, botLoop() ne fait plus rien du tout (aucune règle, aucun claim
 // matinal) — la position ouverte reste telle quelle, en attente. Le code de chaque règle reste
 // intact, prêt à repartir en repassant ce flag à true.
-const BOT_ENABLED = true;
+const BOT_ENABLED = false; // COUPÉ EN URGENCE 27/09 — boucle de sorties basses répétées, cause pas encore identifiée. Ne pas remettre à true sans avoir compris.
 
 // Ancienne règle 1c désactivée — seules les nouvelles Règles 1, 2, 3, 4 (+ 1e/1f/5) sont actives.
 const RULE_1C_ENABLED = false;
