@@ -559,6 +559,12 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
     capital, rangePct, liquidityL: L,
     startedAt: new Date().toISOString(),
   }, { ex: 30 * 86400 });
+  // Invalide le snapshot wethRatio/revenueGate (Règles 4/1e/1f) : sinon il resterait valable jusqu'à
+  // 20 min après cette réouverture, calculé avec le liquidityL/range de l'ANCIENNE position — a
+  // provoqué une boucle de 11 rouvertures en 38 min le 27/09 (Règle 4 se redéclenchant à tort sur un
+  // wethRatio obsolète). Chaque réouverture passe par autoStart(), donc c'est le seul point commun
+  // à toutes les règles (1, 2, 3, 4, 1e, 1f).
+  await kv.del('p2_gate_snapshot').catch(() => {});
   await kv.del(REDIS_KEYS.POSITION_STATE);
   await kv.del(REDIS_KEYS.HEDGE_STATE);
   await kv.del(REDIS_KEYS.OOR_SINCE);
