@@ -86,9 +86,12 @@ async function pickRpc() {
 }
 
 async function sendTx(wallet, params) {
+  // Nonce fixé une seule fois et réutilisé sur les retries de CET appel — évite qu'un retry après
+  // erreur réseau ambiguë finisse par soumettre un doublon réel avec un nonce différent.
+  let nonce = params.nonce ?? await wallet.provider.getTransactionCount(wallet.address, 'pending');
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await wallet.sendTransaction(params);
+      return await wallet.sendTransaction({ ...params, nonce });
     } catch (e) {
       const msg = ((e.shortMessage ?? '') + ' ' + (e.message ?? '')).toLowerCase();
       if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
@@ -102,7 +105,7 @@ async function sendTx(wallet, params) {
         continue;
       }
       if (attempt < 2 && /nonce too low|nonce has already been used|transaction already imported/i.test(msg)) {
-        params = { ...params, nonce: await wallet.provider.getTransactionCount(wallet.address, 'pending') };
+        nonce = await wallet.provider.getTransactionCount(wallet.address, 'pending');
         await new Promise(r => setTimeout(r, 1000));
         continue;
       }

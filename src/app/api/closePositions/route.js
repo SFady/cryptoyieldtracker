@@ -130,9 +130,15 @@ async function waitForTx(_provider, tx) {
 }
 
 async function sendTx(wallet, params) {
+  // Nonce fixé une seule fois (avant le 1er envoi) et réutilisé sur tous les retries de CET appel :
+  // si l'envoi passe bien côté réseau mais que la réponse HTTP échoue (timeout/5xx/rate-limit), le
+  // retry rejoue alors la transaction identique avec le même nonce au lieu d'en soumettre une nouvelle
+  // avec un nonce différent — ce qui, avant ce fix, pouvait faire miner un doublon réel (ex. incident
+  // du 29/09 : decreaseLiquidity envoyé deux fois, 2e tx reversée car plus rien à retirer).
+  let nonce = params.nonce ?? await wallet.provider.getTransactionCount(wallet.address, "pending");
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await wallet.sendTransaction(params);
+      return await wallet.sendTransaction({ ...params, nonce });
     } catch (e) {
       const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
       if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
@@ -146,7 +152,9 @@ async function sendTx(wallet, params) {
         continue;
       }
       if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
-        params = { ...params, nonce: await wallet.provider.getTransactionCount(wallet.address, "pending") };
+        // Ici le réseau confirme explicitement que le nonce fixé est périmé (ex. une autre tx a été
+        // minée entretemps) : c'est le seul cas où on en reprend un nouveau.
+        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
         await new Promise(r => setTimeout(r, 1000));
         continue;
       }
