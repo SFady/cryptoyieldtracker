@@ -1,5 +1,6 @@
 import { kv } from '@vercel/kv';
 import { neon } from '@neondatabase/serverless';
+import { readP2Range, writeP2Range } from '../../lib/cronKv';
 
 export const runtime = 'nodejs';
 
@@ -20,6 +21,23 @@ export async function POST(req) {
       await kv.set(`p${poolNum}_opening_total`, body.setOpeningTotal, { ex: 30 * 86400 });
       await kv.set(`p${poolNum}_opening_lp`,    body.setOpeningTotal, { ex: 30 * 86400 });
       return Response.json({ ok: true, poolNum, openingTotal: body.setOpeningTotal });
+    } catch (e) {
+      return Response.json({ error: e.message }, { status: 500 });
+    }
+  }
+
+  // Réinitialise UNIQUEMENT le low trigger de p2_live_range (Redis) à rMin + 25% du range en cours —
+  // pour rattraper un trigger périmé d'une ancienne position (ex. ouverture fraîche via Rule 1 avant
+  // le correctif du 29/09, qui ne réécrivait pas p2_live_range). Ne touche ni min/max/entry ni le
+  // reste de l'état. Pool 2 uniquement (readP2Range/writeP2Range ne gèrent pas pool 3).
+  if (body.resetLowTrigger) {
+    try {
+      const lr = await readP2Range();
+      if (!lr?.min || !lr?.max) return Response.json({ error: 'p2_live_range absent ou incomplet' }, { status: 400 });
+      const rMin = parseFloat(lr.min), rMax = parseFloat(lr.max);
+      const newLowTrigger = parseFloat((rMin + 0.25 * (rMax - rMin)).toFixed(2));
+      await writeP2Range(rMin, rMax, lr.entry ? parseFloat(lr.entry) : null, newLowTrigger);
+      return Response.json({ ok: true, rMin, rMax, oldLowTrigger: lr.lowTrigger ?? null, newLowTrigger });
     } catch (e) {
       return Response.json({ error: e.message }, { status: 500 });
     }
