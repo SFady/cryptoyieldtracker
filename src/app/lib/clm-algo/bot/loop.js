@@ -30,7 +30,7 @@ async function sendErrorEmail(subject, body) {
 //   1.  Aucune position → ouvre au range percentile24h brut (×1), 50/50 WETH/USDC.
 //   2.  Zone basse (prix ≤ rMin + 25% du range), confirmée 5 ticks consécutifs (compteur
 //       p2_oor_count/p2_oor_low, dots page pools) → collecte AERO (25% envoyé/75% gardé),
-//       ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h × 2 (29/09).
+//       ferme et rouvre à 75% WETH (swap forcé), largeur = largeur actuelle × 2, sans plafond (30/09).
 //   3.  Zone haute (prix ≥ rMin + 50% du range), confirmée 5 ticks consécutifs (même compteur) ET
 //       écart percentile24h/range actuel > ±1,5pt (revérifié à chaque tick une fois le streak
 //       atteint) → collecte AERO (50%/50%), resize sans swap au range percentile24h brut,
@@ -734,20 +734,14 @@ export async function botLoop({ base, price }) {
     if (inLowZone) {
       // Règle 2 : collecte AERO (25% envoyé/75% gardé), swap vers un ratio fixe 75% WETH (plus de
       // "garder le ratio actuel" — trop proche du bord bas, ça recentrait le nouveau range de façon
-      // imprévisible, cf. simulation). Range : percentile24h × 2 (plus de doublement de la largeur
-      // actuelle sur elle-même — évitait une croissance non bornée d'où le plafond à 20%, devenu
-      // inutile puisque ce calcul ne compose plus sur son propre historique). Repli sur la largeur
-      // actuelle si le percentile n'est pas encore disponible (pas assez de points).
+      // imprévisible, cf. simulation). Range : double la largeur ACTUELLE à chaque sortie basse
+      // (30/09), sans plafond — choix explicite malgré le risque de ranges très larges en cas de
+      // baisse prolongée (confirmé par l'utilisateur après avoir posé la question).
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const pctData        = await getPercentileRange();
-      const p24h           = pctData && pctData.cnt >= 10 && pctData.p05 > 0
-        ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
-        : null;
-      const newRangePct    = p24h !== null ? p24h * 2 : rangePctActuel;
+      const newRangePct    = rangePctActuel * 2;
       result.action          = 'low_zone_rebalance';
       result.lowTrigger      = parseFloat(lowTrigger.toFixed(2));
       result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
-      result.percentileRange = p24h !== null ? parseFloat(p24h.toFixed(2)) : null;
       result.newRangePct     = parseFloat(newRangePct.toFixed(2));
       result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct, null, null, true, 'halve', lowTrigger);
       await logBotTick(kv, result);
