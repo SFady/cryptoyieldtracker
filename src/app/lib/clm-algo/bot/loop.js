@@ -864,6 +864,12 @@ export async function botLoop({ base, price }) {
       }
     } else {
       result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+      // Sans ça, un trigger d'une ancienne position (parfois hors du nouveau range) reste en Redis
+      // et n'est jamais réinitialisé pour cette ouverture fraîche — la Règle 2 pourrait ne plus
+      // jamais détecter la zone basse si ce vieux trigger se trouve sous le nouveau rMin.
+      if (!result.autoStart.skipped && !result.autoStart.error) {
+        await saveRangeAndLowTrigger(result, price, 'reset', null);
+      }
     }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
     await logBotTick(kv, result);
