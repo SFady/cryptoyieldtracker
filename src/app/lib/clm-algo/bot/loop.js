@@ -297,11 +297,17 @@ async function getGateSnapshotViaApi(base) {
 }
 
 async function getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price) {
+  // Le calcul direct ne touche jamais Neon (Redis + RPC uniquement) — recalculé à chaque tick, sans
+  // coût supplémentaire et sans le risque de wethRatio périmé jusqu'à 20 min qu'un cache impliquerait
+  // (vécu le 29/09 : détection de la Règle 4 retardée après une longue sortie de range). Le cache de
+  // 20 min ne protège que l'ancien repli (getGateSnapshotViaApi), qui lui touche Neon.
+  const direct = await getGateSnapshotDirect(lpState, rtConfig, rMin, rMax, price).catch(() => null);
+  if (direct) return direct;
+
   const cached = await kv.get('p2_gate_snapshot').catch(() => null);
   if (cached) return cached;
 
-  const snapshot = (await getGateSnapshotDirect(lpState, rtConfig, rMin, rMax, price).catch(() => null))
-    ?? (await getGateSnapshotViaApi(base));
+  const snapshot = await getGateSnapshotViaApi(base);
   if (!snapshot) return null;
 
   await kv.set('p2_gate_snapshot', snapshot, { ex: 20 * 60 }).catch(() => {});
@@ -711,6 +717,56 @@ export async function botLoop({ base, price }) {
   const halfPoint   = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5  * (rMax - rMin) : null;
   const inLowZone   = lowTrigger !== null && price <= lowTrigger;
   const inHighZone  = !inLowZone && halfPoint !== null && price >= halfPoint;
+
+  // Règles 2bis/3bis : zones extrêmes à 5% des bords (mêmes seuils que les repères déjà affichés sur
+  // la page pools), confirmées sur seulement 2 ticks — plus rapide que les Règles 2/3 (5 ticks) pour
+  // agir quand le prix est sur le point de sortir complètement du range. Compteurs dédiés, indépendants
+  // de p2_oor_count. Mêmes actions que les Règles 2/3 respectives, raison de fermeture distincte pour
+  // les repérer sur la page Résultats.
+  const edgeLow  = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.05 * (rMax - rMin) : null;
+  const edgeHigh = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMax - 0.05 * (rMax - rMin) : null;
+  const inEdgeLow  = edgeLow !== null && price <= edgeLow;
+  const inEdgeHigh = !inEdgeLow && edgeHigh !== null && price >= edgeHigh;
+
+  if (inEdgeLow) {
+    const c = (parseInt(await kv.get('p2_edge_low_count').catch(() => null)) || 0) + 1;
+    await kv.set('p2_edge_low_count', c, { ex: 30 * 86400 });
+    result.edgeLowCount = c;
+    if (c >= 2) {
+      const rangePctActuel = (rMax - rMin) / rMin * 100;
+      const pctData        = await getPercentileRange();
+      const p24h           = pctData && pctData.cnt >= 10 && pctData.p05 > 0
+        ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
+        : null;
+      const newRangePct    = p24h !== null ? p24h * 2 : rangePctActuel;
+      result.action = 'edge_low_rebalance';
+      result.collect = await runCollect(base, price, 0.75, 'edge_low_rebalance', 4, false, newRangePct, null, null, true, 'halve', lowTrigger);
+      await logBotTick(kv, result);
+      return result;
+    }
+  } else {
+    await kv.del('p2_edge_low_count').catch(() => {});
+  }
+
+  if (inEdgeHigh) {
+    const c = (parseInt(await kv.get('p2_edge_high_count').catch(() => null)) || 0) + 1;
+    await kv.set('p2_edge_high_count', c, { ex: 30 * 86400 });
+    result.edgeHighCount = c;
+    if (c >= 2) {
+      const pctData = await getPercentileRange();
+      const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
+        ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
+        : null;
+      if (p24h !== null) {
+        result.action = 'edge_high_rebalance';
+        result.collect = await runCollect(base, price, null, 'edge_high_rebalance', 1, true, p24h, null, null, false);
+        await logBotTick(kv, result);
+        return result;
+      }
+    }
+  } else {
+    await kv.del('p2_edge_high_count').catch(() => {});
+  }
 
   if (inLowZone || inHighZone) {
     const newCount = (parseInt(oorCountRaw) || 0) + 1;
