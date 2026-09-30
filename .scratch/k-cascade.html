@@ -1,0 +1,304 @@
+<title>Cascade K et ratio ancré</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #eef1f7;
+    --panel: #ffffff;
+    --text: #172036;
+    --muted: #5b6885;
+    --grid: #dbe1ee;
+    --track: #e6ebf5;
+    --fill: rgba(60, 96, 220, .13);
+    --edge: rgba(60, 96, 220, .55);
+    --ghost: #8b97b4;
+    --orange: #d97706;
+    --cyan: #0e8fae;
+    --dot: #172036;
+    --dot-ring: #ffffff;
+    --down: #c2410c;
+    --reset: #b45309;
+    --up: #15803d;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1320;
+      --panel: #151c2e;
+      --text: #e0e7f6;
+      --muted: #8794b3;
+      --grid: #232d45;
+      --track: #1b2438;
+      --fill: rgba(96, 135, 255, .16);
+      --edge: rgba(120, 155, 255, .6);
+      --ghost: #5f6d8f;
+      --orange: #f5a524;
+      --cyan: #45c6e6;
+      --dot: #f4f7ff;
+      --dot-ring: #0e1320;
+      --down: #fb923c;
+      --reset: #f5a524;
+      --up: #4ade80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1320;
+    --panel: #151c2e;
+    --text: #e0e7f6;
+    --muted: #8794b3;
+    --grid: #232d45;
+    --track: #1b2438;
+    --fill: rgba(96, 135, 255, .16);
+    --edge: rgba(120, 155, 255, .6);
+    --ghost: #5f6d8f;
+    --orange: #f5a524;
+    --cyan: #45c6e6;
+    --dot: #f4f7ff;
+    --dot-ring: #0e1320;
+    --down: #fb923c;
+    --reset: #f5a524;
+    --up: #4ade80;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0;
+    padding-inline: 16px;
+    padding-block: 28px 48px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+  header h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; text-wrap: balance; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 68ch; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 12.5px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw-tick { width: 3px; height: 14px; display: inline-block; border-radius: 1px; }
+  .sw-o { background: var(--orange); }
+  .sw-c { background: var(--cyan); }
+  .sw-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--dot); border: 2px solid var(--dot-ring); box-shadow: 0 0 0 1px var(--dot); }
+  .sw-ghost { width: 20px; height: 12px; border: 1.5px dashed var(--ghost); border-radius: 2px; }
+  .sw-range { width: 20px; height: 12px; background: var(--fill); border: 1px solid var(--edge); border-radius: 2px; }
+
+  .chart {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 16px 18px 20px;
+    overflow-x: auto;
+  }
+  .chart-in { min-width: 620px; }
+
+  .grid { display: grid; grid-template-columns: 224px 1fr; column-gap: 18px; }
+
+  .axis { position: relative; height: 18px; margin-bottom: 4px; }
+  .axis span {
+    position: absolute; top: 0; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+
+  .phase {
+    grid-column: 1 / -1;
+    display: flex; align-items: baseline; gap: 10px;
+    margin: 18px 0 6px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .09em; font-weight: 600;
+  }
+  .phase::after { content: ""; flex: 1; height: 1px; background: var(--grid); }
+  .phase.down { color: var(--down); }
+  .phase.reset { color: var(--reset); }
+  .phase.up { color: var(--up); }
+  .phase small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  .phase:first-of-type { margin-top: 8px; }
+
+  .meta { padding: 8px 0 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .meta b { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .meta .facts { font-family: var(--mono); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chip {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--grid); color: var(--muted);
+  }
+  .chip.k { color: var(--edge); border-color: var(--edge); }
+  .chip.cap { color: var(--reset); border-color: var(--reset); }
+  .chip.off { color: var(--muted); border-style: dashed; }
+  .chip.ratio { color: var(--up); border-color: var(--up); }
+
+  .barcell { position: relative; padding: 9px 0 0 0; padding-bottom: 20px; }
+  .bar { position: relative; height: 28px; background: var(--track); border-radius: 4px; }
+  .gl { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid); opacity: .8; }
+  .ghost {
+    position: absolute; top: -3px; bottom: -3px;
+    border: 1.5px dashed var(--ghost); border-radius: 3px;
+  }
+  .seg {
+    position: absolute; top: 0; bottom: 0;
+    background: var(--fill); border: 1px solid var(--edge); border-radius: 3px;
+  }
+  .tk { position: absolute; top: -4px; bottom: -4px; width: 3px; transform: translateX(-1.5px); border-radius: 1px; }
+  .tk.o { background: var(--orange); }
+  .tk.c { background: var(--cyan); }
+  .pt {
+    position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+    border-radius: 50%; background: var(--dot); border: 2.5px solid var(--dot-ring);
+    box-shadow: 0 0 0 1px var(--dot);
+  }
+  .rl {
+    position: absolute; top: 34px; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 28px; }
+  .notes div { color: var(--muted); font-size: 13.5px; max-width: 60ch; }
+  .notes b { color: var(--text); font-weight: 600; display: block; margin-bottom: 2px; }
+  .foot { color: var(--muted); font-size: 12.5px; max-width: 80ch; border-top: 1px solid var(--grid); padding-top: 14px; }
+
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+    .axis-spacer { display: none; }
+    .meta { padding-bottom: 0; }
+    .barcell { padding-top: 6px; padding-bottom: 22px; }
+    .chart { padding-inline: 12px; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Alternance basse/haute avec le ratio ancré (Règle 3)</h1>
+    <p>Ce que fait le bot sur le pool WETH/USDC : <b>K</b> compte les sorties basses consécutives et
+      pilote la largeur et les bornes du prochain range. Depuis la dernière mise à jour, une sortie
+      haute redimensionne <b>avec swap</b>, à range/2 (jamais sous le percentile24h), vers le ratio
+      WETH qu'aurait la position si son prix de référence était l'<b>ancien high trigger</b> — pas 50/50
+      fixe. Chaque ligne est l'état du range juste après l'événement, sur un axe de prix commun.</p>
+  </header>
+
+  <div class="legend" aria-label="Légende">
+    <span><i class="sw-range"></i>Range actif</span>
+    <span><i class="sw-ghost"></i>Range précédent</span>
+    <span><i class="sw-tick sw-o"></i>Low trigger</span>
+    <span><i class="sw-tick sw-c"></i>High trigger</span>
+    <span><i class="sw-dot"></i>Prix à la réouverture</span>
+    <span><i class="sw-tick" style="background:var(--up)"></i>Ratio WETH cible (sorties hautes)</span>
+  </div>
+
+  <section class="chart" aria-label="Schéma des ranges">
+    <div class="chart-in">
+      <div class="grid" id="grid">
+        <div class="axis-spacer"></div>
+        <div class="axis" id="axis"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="notes">
+    <div><b>Sortie basse : la largeur double</b>Le low trigger se place à rMin&nbsp;+&nbsp;range&nbsp;×&nbsp;1/2^(K+1) — de plus en plus près de rMin à mesure que K monte. Le high trigger est symétrique à ce low trigger par rapport au prix de réouverture : il existe désormais même en zone basse.</div>
+    <div><b>Sortie haute : range/2, jamais sous le percentile</b>La largeur devient la moitié du range actuel, sauf si c'est plus étroit que le percentile24h — dans ce cas c'est le percentile qui sert de plancher. K redescend de 1 (jamais sous 1).</div>
+    <div><b>Le ratio n'est plus 50/50 : il est ancré</b>Le swap forcé vise le ratio WETH qu'aurait la position (sur le nouveau range, centré au vrai prix) si son prix de référence était l'ancien high trigger. Si le prix a continué de monter pendant les 5 ticks de confirmation, l'ancre se retrouve bas dans le nouveau range → ratio très WETH (78-79&nbsp;% ici), pas neutre.</div>
+    <div><b>Le high trigger est plafonné au vrai prix</b>Sa symétrie utilise normalement l'ancre (l'ancien high trigger), mais jamais en dessous du prix réel de réouverture — sinon la position se retrouverait déjà "en zone haute" dès sa création. Le pivot devient max(ancre,&nbsp;prix), comme le plafond du mode "halve" de la Règle 2.</div>
+  </div>
+
+  <p class="foot">Simulation illustrative : percentile 24h supposé constant à 2&nbsp;% sur toute la séquence
+    (en réalité il varie), départ à 2600&nbsp;$. Pour les sorties hautes, le prix de réouverture est
+    supposé 1,2&nbsp;% au-dessus de l'ancien high trigger (dérive pendant les 5 ticks de confirmation) —
+    c'est cet écart qui éloigne le ratio de 50/50. Les Règles 4 (plancher WETH) et 5 (claim périodique)
+    ne sont pas représentées ici.</p>
+</div>
+
+<script>
+  var MIN = 2380, MAX = 2870;
+  var STEPS = [
+    { phase: 'down', title: 'Sorties basses — K ≤ 3', sub: 'double la largeur actuelle, low = rMin+range·1/2^(K+1), high symétrique au prix, K+=1' },
+    { label: 'Ouverture', price: 2600, lo: 2574, hi: 2626, w: '2,00 %', K: 1, trig: 2587, high: null },
+    { label: 'Sortie basse 1', price: 2587, lo: 2536, hi: 2639, w: '4,02 %', K: 2, trig: 2549, high: 2625 },
+    { label: 'Sortie basse 2', price: 2549, lo: 2450, hi: 2653, w: '8,12 %', K: 3, trig: 2462, high: 2636 },
+    { phase: 'up', title: 'Sortie haute — nouvelle Règle 3', sub: 'largeur = max(range/2, percentile24h), swap vers le ratio WETH ancré sur l’ancien high trigger, K−=1' },
+    { label: 'Sortie haute 1', price: 2667, anchor: 2636, lo: 2613, hi: 2723, w: '4,14 %', K: 2, trig: 2627, high: 2708, ratio: 79 },
+    { phase: 'down', title: 'Le cycle repart', sub: 'range/2 recalculé depuis la largeur que la Règle 3 vient de fixer' },
+    { label: 'Sortie basse 3', price: 2627, lo: 2521, hi: 2737, w: '8,37 %', K: 3, trig: 2535, high: 2719 },
+    { phase: 'up', title: 'Sortie haute (bis)', sub: 'même formule — ratio à nouveau ancré sur l’ancien high trigger' },
+    { label: 'Sortie haute 2', price: 2752, anchor: 2719, lo: 2694, hi: 2811, w: '4,27 %', K: 2, trig: 2709, high: 2795, ratio: 78 }
+  ];
+
+  function pct(v) { return ((v - MIN) / (MAX - MIN)) * 100; }
+  function el(tag, cls, css, txt) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (css) e.style.cssText = css;
+    if (txt != null) e.textContent = txt;
+    return e;
+  }
+  function gridlines(parent) {
+    for (var g = 2400; g <= 2850; g += 50) parent.appendChild(el('i', 'gl', 'left:' + pct(g) + '%'));
+  }
+
+  var axis = document.getElementById('axis');
+  for (var g = 2400; g <= 2850; g += 50) axis.appendChild(el('span', null, 'left:' + pct(g) + '%', g));
+
+  var grid = document.getElementById('grid');
+  var prev = null;
+  STEPS.forEach(function (s) {
+    if (s.phase) {
+      var p = el('div', 'phase ' + s.phase);
+      p.appendChild(document.createTextNode(s.title));
+      p.appendChild(el('small', null, null, s.sub));
+      grid.appendChild(p);
+      return;
+    }
+    var meta = el('div', 'meta');
+    var b = el('b', null, null, s.label);
+    b.appendChild(el('span', 'chip k', null, 'K=' + s.K));
+    b.appendChild(el('span', 'chip' + (s.cap ? ' cap' : ''), null, 'largeur ' + s.w));
+    if (s.ratio != null) b.appendChild(el('span', 'chip ratio', null, 'WETH ' + s.ratio + ' %'));
+    meta.appendChild(b);
+    var facts = s.price + ' $ · ';
+    meta.appendChild(el('span', 'facts', null, facts));
+    var factsEl = meta.lastChild;
+    factsEl.appendChild(el('span', null, 'color:var(--orange)', 'low ' + s.trig));
+    factsEl.appendChild(document.createTextNode(' · '));
+    if (s.high == null) {
+      factsEl.appendChild(el('span', null, null, 'high désactivé'));
+    } else {
+      factsEl.appendChild(el('span', null, 'color:var(--cyan)', 'high ' + s.high));
+    }
+    if (s.anchor != null) {
+      factsEl.appendChild(document.createTextNode(' · '));
+      factsEl.appendChild(el('span', null, 'color:var(--up)', 'ancre ' + s.anchor));
+    }
+    grid.appendChild(meta);
+
+    var cell = el('div', 'barcell');
+    var bar = el('div', 'bar');
+    gridlines(bar);
+    if (prev) {
+      bar.appendChild(el('div', 'ghost', 'left:' + pct(prev.lo) + '%;width:' + (pct(prev.hi) - pct(prev.lo)) + '%'));
+    }
+    var seg = el('div', 'seg', 'left:' + pct(s.lo) + '%;width:' + (pct(s.hi) - pct(s.lo)) + '%');
+    bar.appendChild(seg);
+
+    // Écarte visuellement les repères (low/high/ancre) trop proches sur l'axe partagé — l'écart
+    // réel entre eux peut être minuscule par rapport à la largeur totale du graphique (toutes les
+    // lignes partagent la même échelle, pour comparer les ranges d'une ligne à l'autre).
+    var marks = [{ key: 'low', val: pct(s.trig), cls: 'tk o' }];
+    if (s.high != null) marks.push({ key: 'high', val: pct(s.high), cls: 'tk c' });
+    if (s.anchor != null) marks.push({ key: 'anchor', val: pct(s.anchor), cls: 'tk', extra: 'background:var(--up)' });
+    marks.sort(function (a, b) { return a.val - b.val; });
+    var MIN_GAP = 1.4;
+    for (var mi = 1; mi < marks.length; mi++) {
+      if (marks[mi].val - marks[mi - 1].val < MIN_GAP) marks[mi].val = marks[mi - 1].val + MIN_GAP;
+    }
+    marks.forEach(function (m) {
+      bar.appendChild(el('i', m.cls, 'left:' + m.val + '%' + (m.extra ? ';' + m.extra : '')));
+    });
+
+    bar.appendChild(el('i', 'pt', 'left:' + pct(s.price) + '%'));
+    cell.appendChild(bar);
+    cell.appendChild(el('span', 'rl', 'left:' + pct((s.lo + s.hi) / 2) + '%', s.lo + ' → ' + s.hi));
+    grid.appendChild(cell);
+    prev = s;
+  });
+</script>

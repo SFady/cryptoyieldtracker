@@ -298,13 +298,17 @@ export async function GET() {
     const openingLp   = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
     const oorCount    = parseInt(await kv.get('p2_oor_count').catch(() => null)) || 0;
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
-    const liveRange    = await kv.get('p2_live_range').catch(() => null);
-    const entryPrice   = liveRange?.entry ? parseFloat(liveRange.entry) : null;
-    const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
+    const liveRange     = await kv.get('p2_live_range').catch(() => null);
+    const entryPrice    = liveRange?.entry ? parseFloat(liveRange.entry) : null;
+    const lowTrigger    = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
+    // highTrigger peut valoir Infinity (Règle 1 : zone haute désactivée) — JSON ne sait pas
+    // sérialiser Infinity (devient null), donc on transporte un marqueur 'disabled' à la place.
+    const highTriggerNum = liveRange?.highTrigger ? parseFloat(liveRange.highTrigger) : null;
+    const highTrigger    = highTriggerNum === null ? null : (Number.isFinite(highTriggerNum) ? highTriggerNum : 'disabled');
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, rule1K });
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, highTrigger, lowZoneHits, highZoneHits, rule1K });
   }
 
   try {
@@ -540,13 +544,15 @@ export async function GET() {
 
     if (positions.length > 0 && positions[0].rangeLow && positions[0].rangeHigh) {
       const existingRange = await kv.get('p2_live_range').catch(() => null);
-      // Préserve entry/lowTrigger déjà stockés — un writeP2Range sans ces valeurs les efface
-      // silencieusement (kv.set remplace tout l'objet), ce qui réinitialisait le vrai trigger
-      // évolutif du bot (Règle 2, mode "halve") à chaque simple rafraîchissement de la page.
+      // Préserve entry/lowTrigger/highTrigger déjà stockés — un writeP2Range sans ces valeurs les
+      // efface silencieusement (kv.set remplace tout l'objet), ce qui réinitialisait le vrai trigger
+      // évolutif du bot (Règle 2, mode "halve") ou le blocage de zone haute (Règle 1, highTrigger =
+      // Infinity) à chaque simple rafraîchissement de la page.
       await writeP2Range(
         positions[0].rangeLow, positions[0].rangeHigh,
         existingRange?.entry ? parseFloat(existingRange.entry) : null,
         existingRange?.lowTrigger ? parseFloat(existingRange.lowTrigger) : null,
+        existingRange?.highTrigger ? parseFloat(existingRange.highTrigger) : null,
       );
     }
 
@@ -561,13 +567,17 @@ export async function GET() {
     const openingLp   = parseFloat((await kv.get('p2_opening_lp')) ?? 0) || null;
     const oorCount    = parseInt(await kv.get('p2_oor_count').catch(() => null)) || 0;
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
-    const liveRange    = await kv.get('p2_live_range').catch(() => null);
-    const entryPrice   = liveRange?.entry ? parseFloat(liveRange.entry) : null;
-    const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
+    const liveRange     = await kv.get('p2_live_range').catch(() => null);
+    const entryPrice    = liveRange?.entry ? parseFloat(liveRange.entry) : null;
+    const lowTrigger    = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
+    // highTrigger peut valoir Infinity (Règle 1 : zone haute désactivée) — JSON ne sait pas
+    // sérialiser Infinity (devient null), donc on transporte un marqueur 'disabled' à la place.
+    const highTriggerNum = liveRange?.highTrigger ? parseFloat(liveRange.highTrigger) : null;
+    const highTrigger    = highTriggerNum === null ? null : (Number.isFinite(highTriggerNum) ? highTriggerNum : 'disabled');
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, rule1K };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, highTrigger, lowZoneHits, highZoneHits, rule1K };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

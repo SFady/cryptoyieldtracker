@@ -1,0 +1,489 @@
+<title>Simulation Règles K</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0a16;
+    --card: rgba(20,26,36,0.95);
+    --card-head: rgba(10,10,30,0.7);
+    --border: rgba(124,77,255,0.15);
+    --border-strong: rgba(124,77,255,0.3);
+    --purple: #7c4dff;
+    --purple-soft: rgba(124,77,255,0.08);
+    --text: #eaf6ff;
+    --text-dim: #9aa0c0;
+    --text-mute: #6666aa;
+    --text-faint: #555599;
+    --green: #00e5a0;
+    --red: #c97070;
+    --orange: #f0a029;
+    --cyan: #29b6f0;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", monospace; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding-inline: 16px;
+    padding-block: 28px 48px;
+  }
+
+  header.page-head {
+    margin-bottom: 18px;
+  }
+  header.page-head h1 {
+    font-size: 1.3rem;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  header.page-head p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    max-width: 62ch;
+    line-height: 1.5;
+  }
+
+  .badges {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding: 12px 0 2px 0;
+  }
+  .badge {
+    font-size: 0.65rem; font-family: ui-monospace, "SF Mono", "Consolas", monospace;
+    padding: 3px 9px; border-radius: 4px;
+    white-space: nowrap;
+  }
+  .badge--purple  { background: rgba(124,77,255,0.08); border: 1px solid rgba(124,77,255,0.25); color: #a78bfa; }
+  .badge--green   { background: rgba(34,197,94,0.08);  border: 1px solid rgba(34,197,94,0.25);  color: #86efac; }
+  .badge--orange  { background: rgba(240,160,41,0.08); border: 1px solid rgba(240,160,41,0.25); color: var(--orange); }
+  .badge--cyan    { background: rgba(41,182,240,0.08); border: 1px solid rgba(41,182,240,0.25); color: var(--cyan); }
+  .badge--red     { background: rgba(201,112,112,0.08);border: 1px solid rgba(201,112,112,0.25);color: var(--red); }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 18px 0;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .stat .label {
+    font-size: 0.6rem; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--text-mute); margin-bottom: 6px; font-family: ui-monospace, monospace;
+  }
+  .stat .value {
+    font-size: 1.25rem; font-weight: 700; font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .sub {
+    font-size: 0.65rem; color: var(--text-faint); margin-top: 2px; font-family: ui-monospace, monospace;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .card-head {
+    padding: 11px 16px;
+    background: var(--card-head);
+    border-bottom: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  }
+  .card-head h2 {
+    margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--text);
+  }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.62rem; font-family: ui-monospace, monospace; color: var(--text-dim);
+  }
+  .swatch { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+  .dot-sm { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+  .chart-body { padding: 10px 6px 4px; }
+  svg.chart { width: 100%; height: auto; display: block; }
+  .axis-label { fill: var(--text-mute); font-size: 9px; font-family: ui-monospace, monospace; }
+  .grid-line { stroke: rgba(124,77,255,0.08); stroke-width: 1; }
+
+  .tick-note {
+    padding: 8px 16px 14px; font-size: 0.68rem; color: var(--text-faint);
+    font-family: ui-monospace, monospace; line-height: 1.5;
+  }
+
+  table.events {
+    width: 100%; border-collapse: collapse; font-size: 0.72rem;
+  }
+  table.events thead th {
+    text-align: left; padding: 8px 14px; font-size: 0.6rem; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--text-mute); font-family: ui-monospace, monospace; font-weight: 600;
+    border-bottom: 1px solid var(--border-strong);
+    position: sticky; top: 0; background: var(--card-head);
+  }
+  table.events tbody td {
+    padding: 7px 14px; border-bottom: 1px solid rgba(124,77,255,0.06);
+    font-family: ui-monospace, monospace; color: var(--text);
+    white-space: nowrap;
+  }
+  table.events tbody tr:last-child td { border-bottom: none; }
+  .table-scroll { overflow-x: auto; }
+  table.events { min-width: 720px; }
+
+  .act-tag {
+    font-size: 0.62rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;
+    font-family: ui-monospace, monospace;
+  }
+  .act-open   { background: rgba(124,77,255,0.15); color: #b9a6ff; }
+  .act-low    { background: rgba(201,112,112,0.15); color: var(--red); }
+  .act-reset  { background: rgba(240,160,41,0.18); color: var(--orange); }
+  .act-high   { background: rgba(41,182,240,0.15); color: var(--cyan); }
+
+  .k-arrow { color: var(--text-dim); }
+  .k-val { font-weight: 700; }
+
+  footer.foot {
+    margin-top: 22px; font-size: 0.65rem; color: var(--text-faint);
+    font-family: ui-monospace, monospace; line-height: 1.6; max-width: 70ch;
+  }
+
+  @media (max-width: 640px) {
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+    table.events { min-width: 620px; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="page-head">
+    <h1>Simulation — Règles 1 à 3 (paramètre K)</h1>
+    <p>
+      Scénario synthétique (pas des données de marché réelles) rejouant les règles de rebalance
+      du bot pool 2 sur une trajectoire de prix scriptée : ouverture, sortie basse répétée jusqu'au
+      coupe-circuit K&gt;3, puis remontée déclenchant des sorties hautes qui redescendent K.
+    </p>
+  </header>
+
+  <div class="stat-row" id="statRow"></div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Prix, range et bornes dans le temps</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="chart-body">
+      <svg id="chart" class="chart" viewBox="0 0 980 380" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="tick-note">Axe X : tick de simulation (pas une durée réelle). Axe Y : prix (unité arbitraire, base 2740).</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Journal des rebalances</h2>
+    </div>
+    <div class="table-scroll">
+      <table class="events">
+        <thead>
+          <tr><th>#</th><th>Tick</th><th>Action</th><th>Prix</th><th>K</th><th>Nouveau range</th><th>Low trigger</th><th>High trigger</th></tr>
+        </thead>
+        <tbody id="eventsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer class="foot">
+    Règles simulées : Rule 1 (ouverture, low = rMin+range·1/2^(K+1), zone haute désactivée) ·
+    Rule 2 K≤3 (double la largeur, K+=1, low = rMin+range·1/2^(K+1), high symétrique au prix de
+    réouverture) · Rule 2 K&gt;3 (repart sur la largeur "percentile" brute, low centré entre rMin et
+    le prix, K→1, zone haute désactivée) · Rule 3 (K-=1 si &gt;1 ; K encore &gt;1 → low = range/2^(K+1)
+    et high symétrique à l'ANCIEN high trigger ; K=1 → low = range/4, zone haute désactivée).
+    Règles 4 et 5 (plancher WETH, claim périodique) ne sont pas modélisées ici.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Générateur pseudo-aléatoire déterministe (reproductible) ----------
+  function mulberry32(seed) {
+    return function () {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---------- Trajectoire de prix scriptée en 4 actes ----------
+  function buildPrices() {
+    const rng = mulberry32(42);
+    let price = 2740;
+    const prices = [price];
+    const step = (n, drift, noise) => {
+      for (let t = 0; t < n; t++) {
+        price *= 1 + drift + (rng() - 0.5) * noise;
+        prices.push(price);
+      }
+    };
+    step(25, 0, 0.008);          // Acte 1 — ouverture, chop
+    step(170, -0.006, 0.006);    // Acte 2 — décline soutenue (K monte, coupe-circuit)
+    step(130, 0.007, 0.006);     // Acte 3 — reprise (K redescend)
+    step(40, 0, 0.006);          // Acte 4 — stabilisation
+    return prices;
+  }
+
+  function volPct(hist) {
+    const w = hist.slice(-60);
+    if (w.length < 10) return 8;
+    const mn = Math.min(...w), mx = Math.max(...w);
+    return ((mx - mn) / mn) * 100;
+  }
+
+  // ---------- Moteur des règles (1, 2, 3) ----------
+  function simulate(prices) {
+    let hasPos = false, rMin = 0, rMax = 0, lowTrigger = 0, highTrigger = Infinity;
+    let K = 1, streak = 0, side = null;
+    const events = [];
+    const frames = []; // état à chaque tick, pour dessiner les bandes en continu
+    const hist = [];
+
+    for (let i = 0; i < prices.length; i++) {
+      const p = prices[i];
+      hist.push(p);
+      const vol = volPct(hist);
+
+      if (!hasPos) {
+        K = 1;
+        const w = vol * K;
+        rMin = p / (1 + w / 200);
+        rMax = p * (1 + w / 200);
+        lowTrigger = rMin + (rMax - rMin) * (1 / Math.pow(2, K + 1));
+        highTrigger = Infinity;
+        hasPos = true; streak = 0; side = null;
+        events.push({ i, p, action: "open", K, rMin, rMax, lowTrigger, highTrigger });
+        frames.push({ i, p, rMin, rMax, lowTrigger, highTrigger, K });
+        continue;
+      }
+
+      const inLow = p <= lowTrigger;
+      const inHigh = highTrigger !== Infinity && p >= highTrigger;
+
+      if (inLow || inHigh) {
+        const s = inLow ? "low" : "high";
+        if (s !== side) { streak = 0; side = s; }
+        streak++;
+        if (streak >= 5) {
+          if (inLow) {
+            const rpa = ((rMax - rMin) / rMin) * 100;
+            if (K > 3) {
+              const nw = vol;
+              rMin = p / (1 + nw / 200); rMax = p * (1 + nw / 200);
+              lowTrigger = (rMin + p) / 2; highTrigger = Infinity; K = 1;
+              events.push({ i, p, action: "low_reset", K, rMin, rMax, lowTrigger, highTrigger });
+            } else {
+              const nw = rpa * 2;
+              rMin = p / (1 + nw / 200); rMax = p * (1 + nw / 200);
+              K = K + 1;
+              lowTrigger = rMin + (rMax - rMin) * (1 / Math.pow(2, K + 1));
+              highTrigger = 2 * p - lowTrigger;
+              events.push({ i, p, action: "low_double", K, rMin, rMax, lowTrigger, highTrigger });
+            }
+          } else {
+            const rpa = ((rMax - rMin) / rMin) * 100;
+            if (Math.abs(vol - rpa) > 1.5) {
+              const anchor = highTrigger;
+              let nk = K; if (K > 1) nk = K - 1;
+              const nw = vol;
+              rMin = p / (1 + nw / 200); rMax = p * (1 + nw / 200);
+              lowTrigger = rMin + (rMax - rMin) * (1 / Math.pow(2, nk + 1));
+              highTrigger = nk > 1 ? 2 * anchor - lowTrigger : Infinity;
+              K = nk;
+              events.push({ i, p, action: "high", K, rMin, rMax, lowTrigger, highTrigger });
+            }
+          }
+          streak = 0; side = null;
+        }
+      } else {
+        streak = 0; side = null;
+      }
+      frames.push({ i, p, rMin, rMax, lowTrigger, highTrigger, K });
+    }
+    return { events, frames };
+  }
+
+  const prices = buildPrices();
+  const { events, frames } = simulate(prices);
+
+  // ---------- Stat cards ----------
+  const lowCount  = events.filter(e => e.action === "low_double" || e.action === "low_reset").length;
+  const highCount = events.filter(e => e.action === "high").length;
+  const resetCount = events.filter(e => e.action === "low_reset").length;
+  const finalFrame = frames[frames.length - 1];
+
+  const statRow = document.getElementById("statRow");
+  const stats = [
+    { label: "K final", value: String(finalFrame.K), sub: finalFrame.K > 1 ? "au-dessus du plancher" : "plancher (1)" },
+    { label: "Rebalances totales", value: String(events.length - 1), sub: lowCount + " bas · " + highCount + " haut" },
+    { label: "Coupe-circuits (K>3)", value: String(resetCount), sub: "retour à la largeur brute" },
+    { label: "Zone haute", value: finalFrame.highTrigger === Infinity ? "désactivée" : "$" + finalFrame.highTrigger.toFixed(0), sub: "état final" },
+  ];
+  statRow.innerHTML = stats.map(s =>
+    '<div class="stat"><div class="label">' + s.label + '</div><div class="value mono">' + s.value +
+    '</div><div class="sub">' + s.sub + "</div></div>"
+  ).join("");
+
+  // ---------- Légende ----------
+  document.getElementById("legend").innerHTML = [
+    ["#eaf6ff", "Prix"],
+    ["#7c4dff", "Range [rMin, rMax]"],
+    ["#f0a029", "Low trigger"],
+    ["#29b6f0", "High trigger"],
+  ].map(([c, l]) =>
+    '<span class="legend-item"><span class="swatch" style="background:' + c + '"></span>' + l + "</span>"
+  ).join("") + '<span class="legend-item"><span class="dot-sm" style="background:#c97070"></span>Rebalance bas</span>' +
+    '<span class="legend-item"><span class="dot-sm" style="background:#29b6f0"></span>Rebalance haut</span>';
+
+  // ---------- Chart SVG ----------
+  const W = 980, H = 380;
+  const M = { top: 14, right: 14, bottom: 26, left: 52 };
+  const plotW = W - M.left - M.right;
+  const plotH = H - M.top - M.bottom;
+
+  const allVals = [];
+  frames.forEach(f => { allVals.push(f.p, f.rMin, f.rMax, f.lowTrigger); if (f.highTrigger !== Infinity) allVals.push(f.highTrigger); });
+  const yMin = Math.min(...allVals) * 0.96;
+  const yMax = Math.max(...allVals) * 1.04;
+  const xMax = frames.length - 1;
+
+  const xScale = i => M.left + (i / xMax) * plotW;
+  const yScale = v => M.top + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+
+  function pathFor(getY, filterFinite) {
+    let d = "";
+    let started = false;
+    frames.forEach((f, idx) => {
+      const y = getY(f);
+      if (filterFinite && !isFinite(y)) { started = false; return; }
+      const x = xScale(idx);
+      d += (started ? "L" : "M") + x.toFixed(1) + "," + yScale(y).toFixed(1) + " ";
+      started = true;
+    });
+    return d.trim();
+  }
+
+  function areaFor(getLo, getHi) {
+    let top = "", bottom = "";
+    frames.forEach((f, idx) => {
+      const x = xScale(idx);
+      top += (idx === 0 ? "M" : "L") + x.toFixed(1) + "," + yScale(getHi(f)).toFixed(1) + " ";
+    });
+    for (let idx = frames.length - 1; idx >= 0; idx--) {
+      const x = xScale(idx);
+      bottom += "L" + x.toFixed(1) + "," + yScale(getLo(frames[idx])).toFixed(1) + " ";
+    }
+    return top + bottom + "Z";
+  }
+
+  const svg = document.getElementById("chart");
+  const svgNS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    const e = document.createElementNS(svgNS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // grille horizontale + labels Y
+  const gridSteps = 5;
+  for (let g = 0; g <= gridSteps; g++) {
+    const v = yMin + (g / gridSteps) * (yMax - yMin);
+    const y = yScale(v);
+    svg.appendChild(el("line", { x1: M.left, x2: W - M.right, y1: y.toFixed(1), y2: y.toFixed(1), class: "grid-line" }));
+    const t = el("text", { x: M.left - 8, y: (y + 3).toFixed(1), class: "axis-label", "text-anchor": "end" });
+    t.textContent = "$" + Math.round(v);
+    svg.appendChild(t);
+  }
+  // labels X
+  const xTicks = 6;
+  for (let g = 0; g <= xTicks; g++) {
+    const idx = Math.round((g / xTicks) * xMax);
+    const x = xScale(idx);
+    const t = el("text", { x: x.toFixed(1), y: H - 6, class: "axis-label", "text-anchor": "middle" });
+    t.textContent = String(idx);
+    svg.appendChild(t);
+  }
+
+  // bande de range
+  svg.appendChild(el("path", { d: areaFor(f => f.rMin, f => f.rMax), fill: "rgba(124,77,255,0.10)", stroke: "none" }));
+  svg.appendChild(el("path", { d: pathFor(f => f.rMax), fill: "none", stroke: "rgba(124,77,255,0.35)", "stroke-width": 1 }));
+  svg.appendChild(el("path", { d: pathFor(f => f.rMin), fill: "none", stroke: "rgba(124,77,255,0.35)", "stroke-width": 1 }));
+
+  // low / high trigger
+  svg.appendChild(el("path", { d: pathFor(f => f.lowTrigger), fill: "none", stroke: "#f0a029", "stroke-width": 1.6, "stroke-linecap": "round" }));
+  svg.appendChild(el("path", { d: pathFor(f => (f.highTrigger === Infinity ? NaN : f.highTrigger), true), fill: "none", stroke: "#29b6f0", "stroke-width": 1.6, "stroke-linecap": "round" }));
+
+  // prix
+  svg.appendChild(el("path", { d: pathFor(f => f.p), fill: "none", stroke: "#eaf6ff", "stroke-width": 2, "stroke-linecap": "round" }));
+
+  // marqueurs d'événements
+  events.forEach(e => {
+    if (e.action === "open") return;
+    const x = xScale(e.i);
+    const y = yScale(e.p);
+    const isLow = e.action === "low_double" || e.action === "low_reset";
+    const color = isLow ? "#c97070" : "#29b6f0";
+    const r = e.action === "low_reset" ? 6 : 4;
+    if (e.action === "low_reset") {
+      svg.appendChild(el("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: r + 3, fill: "none", stroke: color, "stroke-width": 1.4, opacity: 0.6 }));
+    }
+    svg.appendChild(el("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: r, fill: color, stroke: "#0a0a16", "stroke-width": 1.2 }));
+  });
+
+  // ---------- Journal ----------
+  const ACTION_LABEL = {
+    open: "Ouverture",
+    low_double: "Bas — double la largeur",
+    low_reset: "Bas — coupe-circuit K>3",
+    high: "Haut — resize",
+  };
+  const ACTION_CLASS = {
+    open: "act-open", low_double: "act-low", low_reset: "act-reset", high: "act-high",
+  };
+
+  const tbody = document.getElementById("eventsBody");
+  tbody.innerHTML = events.map((e, idx) => {
+    const prevK = idx === 0 ? e.K : events[idx - 1].K;
+    const kCell = idx === 0
+      ? '<span class="k-val">' + e.K + "</span>"
+      : '<span class="k-val">' + prevK + '</span><span class="k-arrow"> → </span><span class="k-val">' + e.K + "</span>";
+    const high = e.highTrigger === Infinity ? "désactivé" : "$" + e.highTrigger.toFixed(0);
+    return (
+      "<tr>" +
+      "<td>" + (idx + 1) + "</td>" +
+      "<td>" + e.i + "</td>" +
+      '<td><span class="act-tag ' + ACTION_CLASS[e.action] + '">' + ACTION_LABEL[e.action] + "</span></td>" +
+      "<td>$" + e.p.toFixed(0) + "</td>" +
+      "<td>" + kCell + "</td>" +
+      "<td>$" + e.rMin.toFixed(0) + " – $" + e.rMax.toFixed(0) + "</td>" +
+      "<td>$" + e.lowTrigger.toFixed(0) + "</td>" +
+      "<td>" + high + "</td>" +
+      "</tr>"
+    );
+  }).join("");
+})();
+</script>

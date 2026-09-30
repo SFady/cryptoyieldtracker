@@ -180,13 +180,16 @@ export async function clearWethFeesPending(poolNum) {
   try { await kv.del(`weth-fees-pending-${poolNum}`); } catch (_) {}
 }
 
-// Range réel de la position pool 2 (long-lived, mis à jour à chaque chargement positions2)
-export async function writeP2Range(min, max, entry = null, lowTrigger = null) {
+// Range réel de la position pool 2 (long-lived, mis à jour à chaque chargement positions2).
+// highTrigger : absent = repli sur la formule générique (rMin + 50% du range) ; Infinity = zone
+// haute désactivée pour cette position (Règle 3 ne peut jamais se déclencher).
+export async function writeP2Range(min, max, entry = null, lowTrigger = null, highTrigger = null) {
   try {
     await kv.set('p2_live_range', {
       min: String(min), max: String(max),
       ...(entry !== null && { entry: String(entry) }),
       ...(lowTrigger !== null && { lowTrigger: String(lowTrigger) }),
+      ...(highTrigger !== null && { highTrigger: String(highTrigger) }),
     }, { ex: LP_STATE_TTL });
   } catch (_) {}
 }

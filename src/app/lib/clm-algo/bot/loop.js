@@ -29,17 +29,27 @@ async function sendErrorEmail(subject, body) {
 // Nouveau jeu de règles :
 //   1.  Aucune position → réinitialise K à 1 (p2_rule1_k, Redis + repli table bot_config — voir
 //       readRule1K/writeRule1K dans cronKv.js) puis ouvre au range percentile24h × K (= 1), 50/50
-//       WETH/USDC. Ne s'applique qu'à une vraie ouverture à vide, pas à la reprise d'une
-//       réouverture différée par le spread check (Règles 2/3/4), qui garde ses propres paramètres.
+//       WETH/USDC. Low trigger = rMin + range × 1/2^(K+1) (K=1 → range/4). Zone haute désactivée
+//       pour cette position (p2_live_range.highTrigger = Infinity) : la Règle 3 ne peut jamais se
+//       déclencher tant que cette position n'a pas été rebalancée par une autre règle — la Règle 4
+//       (plancher WETH) reste, elle, toujours active, indépendamment de ce blocage. Ne s'applique
+//       qu'à une vraie ouverture à vide, pas à la reprise d'une réouverture différée par le spread
+//       check (Règles 2/3/4), qui garde ses propres paramètres.
 //   2.  Zone basse (prix ≤ rMin + 25% du range), confirmée 5 ticks consécutifs (compteur
 //       p2_oor_count/p2_oor_low, dots page pools) → collecte AERO (25% envoyé/75% gardé),
 //       ferme et rouvre à 75% WETH (swap forcé), largeur = largeur actuelle × 2, sans plafond (30/09).
 //       Incrémente aussi K de 1 (p2_rule1_k) — une future réouverture à vide (Règle 1) part plus large.
-//   3.  Zone haute (prix ≥ rMin + 50% du range), confirmée 5 ticks consécutifs (même compteur) ET
-//       écart percentile24h/range actuel > ±1,5pt (revérifié à chaque tick une fois le streak
-//       atteint) → collecte AERO (50%/50%), resize sans swap au range percentile24h brut,
-//       garde les proportions WETH/USDC actuelles (aucun plafond/plancher de ratio).
-//       Décrémente K de 1 si K>1 (jamais sous 1).
+//   3.  Zone haute (prix ≥ high trigger, confirmée 5 ticks consécutifs, même compteur) ET écart
+//       percentile24h/range actuel > ±1,5pt (revérifié à chaque tick une fois le streak atteint) →
+//       collecte AERO (50%/50%), resize AVEC swap à range/2 (jamais sous le percentile24h brut, qui
+//       sert de plancher). Le ratio WETH cible du swap est celui qu'aurait la position si son prix
+//       de référence était l'ANCIEN high trigger (maths CL standard), pas un pourcentage fixe.
+//       Décrémente K de 1 si K>1 (jamais sous 1). Le "prix de réouverture" utilisé pour les bornes
+//       (et le calcul de ce ratio) est aussi l'ANCIEN high trigger, pas le prix de marché courant —
+//       seuls le recentrage réel de la position et la valorisation du capital utilisent le vrai prix.
+//       K encore >1 après décrément → low = rMin+range/2^(K+1), high symétrique à ce low
+//       par rapport à l'ancien high trigger (mode 'k-symmetric') ; K=1 après décrément →
+//       low = range/4, zone haute désactivée (mode 'k-formula', comme la Règle 1).
 //   4.  Indépendante des zones/volatilité, vérifiée chaque tick sans streak : si WETH < 5% de la
 //       position → collecte AERO (50%/50%), ferme et rouvre à la largeur percentile24h brut (29/09),
 //       swap forcé vers 25% WETH (correctif modéré, pas un reset à 50%, pour limiter le rachat de
@@ -378,7 +388,7 @@ async function closeEdgeZone(base, isLow) {
  * si le marché est trop agité, la réouverture est sautée (capital laissé dans le wallet), la
  * Règle 1 la reprendra au tick suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null, skipAeroSplit = false) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null, skipAeroSplit = false, kForFormula = null, triggerAnchorPrice = null) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -449,35 +459,68 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
       // Mémorise les paramètres de la réouverture voulue : la Règle 1 (aucune position) les
       // reprendra au tick suivant au lieu d'ouvrir en 50/50 avec le percentile brut.
       await kv.set('p2_pending_reopen', {
-        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger, closeReason,
+        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger, closeReason, kForFormula, triggerAnchorPrice,
       }, { ex: 24 * 3600 }).catch(() => {});
       return out;
     }
   }
 
-  // Rouvrir LP avec tout le capital disponible au ratio cible
+  // Rouvrir LP avec tout le capital disponible au ratio cible — toujours au VRAI prix de marché
+  // (valorisation du capital et centrage réel de la position), jamais sur un prix d'ancrage.
   out.autoStart = await autoStart({ base, price, targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct });
 
-  // Sauvegarder le nouveau range + low trigger (et purger une éventuelle réouverture en attente)
-  await saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger);
+  // Sauvegarder le nouveau range + bornes. triggerAnchorPrice (si fourni, ex. Règle 3 : ancien high
+  // trigger) sert UNIQUEMENT au calcul des formules de bornes, pas à la position réelle ci-dessus.
+  await saveRangeAndLowTrigger(out, triggerAnchorPrice ?? price, lowTriggerMode, oldLowTrigger, kForFormula, price);
   await kv.del('p2_pending_reopen').catch(() => {});
 
   return out;
 }
 
-// Sauvegarde le range réouvert + low trigger : 'halve' = se rapproche du nouveau rMin (sortie basse
-// répétée), sinon reset à rMin + 25% du nouveau range (sortie haute, Règle 4, défaut).
-async function saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger) {
+// Sauvegarde le range réouvert + bornes basse/haute :
+//   'k-formula'   = Règle 1 (K réinitialisé à 1) : low = rMin + range × 1/2^(K+1) (donne range/4,
+//                   la suite 1/4, 1/8, 1/16... si K évoluait). Zone haute désactivée (Infinity) —
+//                   la Règle 3 ne doit jamais se déclencher sur une position tout juste ouverte à
+//                   vide (la Règle 4, plancher WETH, reste indépendante et s'applique toujours).
+//   'k-symmetric' = Règle 2, K ≤ 3 : même formule pour low (avec le K déjà incrémenté), et une
+//                   borne haute symétrique à cette borne basse par rapport au prix de réouverture.
+//   'center'      = Règle 2, K > 3 : low centré entre le nouveau rMin et le prix de réouverture
+//                   (coupe-circuit, repart plus prudemment). Zone haute désactivée (Infinity).
+//   défaut        = reset à rMin + 25% du nouveau range (sortie haute, Règle 3/4) — pas de borne
+//                   haute stockée, repli sur la formule générique rMin + 50%.
+async function saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger, kForFormula = null, realPrice = null) {
   if (!out.autoStart?.pool?.tickLowerPrice || !out.autoStart?.pool?.tickUpperPrice) return;
   const newRMin = out.autoStart.pool.tickLowerPrice;
   const newRMax = out.autoStart.pool.tickUpperPrice;
-  // Plafonné au milieu de [newRMin, prix de réouverture] : garantit que le prix reste au-dessus du
-  // trigger dès la réouverture (sinon re-déclenchement immédiat en boucle si le prix a décroché).
-  const newLowTrigger = (lowTriggerMode === 'halve' && oldLowTrigger !== null)
-    ? Math.min((oldLowTrigger + newRMin) / 2, (newRMin + price) / 2)
-    : newRMin + 0.25 * (newRMax - newRMin);
-  out.newLowTrigger = parseFloat(newLowTrigger.toFixed(2));
-  await writeP2Range(newRMin, newRMax, price, newLowTrigger);
+  // entryPrice = toujours le vrai prix de réouverture (jamais l'ancre substituée à `price` pour les
+  // formules de bornes ci-dessous) — c'est ce qui est affiché/stocké comme prix d'ouverture réel.
+  const entryPrice = realPrice ?? price;
+  let newLowTrigger;
+  let newHighTrigger = null; // null = pas de borne stockée → repli générique rMin + 50%
+
+  if (lowTriggerMode === 'k-formula' && kForFormula !== null) {
+    newLowTrigger  = newRMin + (newRMax - newRMin) * (1 / Math.pow(2, kForFormula + 1));
+    newHighTrigger = Infinity;
+  } else if (lowTriggerMode === 'k-symmetric' && kForFormula !== null) {
+    newLowTrigger  = newRMin + (newRMax - newRMin) * (1 / Math.pow(2, kForFormula + 1));
+    // Plafonné comme le mode 'halve' : le pivot de symétrie ne descend jamais sous le vrai prix.
+    // Sinon (ex. Règle 3 : pivot = ancien high trigger, prix qui a dérivé au-dessus pendant les 5
+    // ticks de confirmation) le nouveau high trigger se retrouverait sous le prix actuel — la
+    // position serait déjà "en zone haute" dès la réouverture.
+    const pivot = Math.max(price, entryPrice);
+    newHighTrigger = 2 * pivot - newLowTrigger;
+  } else if (lowTriggerMode === 'center') {
+    newLowTrigger  = (newRMin + price) / 2;
+    newHighTrigger = Infinity;
+  } else {
+    newLowTrigger = newRMin + 0.25 * (newRMax - newRMin);
+  }
+
+  out.newLowTrigger  = parseFloat(newLowTrigger.toFixed(2));
+  out.newHighTrigger = (newHighTrigger !== null && Number.isFinite(newHighTrigger))
+    ? parseFloat(newHighTrigger.toFixed(2))
+    : newHighTrigger;
+  await writeP2Range(newRMin, newRMax, entryPrice, newLowTrigger, newHighTrigger);
 }
 
 /**
@@ -663,8 +706,9 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Lire p2_live_range : range réel (fallback si absent de lpState) + low trigger stocké
-  let storedLowTrigger = null;
+  // Lire p2_live_range : range réel (fallback si absent de lpState) + bornes basse/haute stockées
+  let storedLowTrigger  = null;
+  let storedHighTrigger = null;
   if (hasLP) {
     const lr = await readP2Range();
     if (rMin == null || isNaN(rMin)) {
@@ -674,7 +718,8 @@ export async function botLoop({ base, price }) {
         console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
       }
     }
-    if (lr?.lowTrigger) storedLowTrigger = parseFloat(lr.lowTrigger);
+    if (lr?.lowTrigger)  storedLowTrigger  = parseFloat(lr.lowTrigger);
+    if (lr?.highTrigger) storedHighTrigger = parseFloat(lr.highTrigger);
   }
 
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
@@ -719,7 +764,12 @@ export async function botLoop({ base, price }) {
   const lowTrigger  = (hasLP && storedLowTrigger !== null)
     ? storedLowTrigger
     : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.25 * (rMax - rMin) : null; // fallback si jamais stocké (1ère ouverture)
-  const halfPoint   = (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5  * (rMax - rMin) : null;
+  // Zone haute : seuil stocké explicitement (p2_live_range.highTrigger) si présent — Infinity après
+  // une ouverture Règle 1 (zone haute désactivée pour cette position), sinon repli générique
+  // rMin + 50% du range (Règles 2/3/4).
+  const halfPoint   = (hasLP && storedHighTrigger !== null)
+    ? storedHighTrigger
+    : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5 * (rMax - rMin) : null;
   const inLowZone   = lowTrigger !== null && price <= lowTrigger;
   const inHighZone  = !inLowZone && halfPoint !== null && price >= halfPoint;
 
@@ -739,21 +789,39 @@ export async function botLoop({ base, price }) {
     if (inLowZone) {
       // Règle 2 : collecte AERO (25% envoyé/75% gardé), swap vers un ratio fixe 75% WETH (plus de
       // "garder le ratio actuel" — trop proche du bord bas, ça recentrait le nouveau range de façon
-      // imprévisible, cf. simulation). Range : double la largeur ACTUELLE à chaque sortie basse
-      // (30/09), sans plafond — choix explicite malgré le risque de ranges très larges en cas de
-      // baisse prolongée (confirmé par l'utilisateur après avoir posé la question).
+      // imprévisible, cf. simulation).
+      // K (p2_rule1_k) fait office de compteur de sorties basses consécutives, et de coupe-circuit :
+      //   K ≤ 3 : double la largeur ACTUELLE, K incrémenté de 1, low trigger = rMin + range ×
+      //           1/2^(K+1) (K déjà incrémenté), high trigger symétrique à ce low trigger par
+      //           rapport au prix de réouverture (mode "k-symmetric").
+      //   K > 3 : au lieu de continuer à doubler indéfiniment, repart sur une largeur raisonnable
+      //           (percentile24h brut, comme la Règle 1), low trigger recentré entre le nouveau rMin
+      //           et le prix actuel (mode "center"), zone haute désactivée, K remis à 1 — casse le
+      //           cycle d'élargissement.
       const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const newRangePct    = rangePctActuel * 2;
-      // K (Règle 1, p2_rule1_k) incrémenté de 1 à chaque sortie basse — une future réouverture à
-      // vide (Règle 1) partira d'un range plus large, en mémoire des sorties basses passées.
-      const nextK = (await readRule1K()) + 1;
-      await writeRule1K(nextK);
-      result.rule1K           = nextK;
-      result.action          = 'low_zone_rebalance';
-      result.lowTrigger      = parseFloat(lowTrigger.toFixed(2));
-      result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
-      result.newRangePct     = parseFloat(newRangePct.toFixed(2));
-      result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct, null, null, true, 'halve', lowTrigger);
+      const currentK = await readRule1K();
+      result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
+      result.lowTrigger     = parseFloat(lowTrigger.toFixed(2));
+      result.action         = 'low_zone_rebalance';
+
+      if (currentK > 3) {
+        const pctDataK = await getPercentileRange();
+        const p24hK    = pctDataK && pctDataK.cnt >= 10 && pctDataK.p05 > 0
+          ? (pctDataK.p95 - pctDataK.p05) / pctDataK.p05 * 100
+          : rangePctActuel; // repli si pas assez de points : garde la largeur actuelle
+        await writeRule1K(1);
+        result.rule1K       = 1;
+        result.kResetBranch = true;
+        result.newRangePct  = parseFloat(p24hK.toFixed(2));
+        result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, p24hK, null, null, true, 'center', lowTrigger);
+      } else {
+        const newRangePct = rangePctActuel * 2;
+        const nextK = currentK + 1;
+        await writeRule1K(nextK);
+        result.rule1K      = nextK;
+        result.newRangePct = parseFloat(newRangePct.toFixed(2));
+        result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct, null, null, true, 'k-symmetric', lowTrigger, false, nextK);
+      }
       await logBotTick(kv, result);
       return result;
     }
@@ -767,21 +835,46 @@ export async function botLoop({ base, price }) {
     if (p24h !== null) {
       const rangePctActuel = (rMax - rMin) / rMin * 100;
       if (Math.abs(p24h - rangePctActuel) > 1.5) {
-        // Collecte AERO (50% envoyé/50% gardé), resize sans swap au range percentile24h brut,
-        // garde les proportions WETH/USDC actuelles (aucun plafond/plancher de ratio).
-        // K (Règle 1) redescend de 1 si >1 — une sortie haute détend la mémoire accumulée par
-        // les sorties basses (Règle 2), sans jamais repasser sous 1.
+        // Collecte AERO (50% envoyé/50% gardé), resize AVEC swap à range/2 (jamais sous le
+        // percentile24h brut). K redescend de 1 si >1 (une sortie haute détend la mémoire accumulée
+        // par les sorties basses de la Règle 2), sans jamais repasser sous 1. Le "prix de
+        // réouverture" utilisé pour les nouvelles bornes (et pour recentrer la position) est
+        // l'ANCIEN high trigger qui vient de déclencher — pas le prix de marché courant :
+        //   K encore >1 après décrément → mode 'k-symmetric' (low = rMin + range/2^(K+1), high
+        //   symétrique à ce low par rapport à l'ancien high trigger).
+        //   K=1 après décrément → mode 'k-formula' (low = rMin + range/2^(K+1) = range/4, zone
+        //   haute désactivée), comme une ouverture Règle 1.
         const currentK = await readRule1K();
+        let nextK = currentK;
         if (currentK > 1) {
-          const nextK = currentK - 1;
+          nextK = currentK - 1;
           await writeRule1K(nextK);
           result.rule1K = nextK;
         }
+        const newRangePct = Math.max(rangePctActuel / 2, p24h);
         result.action          = 'high_half_rebalance';
         result.halfPoint       = parseFloat(halfPoint.toFixed(2));
         result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
         result.percentileRange = parseFloat(p24h.toFixed(2));
-        result.collect = await runCollect(base, price, null, 'high_half_rebalance', 1, true, p24h, null, null, false);
+        result.newRangePct     = parseFloat(newRangePct.toFixed(2));
+        const reopenAnchor = halfPoint; // ancien high trigger — pour les formules de bornes ET le ratio cible
+
+        // Ratio WETH cible : celui qu'aurait la position (sur le NOUVEAU range, centré au vrai prix)
+        // si son "prix d'ouverture" de référence était l'ancien high trigger, pas le prix réel —
+        // même logique d'ancrage que les bornes, étendue au swap forcé (maths CL standard : valeur
+        // WETH ∝ √P×(√Pb−√P)/√Pb, valeur USDC ∝ √P−√Pa).
+        const halfFrac  = newRangePct / 200;
+        const newRMinR  = parseFloat((price / (1 + halfFrac)).toFixed(2));
+        const newRMaxR  = parseFloat((price * (1 + halfFrac)).toFixed(2));
+        const sqrtA = Math.sqrt(newRMinR), sqrtB = Math.sqrt(newRMaxR);
+        const sqrtX = Math.min(Math.max(Math.sqrt(reopenAnchor), sqrtA), sqrtB);
+        const valueWeth = sqrtX * (sqrtB - sqrtX) / sqrtB;
+        const valueUsdc = sqrtX - sqrtA;
+        const anchorRatio = (valueWeth + valueUsdc) > 0 ? valueWeth / (valueWeth + valueUsdc) : 0.5;
+        result.anchorRatio = parseFloat(anchorRatio.toFixed(4));
+
+        const triggerMode  = nextK > 1 ? 'k-symmetric' : 'k-formula';
+        result.collect = await runCollect(base, price, anchorRatio, 'high_half_rebalance', 1, false, newRangePct, null, null, false, triggerMode, null, false, nextK, reopenAnchor);
         await logBotTick(kv, result);
         return result;
       }
@@ -877,7 +970,7 @@ export async function botLoop({ base, price }) {
       });
       result.pendingReopen = true;
       if (!result.autoStart.skipped && !result.autoStart.error) {
-        await saveRangeAndLowTrigger(result, price, pending.lowTriggerMode ?? 'reset', pending.oldLowTrigger ?? null);
+        await saveRangeAndLowTrigger(result, pending.triggerAnchorPrice ?? price, pending.lowTriggerMode ?? 'reset', pending.oldLowTrigger ?? null, pending.kForFormula ?? null, price);
         await kv.del('p2_pending_reopen').catch(() => {});
       }
     } else {
@@ -892,7 +985,7 @@ export async function botLoop({ base, price }) {
       // et n'est jamais réinitialisé pour cette ouverture fraîche — la Règle 2 pourrait ne plus
       // jamais détecter la zone basse si ce vieux trigger se trouve sous le nouveau rMin.
       if (!result.autoStart.skipped && !result.autoStart.error) {
-        await saveRangeAndLowTrigger(result, price, 'reset', null);
+        await saveRangeAndLowTrigger(result, price, 'k-formula', null, k);
       }
     }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
