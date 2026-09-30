@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
+import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, readRule1K } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -303,7 +303,8 @@ export async function GET() {
     const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits });
+    const rule1K       = await readRule1K().catch(() => null);
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, rule1K });
   }
 
   try {
@@ -565,7 +566,8 @@ export async function GET() {
     const lowTrigger   = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits };
+    const rule1K       = await readRule1K().catch(() => null);
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, lowZoneHits, highZoneHits, rule1K };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

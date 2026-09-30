@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasAeroSentToday, writeAeroSentToday } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasAeroSentToday, writeAeroSentToday, readRule1K, writeRule1K } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -27,14 +27,18 @@ async function sendErrorEmail(subject, body) {
 // Module 7 — Orchestrateur cron pool 2
 // BOT_ENABLED = true — seules les Règles 1, 2, 3, 4 ci-dessous sont actives (anciennes 1c/1d désactivées).
 // Nouveau jeu de règles :
-//   1.  Aucune position → ouvre au range percentile24h brut (×1), 50/50 WETH/USDC.
+//   1.  Aucune position → ouvre au range percentile24h × K (K = p2_rule1_k, Redis + repli table
+//       bot_config, ajustable sans redéploiement — voir readRule1K/writeRule1K dans cronKv.js),
+//       50/50 WETH/USDC.
 //   2.  Zone basse (prix ≤ rMin + 25% du range), confirmée 5 ticks consécutifs (compteur
 //       p2_oor_count/p2_oor_low, dots page pools) → collecte AERO (25% envoyé/75% gardé),
 //       ferme et rouvre à 75% WETH (swap forcé), largeur = largeur actuelle × 2, sans plafond (30/09).
+//       Incrémente aussi K de 1 (p2_rule1_k) — une future réouverture à vide (Règle 1) part plus large.
 //   3.  Zone haute (prix ≥ rMin + 50% du range), confirmée 5 ticks consécutifs (même compteur) ET
 //       écart percentile24h/range actuel > ±1,5pt (revérifié à chaque tick une fois le streak
 //       atteint) → collecte AERO (50%/50%), resize sans swap au range percentile24h brut,
 //       garde les proportions WETH/USDC actuelles (aucun plafond/plancher de ratio).
+//       Décrémente K de 1 si K>1 (jamais sous 1).
 //   4.  Indépendante des zones/volatilité, vérifiée chaque tick sans streak : si WETH < 5% de la
 //       position → collecte AERO (50%/50%), ferme et rouvre à la largeur percentile24h brut (29/09),
 //       swap forcé vers 25% WETH (correctif modéré, pas un reset à 50%, pour limiter le rachat de
@@ -739,6 +743,11 @@ export async function botLoop({ base, price }) {
       // baisse prolongée (confirmé par l'utilisateur après avoir posé la question).
       const rangePctActuel = (rMax - rMin) / rMin * 100;
       const newRangePct    = rangePctActuel * 2;
+      // K (Règle 1, p2_rule1_k) incrémenté de 1 à chaque sortie basse — une future réouverture à
+      // vide (Règle 1) partira d'un range plus large, en mémoire des sorties basses passées.
+      const nextK = (await readRule1K()) + 1;
+      await writeRule1K(nextK);
+      result.rule1K           = nextK;
       result.action          = 'low_zone_rebalance';
       result.lowTrigger      = parseFloat(lowTrigger.toFixed(2));
       result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
@@ -759,6 +768,14 @@ export async function botLoop({ base, price }) {
       if (Math.abs(p24h - rangePctActuel) > 1.5) {
         // Collecte AERO (50% envoyé/50% gardé), resize sans swap au range percentile24h brut,
         // garde les proportions WETH/USDC actuelles (aucun plafond/plancher de ratio).
+        // K (Règle 1) redescend de 1 si >1 — une sortie haute détend la mémoire accumulée par
+        // les sorties basses (Règle 2), sans jamais repasser sous 1.
+        const currentK = await readRule1K();
+        if (currentK > 1) {
+          const nextK = currentK - 1;
+          await writeRule1K(nextK);
+          result.rule1K = nextK;
+        }
         result.action          = 'high_half_rebalance';
         result.halfPoint       = parseFloat(halfPoint.toFixed(2));
         result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
@@ -863,7 +880,11 @@ export async function botLoop({ base, price }) {
         await kv.del('p2_pending_reopen').catch(() => {});
       }
     } else {
-      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: 1 });
+      // K (p2_rule1_k, Redis + repli table bot_config) : multiplicateur du range percentile24h
+      // pour la Règle 1 — remplace l'ancienne valeur figée à 1.
+      const k = await readRule1K();
+      result.rule1K = k;
+      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: k });
       // Sans ça, un trigger d'une ancienne position (parfois hors du nouveau range) reste en Redis
       // et n'est jamais réinitialisé pour cette ouverture fraîche — la Règle 2 pourrait ne plus
       // jamais détecter la zone basse si ce vieux trigger se trouve sous le nouveau rMin.

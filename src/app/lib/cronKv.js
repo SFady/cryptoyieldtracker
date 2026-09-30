@@ -290,3 +290,40 @@ export async function getPriceAverage24h() {
   } catch (_) { return null; }
 }
 
+// Paramètres bot ajustables sans redéploiement — Redis en priorité, repli sur la table Postgres
+// bot_config (clé/valeur générique, voir /api/bot-config-init) si la clé Redis est absente/expirée,
+// puis re-cache la valeur lue en Redis. `defaultValue` n'est utilisé que si ni Redis ni la DB n'ont
+// la clé (ne devrait arriver qu'avant le tout premier seed).
+async function readBotConfigNumber(key, defaultValue) {
+  try {
+    const cached = await kv.get(key);
+    if (cached !== null && cached !== undefined) return parseFloat(cached);
+  } catch (_) {}
+  try {
+    const sql  = neon(process.env.DATABASE_URL);
+    const rows = await sql`SELECT value FROM bot_config WHERE key = ${key}`;
+    if (rows[0]?.value != null) {
+      const v = parseFloat(rows[0].value);
+      await kv.set(key, v, { ex: 30 * 86400 }).catch(() => {});
+      return v;
+    }
+  } catch (_) {}
+  return defaultValue;
+}
+
+async function writeBotConfigNumber(key, value) {
+  await kv.set(key, value, { ex: 30 * 86400 }).catch(() => {});
+  try {
+    const sql = neon(process.env.DATABASE_URL);
+    await sql`INSERT INTO bot_config (key, value, updated_at) VALUES (${key}, ${value}, NOW())
+              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`;
+  } catch (_) {}
+}
+
+// Règle 1 (aucune position → auto-start) : K = multiplicateur du range percentile24h
+// (range = percentile24h × K). Défaut 1 si jamais seedé (comportement actuel avant ce paramètre).
+const RULE1_K_KEY     = 'p2_rule1_k';
+const RULE1_K_DEFAULT = 1;
+export const readRule1K  = () => readBotConfigNumber(RULE1_K_KEY, RULE1_K_DEFAULT);
+export const writeRule1K = (value) => writeBotConfigNumber(RULE1_K_KEY, value);
+
