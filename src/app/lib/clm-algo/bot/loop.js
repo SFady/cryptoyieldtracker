@@ -27,9 +27,10 @@ async function sendErrorEmail(subject, body) {
 // Module 7 — Orchestrateur cron pool 2
 // BOT_ENABLED = true — seules les Règles 1, 2, 3, 4 ci-dessous sont actives (anciennes 1c/1d désactivées).
 // Nouveau jeu de règles :
-//   1.  Aucune position → ouvre au range percentile24h × K (K = p2_rule1_k, Redis + repli table
-//       bot_config, ajustable sans redéploiement — voir readRule1K/writeRule1K dans cronKv.js),
-//       50/50 WETH/USDC.
+//   1.  Aucune position → réinitialise K à 1 (p2_rule1_k, Redis + repli table bot_config — voir
+//       readRule1K/writeRule1K dans cronKv.js) puis ouvre au range percentile24h × K (= 1), 50/50
+//       WETH/USDC. Ne s'applique qu'à une vraie ouverture à vide, pas à la reprise d'une
+//       réouverture différée par le spread check (Règles 2/3/4), qui garde ses propres paramètres.
 //   2.  Zone basse (prix ≤ rMin + 25% du range), confirmée 5 ticks consécutifs (compteur
 //       p2_oor_count/p2_oor_low, dots page pools) → collecte AERO (25% envoyé/75% gardé),
 //       ferme et rouvre à 75% WETH (swap forcé), largeur = largeur actuelle × 2, sans plafond (30/09).
@@ -880,9 +881,11 @@ export async function botLoop({ base, price }) {
         await kv.del('p2_pending_reopen').catch(() => {});
       }
     } else {
-      // K (p2_rule1_k, Redis + repli table bot_config) : multiplicateur du range percentile24h
-      // pour la Règle 1 — remplace l'ancienne valeur figée à 1.
-      const k = await readRule1K();
+      // K (p2_rule1_k, Redis + repli table bot_config) : multiplicateur du range percentile24h.
+      // Une ouverture à vide (pas une reprise de réouverture différée) réinitialise K à 1 — c'est
+      // un vrai nouveau départ, la mémoire des sorties basses/hautes passées ne s'applique plus.
+      await writeRule1K(1);
+      const k = 1;
       result.rule1K = k;
       result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: k });
       // Sans ça, un trigger d'une ancienne position (parfois hors du nouveau range) reste en Redis
