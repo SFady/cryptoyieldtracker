@@ -93,13 +93,19 @@ const ERC20_IFACE = new ethers.Interface([
 ]);
 
 // "replacement fee too low" = tx pendante avec même nonce → retry avec gas +25%
-// Nonce fixé une seule fois et réutilisé sur les retries de CET appel — évite qu'un retry après
-// erreur réseau ambiguë finisse par soumettre un doublon réel avec un nonce différent.
+// Nonce suivi en mémoire sur l'instance wallet (une par requête), pour toute la durée de
+// l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents (évite une course
+// de propagation entre deux appels sendTx, cf. incident du 02/10 dans closePositions).
 async function sendTx(wallet, params) {
-  let nonce = params.nonce ?? await wallet.provider.getTransactionCount(wallet.address, "pending");
+  if (wallet._nextNonce == null) {
+    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+  }
+  let nonce = params.nonce ?? wallet._nextNonce;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await wallet.sendTransaction({ ...params, nonce });
+      const tx = await wallet.sendTransaction({ ...params, nonce });
+      wallet._nextNonce = nonce + 1;
+      return tx;
     } catch (e) {
       const msg = e.message ?? e.shortMessage ?? "";
       if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
@@ -114,6 +120,7 @@ async function sendTx(wallet, params) {
       }
       if (attempt < 2 && /nonce too low|nonce has already been used|transaction already imported/i.test(msg)) {
         nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+        wallet._nextNonce = nonce;
         await new Promise(r => setTimeout(r, 1000));
         continue;
       }

@@ -130,15 +130,21 @@ async function waitForTx(_provider, tx) {
 }
 
 async function sendTx(wallet, params) {
-  // Nonce fixé une seule fois (avant le 1er envoi) et réutilisé sur tous les retries de CET appel :
-  // si l'envoi passe bien côté réseau mais que la réponse HTTP échoue (timeout/5xx/rate-limit), le
-  // retry rejoue alors la transaction identique avec le même nonce au lieu d'en soumettre une nouvelle
-  // avec un nonce différent — ce qui, avant ce fix, pouvait faire miner un doublon réel (ex. incident
-  // du 29/09 : decreaseLiquidity envoyé deux fois, 2e tx reversée car plus rien à retirer).
-  let nonce = params.nonce ?? await wallet.provider.getTransactionCount(wallet.address, "pending");
+  // Nonce suivi en mémoire sur l'instance wallet (une par requête POST), pour TOUTE la durée de
+  // l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents. Avant ce fix,
+  // chaque appel sendTx recalculait son nonce via getTransactionCount(pending), ce qui pouvait faire
+  // collisionner deux appels séquentiels si le RPC n'avait pas encore propagé le précédent (incident
+  // du 02/10 : burn du NFT vide sans await waitForTx, suivi immédiatement par l'approve AERO qui a
+  // récupéré le même nonce "pending" encore non à jour — rejeté "nonce too low").
+  if (wallet._nextNonce == null) {
+    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+  }
+  let nonce = params.nonce ?? wallet._nextNonce;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await wallet.sendTransaction({ ...params, nonce });
+      const tx = await wallet.sendTransaction({ ...params, nonce });
+      wallet._nextNonce = nonce + 1;
+      return tx;
     } catch (e) {
       const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
       if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
@@ -152,9 +158,11 @@ async function sendTx(wallet, params) {
         continue;
       }
       if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
-        // Ici le réseau confirme explicitement que le nonce fixé est périmé (ex. une autre tx a été
-        // minée entretemps) : c'est le seul cas où on en reprend un nouveau.
+        // Ici le réseau confirme explicitement que le nonce suivi est périmé (ex. une tx envoyée
+        // hors de ce compteur, ou vraiment ratée côté notre suivi) : seul cas où on resynchronise
+        // depuis le RPC.
         nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+        wallet._nextNonce = nonce;
         await new Promise(r => setTimeout(r, 1000));
         continue;
       }
