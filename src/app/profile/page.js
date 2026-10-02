@@ -636,7 +636,7 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, l
   const cur   = parseFloat(current);
   const color  = inRange ? "#00e5a0" : "#c97070";
   const Pc     = (lowTrigger != null && !isNaN(lowTrigger)) ? lowTrigger : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : trigger stocké par le bot, défaut rMin + 25%)
-  const highDisabled = highTrigger === 'disabled'; // Règle 1 : zone haute désactivée pour cette position
+  const highDisabled = highTrigger === 'disabled' || highTrigger == null; // zone haute désactivée (Règle 1/4, ou défaut sans borne stockée)
   const Pu     = (typeof highTrigger === "number" && !isNaN(highTrigger)) ? highTrigger : lo + 0.5 * (hi - lo); // déclencheur haut (Règle 3 : point milieu du range, sauf désactivé)
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
