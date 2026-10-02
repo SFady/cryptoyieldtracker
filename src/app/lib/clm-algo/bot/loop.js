@@ -737,6 +737,10 @@ export async function botLoop({ base, price }) {
   // pas de streak de confirmation (contrairement aux Règles 2/3). Largeur = percentile24h brut
   // (29/09, plus la largeur actuelle) ; repli sur la largeur actuelle si le percentile n'est pas
   // encore disponible (pas assez de points).
+  // K décrémenté de 1 si >1 (02/10) — même traitement que la Règle 3, pour ne pas laisser la zone
+  // haute sur le repli générique rMin+50% (actif, pas désactivé) après un retour au plancher WETH :
+  //   K encore >1 après décrément → mode 'k-symmetric' (comme la Règle 3).
+  //   K=1 après décrément (ou déjà à 1) → mode 'k-formula' (zone haute désactivée, comme la Règle 1).
   if (hasLP) {
     const wethRatio = (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
@@ -747,10 +751,18 @@ export async function botLoop({ base, price }) {
         ? (pctData4.p95 - pctData4.p05) / pctData4.p05 * 100
         : null;
       const newRangePct4   = p24h4 !== null ? p24h4 : rangePctActuel;
+      const currentK4 = await readRule1K();
+      let nextK4 = currentK4;
+      if (currentK4 > 1) {
+        nextK4 = currentK4 - 1;
+        await writeRule1K(nextK4);
+        result.rule1K = nextK4;
+      }
+      const triggerMode4 = nextK4 > 1 ? 'k-symmetric' : 'k-formula';
       result.action          = 'weth_floor_rebalance';
       result.rangePctActuel  = rangePctActuel !== null ? parseFloat(rangePctActuel.toFixed(2)) : null;
       result.percentileRange = p24h4 !== null ? parseFloat(p24h4.toFixed(2)) : null;
-      result.collect = await runCollect(base, price, 0.25, 'weth_floor_rebalance', 1, false, newRangePct4, null, null, false);
+      result.collect = await runCollect(base, price, 0.25, 'weth_floor_rebalance', 1, false, newRangePct4, null, null, false, triggerMode4, null, false, nextK4);
       await logBotTick(kv, result);
       return result;
     }
