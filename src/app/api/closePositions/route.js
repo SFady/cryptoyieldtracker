@@ -227,6 +227,9 @@ async function readBal(token, address) {
 // en ETH natif (WETH.withdraw) — alimente le gas DE CE wallet, reste ici, n'est jamais envoyé
 // ailleurs. Non-bloquant : un échec ici ne doit jamais faire échouer le split résiduel AERO.
 async function topUpGasFromUsdc(wallet, stablecoinAddr, usdcAmountRaw) {
+  // Désactivé (03/10) : sur de petits montants, le gas des 3 tx (approve+swap+unwrap) dépassait
+  // l'ETH obtenu — effet inverse de celui voulu. À réactiver avec un seuil minimum sûr.
+  return { skipped: "disabled" };
   if (!usdcAmountRaw || usdcAmountRaw <= 0n) return { skipped: "insufficient" };
   try {
     const routes = [{ from: stablecoinAddr, to: WETH, stable: false, factory: V2_FACTORY }];

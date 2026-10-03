@@ -173,6 +173,10 @@ async function getAeroUsdValue(tokenId) {
 // ETH natif (WETH.withdraw) — alimente le gas du wallet. Non-bloquant : un échec ici ne doit jamais
 // faire échouer sendAeroSplit (l'envoi externe reste prioritaire).
 async function topUpGasFromUsdc(usdcAmount) {
+  // Désactivé (03/10) : sur de petits montants, le gas des 3 tx (approve+swap+unwrap) dépassait
+  // l'ETH obtenu — effet inverse de celui voulu. À réactiver avec un seuil minimum sûr.
+  return { skipped: 'disabled', usdcAmount };
+  /* istanbul ignore next */
   if (!usdcAmount || usdcAmount < 0.01) return { skipped: 'insufficient', usdcAmount };
   const amountIn = ethers.parseUnits(usdcAmount.toFixed(6), 6);
   const routes = [{ from: USDC_ADDRESS, to: WETH_ADDRESS, stable: false, factory: V2_FACTORY }];
