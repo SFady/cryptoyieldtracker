@@ -18,6 +18,7 @@ function formatSource(source) {
   if (source === "morning_claim_25pct") return "Claim matinal 25%";
   if (source === "edge_low_25pct") return "Sortie basse 25%";
   if (source === "edge_high_50pct") return "Sortie haute 50%";
+  if (source === "width_shrink") return "Garde-fou largeur 25%";
   return source;
 }
 

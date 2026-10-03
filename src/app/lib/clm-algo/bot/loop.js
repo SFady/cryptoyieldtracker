@@ -227,7 +227,11 @@ async function topUpGasFromUsdc(usdcAmount) {
 // Règle 1c (resserrement/élargissement, pas de direction) : toujours 25%/75% (isLow=true).
 // Gas (03/10) : 2% du TOTAL collecté est prélevé sur la part GARDÉE (pas sur la part envoyée au
 // wallet externe, qui reste exactement fraction×total) et converti en ETH natif pour le gas.
-async function sendAeroSplit(feesCollectedUsdc, isLow) {
+// sourceOverride : étiquette explicite pour dest_transfers/transferHistory, au lieu du libellé
+// générique edge_low_25pct/edge_high_50pct déduit de isLow — pour bien distinguer dans "envois" un
+// cas qui emprunte le même split (25/75) qu'une Règle 2 mais qui n'en est pas une (ex. garde-fou
+// largeur du 03/10, qui utilise isLow=true pour le split mais doit s'afficher à part).
+async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
   if (!feesCollectedUsdc || feesCollectedUsdc < 0.01) return { skipped: 'insufficient', feesCollectedUsdc };
 
   const fraction = isLow ? 0.25 : 0.5;
@@ -255,7 +259,7 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
   try {
     const sqlDb = neon(process.env.DATABASE_URL);
     await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
-                VALUES (${toSend}, ${isLow ? 'edge_low_25pct' : 'edge_high_50pct'}, ${txHash}, ${2})`;
+                VALUES (${toSend}, ${sourceOverride ?? (isLow ? 'edge_low_25pct' : 'edge_high_50pct')}, ${txHash}, ${2})`;
   } catch (_) {}
   await writeAeroSentToday(2).catch(() => {});
   // Compte aussi comme un envoi externe pour la Règle 5 (claim périodique 24h) — évite un envoi
@@ -453,7 +457,7 @@ async function closeEdgeZone(base, isLow) {
  * si le marché est trop agité, la réouverture est sautée (capital laissé dans le wallet), la
  * Règle 1 la reprendra au tick suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null, skipAeroSplit = false, kForFormula = null, triggerAnchorPrice = null) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null, skipAeroSplit = false, kForFormula = null, triggerAnchorPrice = null, aeroSplitSource = null) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -472,7 +476,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
   // skipAeroSplit : règle qui doit garder 100% des fees/AERO dans la position (pas d'envoi externe
   // ce cycle) — on n'appelle même pas sendAeroSplit pour éviter toute tentative de transfert.
-  out.aeroSplit = skipAeroSplit ? { skipped: 'rule_no_external_send' } : await sendAeroSplit(feesCollected, aeroLowSplit);
+  out.aeroSplit = skipAeroSplit ? { skipped: 'rule_no_external_send' } : await sendAeroSplit(feesCollected, aeroLowSplit, aeroSplitSource);
   await logAndAlertAeroSplit(out, feesCollected);
 
   // Fermer la LP — aeroSplitFraction=null coupe aussi le split résiduel côté closePositions
@@ -828,6 +832,32 @@ export async function botLoop({ base, price }) {
       result.rangePctActuel  = rangePctActuel !== null ? parseFloat(rangePctActuel.toFixed(2)) : null;
       result.percentileRange = p24h4 !== null ? parseFloat(p24h4.toFixed(2)) : null;
       result.collect = await runCollect(base, price, 0.25, 'weth_floor_rebalance', 1, false, newRangePct4, null, null, false, triggerMode4, null, false, nextK4);
+      await logBotTick(kv, result);
+      return result;
+    }
+  }
+
+  // Garde-fou largeur (03/10) : indépendant des zones/volatilité et du compteur K — si la largeur
+  // actuelle dépasse 2× le percentile24h (quelle que soit la raison : doublements Règle 2, ou
+  // percentile qui a lui-même rétréci depuis), réduit directement à range_percentile SANS swap
+  // (garde les proportions WETH/USDC actuelles). Vérifié à chaque tick, pas de streak. K remis à 1,
+  // mode 'k-formula' (zone haute désactivée) — repart sur une base propre comme une Règle 1.
+  // AERO : même split qu'un rebalance bas (25% envoyé/75% gardé + top-up gas), pas 50/50.
+  // Uniquement si K=1 (03/10) : ne pas interférer avec une échelle Règle 2/3 en cours (K>1).
+  if (hasLP && !isNaN(rMin) && !isNaN(rMax)) {
+    const currentK5       = await readRule1K();
+    const rangePctActuel5 = (rMax - rMin) / rMin * 100;
+    const pctData5        = await getPercentileRange();
+    const p24h5            = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0
+      ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
+      : null;
+    if (currentK5 === 1 && p24h5 !== null && rangePctActuel5 > 2 * p24h5) {
+      await writeRule1K(1);
+      result.rule1K          = 1;
+      result.action          = 'width_shrink_rebalance';
+      result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
+      result.percentileRange = parseFloat(p24h5.toFixed(2));
+      result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, p24h5, null, null, true, 'k-formula', null, false, 1, null, 'width_shrink');
       await logBotTick(kv, result);
       return result;
     }
