@@ -823,7 +823,6 @@ export async function botLoop({ base, price }) {
       const p24h4          = pctData4 && pctData4.cnt >= 10 && pctData4.p05 > 0
         ? (pctData4.p95 - pctData4.p05) / pctData4.p05 * 100
         : null;
-      const newRangePct4   = p24h4 !== null ? p24h4 : rangePctActuel;
       const currentK4 = await readRule1K();
       let nextK4 = currentK4;
       if (currentK4 > 1) {
@@ -832,6 +831,10 @@ export async function botLoop({ base, price }) {
         result.rule1K = nextK4;
       }
       const triggerMode4 = nextK4 > 1 ? 'k-symmetric' : 'k-formula';
+      // K=1 après décrément (ou déjà à 1) : largeur = percentile24h × 1.5 (03/10, tous les cas K=1
+      // confondus), au lieu du percentile24h brut réservé au cas K>1.
+      const baseWidth4     = p24h4 !== null ? p24h4 : rangePctActuel;
+      const newRangePct4   = triggerMode4 === 'k-formula' && baseWidth4 !== null ? baseWidth4 * 1.5 : baseWidth4;
       result.action          = 'weth_floor_rebalance';
       result.rangePctActuel  = rangePctActuel !== null ? parseFloat(rangePctActuel.toFixed(2)) : null;
       result.percentileRange = p24h4 !== null ? parseFloat(p24h4.toFixed(2)) : null;
@@ -856,12 +859,13 @@ export async function botLoop({ base, price }) {
       ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
       : null;
     if (currentK5 === 1 && p24h5 !== null && rangePctActuel5 > 2 * p24h5) {
+      const widthK5 = p24h5 * 1.5; // K=1 (03/10, tous les cas K=1 confondus)
       await writeRule1K(1);
       result.rule1K          = 1;
       result.action          = 'width_shrink_rebalance';
       result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
       result.percentileRange = parseFloat(p24h5.toFixed(2));
-      result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, p24h5, null, null, true, 'k-formula', null, false, 1, null, 'width_shrink');
+      result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, widthK5, null, null, true, 'k-formula', null, false, 1, null, 'width_shrink');
       await logBotTick(kv, result);
       return result;
     }
@@ -922,11 +926,12 @@ export async function botLoop({ base, price }) {
         const p24hK    = pctDataK && pctDataK.cnt >= 10 && pctDataK.p05 > 0
           ? (pctDataK.p95 - pctDataK.p05) / pctDataK.p05 * 100
           : rangePctActuel; // repli si pas assez de points : garde la largeur actuelle
+        const widthK   = p24hK * 1.5; // K=1 (03/10, tous les cas K=1 confondus)
         await writeRule1K(1);
         result.rule1K       = 1;
         result.kResetBranch = true;
-        result.newRangePct  = parseFloat(p24hK.toFixed(2));
-        result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, p24hK, null, null, true, 'center', lowTrigger);
+        result.newRangePct  = parseFloat(widthK.toFixed(2));
+        result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, widthK, null, null, true, 'center', lowTrigger);
       } else {
         const newRangePct = rangePctActuel * 2;
         const nextK = currentK + 1;
@@ -964,7 +969,9 @@ export async function botLoop({ base, price }) {
           await writeRule1K(nextK);
           result.rule1K = nextK;
         }
-        const newRangePct = Math.max(rangePctActuel / 2, p24h);
+        // K=1 après décrément (ou déjà à 1) : largeur = percentile24h × 1.5 (03/10, tous les cas
+        // K=1 confondus), au lieu de la formule max(moitié, percentile) réservée au cas K>1.
+        const newRangePct = nextK > 1 ? Math.max(rangePctActuel / 2, p24h) : p24h * 1.5;
         result.action          = 'high_half_rebalance';
         result.halfPoint       = parseFloat(halfPoint.toFixed(2));
         result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
@@ -1093,7 +1100,8 @@ export async function botLoop({ base, price }) {
       await writeRule1K(1);
       const k = 1;
       result.rule1K = k;
-      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: k });
+      // Largeur = percentile24h × 1.5 pour K=1 (03/10, tous les cas K=1 confondus).
+      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: k * 1.5 });
       // Sans ça, un trigger d'une ancienne position (parfois hors du nouveau range) reste en Redis
       // et n'est jamais réinitialisé pour cette ouverture fraîche — la Règle 2 pourrait ne plus
       // jamais détecter la zone basse si ce vieux trigger se trouve sous le nouveau rMin.
