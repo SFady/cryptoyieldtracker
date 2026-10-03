@@ -84,7 +84,9 @@ function trendLetter(price, avg) {
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
-const ERC20_IFACE  = new ethers.Interface(['function transfer(address,uint256) returns (bool)']);
+const ERC20_IFACE  = new ethers.Interface(['function transfer(address,uint256) returns (bool)', 'function approve(address,uint256) returns (bool)']);
+const WETH_IFACE   = new ethers.Interface(['function withdraw(uint256)']);
+const V2_SWAP_IFACE = new ethers.Interface(['function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)']);
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
   'https://base.drpc.org',
@@ -167,9 +169,64 @@ async function getAeroUsdValue(tokenId) {
 }
 
 
+// Swap une partie de l'USDC gardé (part non envoyée au wallet externe) vers WETH puis unwrap en
+// ETH natif (WETH.withdraw) — alimente le gas du wallet. Non-bloquant : un échec ici ne doit jamais
+// faire échouer sendAeroSplit (l'envoi externe reste prioritaire).
+async function topUpGasFromUsdc(usdcAmount) {
+  if (!usdcAmount || usdcAmount < 0.01) return { skipped: 'insufficient', usdcAmount };
+  const amountIn = ethers.parseUnits(usdcAmount.toFixed(6), 6);
+  const routes = [{ from: USDC_ADDRESS, to: WETH_ADDRESS, stable: false, factory: V2_FACTORY }];
+  const deadline = Math.floor(Date.now() / 1000) + 600;
+  for (const url of RPC_URLS) {
+    try {
+      const provider = new ethers.JsonRpcProvider(url);
+      const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
+
+      const txApp = await wallet.sendTransaction({
+        to: USDC_ADDRESS,
+        data: ERC20_IFACE.encodeFunctionData('approve', [V2_ROUTER, ethers.MaxUint256]),
+      });
+      await txApp.wait();
+
+      let minOut = 0n;
+      try {
+        const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData('getAmountsOut', [amountIn, routes]));
+        const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult('getAmountsOut', outHex);
+        minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
+      } catch (_) {}
+
+      // Delta avant/après (pas le solde WETH total) : le wallet peut déjà détenir du WETH utilisé
+      // ailleurs (comptabilité de la position) — on n'unwrap que ce que CE swap vient de produire.
+      const wethBefore = await readWalletToken(WETH_ADDRESS, 18, url);
+      const txSwap = await wallet.sendTransaction({
+        to:   V2_ROUTER,
+        data: V2_SWAP_IFACE.encodeFunctionData('swapExactTokensForTokens', [amountIn, minOut, routes, wallet.address, deadline]),
+      });
+      await txSwap.wait();
+      const wethAfter = await readWalletToken(WETH_ADDRESS, 18, url);
+      const wethReceived = Math.max(0, wethAfter - wethBefore);
+      if (wethReceived <= 0) return { error: 'no_weth_received', usdcAmount };
+      const wethReceivedRaw = ethers.parseUnits(wethReceived.toFixed(18), 18);
+
+      const txUnwrap = await wallet.sendTransaction({
+        to:   WETH_ADDRESS,
+        data: WETH_IFACE.encodeFunctionData('withdraw', [wethReceivedRaw]),
+      });
+      await txUnwrap.wait();
+
+      return { ok: true, usdcSpent: usdcAmount, ethReceived: parseFloat(ethers.formatUnits(wethReceivedRaw, 18)), swapHash: txSwap.hash, unwrapHash: txUnwrap.hash };
+    } catch (e) {
+      if (url === RPC_URLS[RPC_URLS.length - 1]) return { error: e.message ?? String(e), usdcAmount };
+    }
+  }
+  return { error: 'all_rpcs_failed', usdcAmount };
+}
+
 // Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET.
 // Règle 1A (sortie directionnelle) : haut → 50% envoyés/50% gardés ; bas → 25%/75%.
 // Règle 1c (resserrement/élargissement, pas de direction) : toujours 25%/75% (isLow=true).
+// Gas (03/10) : 2% du TOTAL collecté est prélevé sur la part GARDÉE (pas sur la part envoyée au
+// wallet externe, qui reste exactement fraction×total) et converti en ETH natif pour le gas.
 async function sendAeroSplit(feesCollectedUsdc, isLow) {
   if (!feesCollectedUsdc || feesCollectedUsdc < 0.01) return { skipped: 'insufficient', feesCollectedUsdc };
 
@@ -205,7 +262,15 @@ async function sendAeroSplit(feesCollectedUsdc, isLow) {
   // redondant peu après si une sortie de zone vient déjà d'en déclencher un.
   await kv.set('p2_last_aero_send_at', Date.now(), { ex: 30 * 86400 }).catch(() => {});
 
-  return { ok: true, sent: toSend, kept: parseFloat((feesCollectedUsdc - toSend).toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction };
+  // 2% du total collecté, prélevé sur la part gardée (jamais sur `toSend`), converti en ETH natif
+  // pour le gas. Best-effort : un échec ici n'affecte ni le transfert externe (déjà fait) ni le
+  // résultat global de sendAeroSplit (toujours ok:true si on arrive jusqu'ici).
+  const gasUsdc = parseFloat((feesCollectedUsdc * 0.02).toFixed(6));
+  let gasTopUp = null;
+  try { gasTopUp = await topUpGasFromUsdc(gasUsdc); } catch (e) { gasTopUp = { error: e.message ?? String(e), usdcAmount: gasUsdc }; }
+  const keptMinusGas = feesCollectedUsdc - toSend - (gasTopUp?.ok ? gasUsdc : 0);
+
+  return { ok: true, sent: toSend, kept: parseFloat(keptMinusGas.toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction, gasTopUp };
 }
 
 // Persiste systématiquement le résultat du split AERO en base (lp_events, pas de TTL — contrairement
