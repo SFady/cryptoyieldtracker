@@ -803,10 +803,12 @@ export async function botLoop({ base, price }) {
       // "garder le ratio actuel" — trop proche du bord bas, ça recentrait le nouveau range de façon
       // imprévisible, cf. simulation).
       // K (p2_rule1_k) fait office de compteur de sorties basses consécutives, et de coupe-circuit :
-      //   K ≤ 3 : double la largeur ACTUELLE, K incrémenté de 1, low trigger = rMin + range ×
-      //           1/2^(K+1) (K déjà incrémenté), high trigger symétrique à ce low trigger par
-      //           rapport au prix de réouverture (mode "k-symmetric").
-      //   K > 3 : au lieu de continuer à doubler indéfiniment, repart sur une largeur raisonnable
+      //   K < 3 (donc K déjà incrémenté ≤ 3) : double la largeur ACTUELLE, K incrémenté de 1, low
+      //           trigger = rMin + range × 1/2^(K+1) (K déjà incrémenté), high trigger symétrique à
+      //           ce low trigger par rapport au prix de réouverture (mode "k-symmetric"). K plafonné
+      //           à 3 (03/10) — avant, le test était `> 3` au lieu de `>= 3`, ce qui laissait passer
+      //           un 4e doublement (K montait à 4) avant que le coupe-circuit ne se déclenche.
+      //   K ≥ 3 : au lieu de continuer à doubler indéfiniment, repart sur une largeur raisonnable
       //           (percentile24h brut, comme la Règle 1), low trigger recentré entre le nouveau rMin
       //           et le prix actuel (mode "center"), zone haute désactivée, K remis à 1 — casse le
       //           cycle d'élargissement.
@@ -816,7 +818,7 @@ export async function botLoop({ base, price }) {
       result.lowTrigger     = parseFloat(lowTrigger.toFixed(2));
       result.action         = 'low_zone_rebalance';
 
-      if (currentK > 3) {
+      if (currentK >= 3) {
         const pctDataK = await getPercentileRange();
         const p24hK    = pctDataK && pctDataK.cnt >= 10 && pctDataK.p05 > 0
           ? (pctDataK.p95 - pctDataK.p05) / pctDataK.p05 * 100
