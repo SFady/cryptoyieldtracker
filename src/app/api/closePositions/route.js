@@ -90,6 +90,8 @@ const V2_ROUTER_IFACE = new ethers.Interface([
   "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
 ]);
 
+const WETH_IFACE = new ethers.Interface(["function withdraw(uint256)"]);
+
 const POOL_IFACE = new ethers.Interface([
   "function token0() view returns (address)",
   "function token1() view returns (address)",
@@ -219,6 +221,43 @@ async function view(to, iface, fn, args = []) {
 async function readBal(token, address) {
   const h = await ethCall(token, ERC20_IFACE.encodeFunctionData("balanceOf", [address]));
   return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
+}
+
+// Swap une partie de l'USDC gardé (jamais la part envoyée au wallet externe) vers WETH puis unwrap
+// en ETH natif (WETH.withdraw) — alimente le gas DE CE wallet, reste ici, n'est jamais envoyé
+// ailleurs. Non-bloquant : un échec ici ne doit jamais faire échouer le split résiduel AERO.
+async function topUpGasFromUsdc(wallet, stablecoinAddr, usdcAmountRaw) {
+  if (!usdcAmountRaw || usdcAmountRaw <= 0n) return { skipped: "insufficient" };
+  try {
+    const routes = [{ from: stablecoinAddr, to: WETH, stable: false, factory: V2_FACTORY }];
+    const txApp = await sendTx(wallet, { to: stablecoinAddr, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
+    await waitForTx(provider, txApp);
+
+    let minOut = 0n;
+    try {
+      const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [usdcAmountRaw, routes]));
+      const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
+      minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
+    } catch (_) {}
+
+    const wethBefore = await readBal(WETH, wallet.address);
+    const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [usdcAmountRaw, minOut, routes, wallet.address, freshDeadline()]);
+    let swapGas = 300000n;
+    try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
+    const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: swapGas });
+    await waitForTx(provider, txSwap);
+
+    const wethAfter = await readBal(WETH, wallet.address);
+    const wethReceivedRaw = wethAfter > wethBefore ? wethAfter - wethBefore : 0n;
+    if (wethReceivedRaw <= 0n) return { error: "no_weth_received" };
+
+    const txUnwrap = await sendTx(wallet, { to: WETH, data: WETH_IFACE.encodeFunctionData("withdraw", [wethReceivedRaw]) });
+    await waitForTx(provider, txUnwrap);
+
+    return { ok: true, usdcSpent: parseFloat(ethers.formatUnits(usdcAmountRaw, 6)), ethReceived: parseFloat(ethers.formatUnits(wethReceivedRaw, 18)), swapHash: txSwap.hash, unwrapHash: txUnwrap.hash };
+  } catch (e) {
+    return { error: e.message ?? String(e) };
+  }
 }
 // ── Helpers fee calculation (same as positions/route.js) ─────────────────────
 const M256 = 1n << 256n;
@@ -810,6 +849,13 @@ export async function POST(req) {
                   await waitForTx(provider, txResidual);
                   const source = aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct";
                   await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${parseFloat(ethers.formatUnits(toSendRaw, 6))}, ${source}, ${txResidual.hash}, ${poolNum})`;
+
+                  // 2% du total AERO→USDC résiduel, prélevé sur la part gardée (jamais sur toSendRaw),
+                  // converti en ETH natif pour le gas — reste dans CE wallet, jamais envoyé ailleurs.
+                  // Non-bloquant : un échec ici n'affecte ni le transfert externe (déjà fait) ni le
+                  // résultat global du split résiduel.
+                  const gasRaw = aeroSwapUsdcReceivedRaw * 2n / 100n;
+                  try { await topUpGasFromUsdc(wallet, stablecoin, gasRaw); } catch (_) {}
                 }
               } else {
                 aeroResidualError = 'no_dest_wallet';
