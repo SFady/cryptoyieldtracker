@@ -192,6 +192,7 @@ const NFPM_IFACE = new ethers.Interface([
   "function setApprovalForAll(address operator, bool approved)",
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
   "function safeTransferFrom(address from, address to, uint256 tokenId)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
 ]);
 
 const GAUGE_IFACE = new ethers.Interface([
@@ -689,6 +690,28 @@ export async function POST(req) {
 
     if (tokenId == null)
       throw new Error("[étape 9 – mint] Transfer event introuvable dans le reçu");
+
+    // 9b. Vérifie que le mint est bien visible (ownerOf répond) avant de continuer — waitForTx
+    // peut renvoyer un reçu venant d'UN SEUL RPC (parmi RPC_URLS) qui a vu la tx avant que les
+    // autres RPC (utilisés ensuite pour approve/setApprovalForAll/deposit) ne l'aient propagée,
+    // causant un faux "ERC721: owner query for nonexistent token" sur l'étape suivante alors que
+    // le mint a réellement réussi (incident du 04/10 : boucle de weth_floor_rebalance sur une
+    // position qui existait pourtant déjà on-chain). On interroge plusieurs RPC jusqu'à ce que
+    // l'un d'eux confirme la propriété, avant de poursuivre.
+    let mintConfirmed = false;
+    for (let i = 0; i < 10 && !mintConfirmed; i++) {
+      for (const url of RPC_URLS) {
+        try {
+          const p = new ethers.JsonRpcProvider(url);
+          const ownerHex = await p.call({ to: nfpm, data: NFPM_IFACE.encodeFunctionData("ownerOf", [tokenId]) });
+          const ownerAddr = "0x" + ownerHex.slice(-40);
+          if (ownerAddr.toLowerCase() === wallet.address.toLowerCase()) { mintConfirmed = true; break; }
+        } catch (_) {}
+      }
+      if (!mintConfirmed) await new Promise(r => setTimeout(r, 1500));
+    }
+    if (!mintConfirmed)
+      throw new Error(`[étape 9b – vérification mint] tokenId=${tokenId} pas encore visible après 10 tentatives (propagation RPC) — nouvelle tentative au prochain tick, le NFT existe déjà donc rien n'est reminté`);
 
     // 10. Sweep WETH résiduel → USDC (le LP n'utilise pas forcément tout le WETH)
     let sweepWarning = null;
