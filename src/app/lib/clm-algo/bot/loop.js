@@ -858,8 +858,13 @@ export async function botLoop({ base, price }) {
     const p24h5            = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0
       ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
       : null;
-    if (currentK5 === 1 && p24h5 !== null && rangePctActuel5 > 2 * p24h5) {
-      const widthK5 = Math.max(p24h5 * 1.5, 1.5); // K=1, plancher absolu 1.5% (04/10)
+    // Comparé à 2× la largeur CIBLE (avec plancher 1.5%), pas 2× le percentile brut (04/10) :
+    // sinon, dès que le percentile repasse sous 0.75%, la largeur plancher (1.5%) dépasse
+    // systématiquement ce seuil et se redéclenche en boucle sans jamais se stabiliser (incident du
+    // 04/10, width_shrink_rebalance toutes les ~6 min, aucune position tenue assez longtemps pour
+    // accumuler de l'AERO).
+    const widthK5 = p24h5 !== null ? Math.max(p24h5 * 1.5, 1.5) : null;
+    if (currentK5 === 1 && widthK5 !== null && rangePctActuel5 > 2 * widthK5) {
       await writeRule1K(1);
       result.rule1K          = 1;
       result.action          = 'width_shrink_rebalance';
