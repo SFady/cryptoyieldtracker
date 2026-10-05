@@ -631,42 +631,24 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, w
   const dotLeftE1 = trackPct(lo + 0.05 * (hi - lo)); // repère 5% du bord bas
   const dotLeftE2 = trackPct(hi - 0.05 * (hi - lo)); // repère 5% du bord haut
 
-  // Ratio WETH de la position (pool + wallet) : pilote les Règles 2/3 du bot depuis la refonte du
-  // 05/10 (≥95% = trigger bas, gold ; ≤5% = trigger haut, cyan) — a remplacé l'ancien système de
-  // bornes basse/haute de prix stockées. Jauge dédiée (pas sur l'axe de prix ci-dessus : c'est une
-  // proportion, pas un point de prix).
-  const hasRatio   = wethRatio != null && !isNaN(wethRatio);
-  const ratioPct   = hasRatio ? Math.max(0, Math.min(100, wethRatio * 100)) : null;
-  const ratioLeft  = hasRatio ? TS + (ratioPct / 100) * (TE - TS) : null;
-  const ratioColor = !hasRatio ? "#555577" : ratioPct >= 95 ? "#f0b429" : ratioPct <= 5 ? "#29b6f0" : "#8888bb";
-  const threshLow  = TS + 0.95 * (TE - TS); // 95% WETH — trigger bas (gold)
-  const threshHigh = TS + 0.05 * (TE - TS); // 5% WETH — trigger haut (cyan)
+  const hasRatio = wethRatio != null && !isNaN(wethRatio);
+  const ratioPct = hasRatio ? Math.max(0, Math.min(100, wethRatio * 100)) : null;
 
   return (
     <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 50, gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 4 }}>
         {/* Barre */}
         <div style={{ flex: 1, position: "relative" }}>
-          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: 13, height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
-          <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: 8, transform: "translateX(-50%)", width: 1, height: 12, background: "rgba(200,200,225,0.35)" }} />
-          <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: 8, transform: "translateX(-50%)", width: 1, height: 12, background: "rgba(200,200,225,0.35)" }} />
-          <span style={{ position: "absolute", left: `${dotLeft}%`, top: 0, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
-          <div style={{ position: "absolute", left: `${dotLeft}%`, top: 14, transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
-          <span style={{ position: "absolute", left: `${TS}%`, top: 21, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
-          <span style={{ position: "absolute", left: `${TE}%`, top: 21, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
-
-          {/* Jauge ratio WETH (Règles 2/3) */}
-          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: 34, height: 3, borderRadius: 2, background: "linear-gradient(90deg, rgba(41,182,240,0.3), rgba(136,136,187,0.15), rgba(240,180,41,0.3))" }} />
-          <div style={{ position: "absolute", left: `${threshHigh}%`, top: 31, width: 1, height: 9, background: "rgba(41,182,240,0.55)" }} />
-          <div style={{ position: "absolute", left: `${threshLow}%`,  top: 31, width: 1, height: 9, background: "rgba(240,180,40,0.55)" }} />
+          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: "50%", transform: "translateY(-50%)", height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(200,200,225,0.35)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(200,200,225,0.35)" }} />
+          <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
+          <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
+          <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
           {hasRatio && (
-            <div style={{ position: "absolute", left: `${ratioLeft}%`, top: 35.5, transform: "translate(-50%, -50%)", width: 6, height: 6, borderRadius: "50%", background: ratioColor, boxShadow: `0 0 4px ${ratioColor}` }} />
+            <span style={{ position: "absolute", left: "50%", bottom: 1, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color: ratioPct >= 95 ? "#f0b429" : ratioPct <= 5 ? "#29b6f0" : "#8888bb", whiteSpace: "nowrap" }}>{ratioPct.toFixed(0)}% WETH</span>
           )}
-          <span style={{ position: "absolute", left: `${TS}%`, top: 41, fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(41,182,240,0.75)" }}>USDC</span>
-          <span style={{ position: "absolute", left: `${TE}%`, top: 41, transform: "translateX(-100%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(240,180,40,0.75)" }}>WETH</span>
-          {hasRatio && (
-            <span style={{ position: "absolute", left: `${ratioLeft}%`, top: 41, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color: ratioColor, whiteSpace: "nowrap" }}>{ratioPct.toFixed(0)}%</span>
-          )}
+          <span style={{ position: "absolute", left: `${TE}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
         </div>
         {/* Panel droit */}
         <div style={{ flexShrink: 0, width: 36, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 1, paddingBottom: 2 }}>
