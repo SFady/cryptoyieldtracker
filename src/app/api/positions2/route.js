@@ -346,7 +346,14 @@ export async function GET() {
         const ow1 = toUint(word(posHex, 11));
         // Seulement si confirmé fermé on-chain on abandonne le tokenId
         if (liq === 0n && ow0 === 0n && ow1 === 0n) fastTokenId = null;
-      } catch (_) { /* RPC failure ≠ position fermée — on garde fastTokenId */ }
+      } catch (e) {
+        // "execution reverted" = réponse ferme de la blockchain (le NFT n'existe plus, ex. brûlé par
+        // un close+reopen dont la base n'a pas encore la nouvelle ligne CREATE_OK) → on abandonne ce
+        // tokenId et on retombe sur la découverte complète, au lieu de s'entêter dessus et de
+        // planter plus bas (buildPosition échouerait avec la même erreur). Une vraie panne réseau
+        // (timeout, RPC down) ne contient pas "revert" → on garde fastTokenId comme avant.
+        if (/revert/i.test(e.message ?? "")) fastTokenId = null;
+      }
     }
 
     let tokenIds, gaugeAddr, stakedIds;

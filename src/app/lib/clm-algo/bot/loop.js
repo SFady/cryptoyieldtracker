@@ -724,7 +724,12 @@ export async function botLoop({ base, price }) {
 
   // Règle 1 : aucune position → auto-start
   if (!hasLP) {
-    // Vérifier si Redis est désynchronisé (position active en DB, Redis dit CLOSE_OK)
+    // Vérifier si Redis est désynchronisé (position active en DB, Redis dit CLOSE_OK) — mais ne
+    // restaure cette ligne que si le NFT existe encore réellement on-chain avec de la liquidité.
+    // Sans cette vérification, une ligne lp_events restée bloquée à action2 IS NULL (ex. l'UPDATE
+    // de closePositions censé marquer CLOSE_OK n'a pas matché, alors que le NFT a bien été brûlé)
+    // est restaurée en Redis à chaque tick pour toujours — ce qui bloque la Règle 1 indéfiniment
+    // (incident du 05/10 : "execution reverted: ID" sur la page pools, aucune réouverture).
     try {
       const sqlCheck = neon(process.env.DATABASE_URL);
       const dbRows = await sqlCheck`
@@ -733,11 +738,30 @@ export async function botLoop({ base, price }) {
           AND COALESCE(pool_num, 2) = ${ALGO_CONFIG.POOL_NUM}
         ORDER BY id DESC LIMIT 1
       `;
-      if (dbRows[0]?.token_id) {
-        await writeLpState(ALGO_CONFIG.POOL_NUM, dbRows[0]);
-        result.action = 'redis_restored';
-        await logBotTick(kv, result);
-        return result;
+      const staleTokenId = dbRows[0]?.token_id;
+      if (staleTokenId) {
+        let stillExists = false;
+        try {
+          const posHex = await ethCall(NFPM_ADDRESS, '0x99fbab88' + BigInt(staleTokenId).toString(16).padStart(64, '0'));
+          const hex = posHex.startsWith('0x') ? posHex.slice(2) : posHex;
+          const liquidityHex = hex.slice(7 * 64, 8 * 64);
+          stillExists = liquidityHex ? BigInt('0x' + liquidityHex) > 0n : false;
+        } catch (e) {
+          // "execution reverted" = réponse ferme de la blockchain (NFT brûlé, pas une panne réseau)
+          stillExists = !/revert/i.test(e.message ?? '');
+        }
+        if (stillExists) {
+          await writeLpState(ALGO_CONFIG.POOL_NUM, dbRows[0]);
+          result.action = 'redis_restored';
+          await logBotTick(kv, result);
+          return result;
+        }
+        // Ligne DB périmée (NFT confirmé disparu) : la clôturer pour de bon, sinon elle revient à
+        // chaque tick et la Règle 1 ne peut plus jamais s'exécuter.
+        try {
+          await sqlCheck`UPDATE lp_events SET action2 = 'CLOSE_OK', closed_at = NOW(), close_reason = 'orphan_stale_row'
+                          WHERE token_id = ${staleTokenId} AND action1 = 'CREATE_OK' AND action2 IS NULL`;
+        } catch (_) {}
       }
     } catch (_) {}
 
