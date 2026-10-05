@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasAeroSentToday, writeAeroSentToday, readRule1K, writeRule1K } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, writeAeroSentToday, readRule1K, writeRule1K } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -25,54 +25,36 @@ async function sendErrorEmail(subject, body) {
 }
 
 // Module 7 — Orchestrateur cron pool 2
-// BOT_ENABLED = true — seules les Règles 1, 2, 3, 4 ci-dessous sont actives (anciennes 1c/1d désactivées).
-// Nouveau jeu de règles :
-//   1.  Aucune position → réinitialise K à 1 (p2_rule1_k, Redis + repli table bot_config — voir
-//       readRule1K/writeRule1K dans cronKv.js) puis ouvre au range percentile24h × K (= 1), 50/50
-//       WETH/USDC. Low trigger = rMin + range × 1/2^(K+1) (K=1 → range/4). Zone haute désactivée
-//       pour cette position (p2_live_range.highTrigger = Infinity) : la Règle 3 ne peut jamais se
-//       déclencher tant que cette position n'a pas été rebalancée par une autre règle — la Règle 4
-//       (plancher WETH) reste, elle, toujours active, indépendamment de ce blocage. Ne s'applique
-//       qu'à une vraie ouverture à vide, pas à la reprise d'une réouverture différée par le spread
-//       check (Règles 2/3/4), qui garde ses propres paramètres.
-//   2.  Zone basse (prix ≤ rMin + 25% du range), confirmée 5 ticks consécutifs (compteur
-//       p2_oor_count/p2_oor_low, dots page pools) → collecte AERO (25% envoyé/75% gardé),
-//       ferme et rouvre à 75% WETH (swap forcé), largeur = largeur actuelle × 2, sans plafond (30/09).
-//       Incrémente aussi K de 1 (p2_rule1_k) — une future réouverture à vide (Règle 1) part plus large.
-//   3.  Zone haute (prix ≥ high trigger, confirmée 5 ticks consécutifs, même compteur) ET écart
-//       percentile24h/range actuel > ±1,5pt (revérifié à chaque tick une fois le streak atteint) →
-//       collecte AERO (50%/50%), resize AVEC swap à range/2 (jamais sous le percentile24h brut, qui
-//       sert de plancher). Le ratio WETH cible du swap est celui qu'aurait la position si son prix
-//       de référence était l'ANCIEN high trigger (maths CL standard), pas un pourcentage fixe.
-//       Décrémente K de 1 si K>1 (jamais sous 1). Le "prix de réouverture" utilisé pour les bornes
-//       (et le calcul de ce ratio) est aussi l'ANCIEN high trigger, pas le prix de marché courant —
-//       seuls le recentrage réel de la position et la valorisation du capital utilisent le vrai prix.
-//       K encore >1 après décrément → low = rMin+range/2^(K+1), high symétrique à ce low
-//       par rapport à l'ancien high trigger (mode 'k-symmetric') ; K=1 après décrément →
-//       low = range/4, zone haute désactivée (mode 'k-formula', comme la Règle 1).
-//   4.  Indépendante des zones/volatilité, vérifiée chaque tick sans streak : si WETH < 5% de la
-//       position → collecte AERO (50%/50%), ferme et rouvre à la largeur percentile24h brut (29/09),
-//       swap forcé vers 25% WETH (correctif modéré, pas un reset à 50%, pour limiter le rachat de
-//       WETH à un prix haut).
-//   Ancienne Règle 1A (zone de bord 5%) : supprimée, devenue inatteignable (Règles 2/3 couvrent
-//   déjà ses zones et s'évaluent avant).
-//   Ancienne Règle 1c [désactivée] : code encore présent plus bas, pas encore supprimé, mais
-//   RULE_1C_ENABLED = false → jamais évaluée. Ancienne Règle 1d (et le calcul de tendance MM14j ×
-//   MM24h qui ne servait qu'à elle) : supprimée le 26/09, plus aucune règle active n'en dépendait.
-//   Claim matinal (7h Paris) [DÉSACTIVÉ, MORNING_CLAIM_ENABLED = false] : si aucun AERO envoyé
-//   aujourd'hui, retire 25% des AERO accumulés sans fermer la LP.
-//   Réouvertures Règles 2/3/4 : spread check (1,5% sur 20 derniers prix, même seuil que la Règle 1)
-//   avant de rouvrir — si le marché est trop agité, la réouverture est sautée, la Règle 1 la
-//   reprendra au tick suivant.
+// BOT_ENABLED = true — seules les Règles 1 à 4 ci-dessous sont actives.
+// Règles (05/10, refonte complète — abandon du système de triggers de prix/K dynamique au profit
+// d'un déclenchement direct sur le ratio WETH de la position) :
+//   1.  Aucune position → ouverture en gardant les proportions WETH/USDC déjà présentes dans le
+//       wallet (keepCurrentRatio, aucun swap forcé — le range se place de façon asymétrique pour
+//       matcher ce qui est déjà détenu), largeur = percentile24h brut (×1). K remis à 1.
+//   2.  Trigger bas : ratio WETH de la position ≥ 95% (prix proche du bas du range) → collecte AERO
+//       (25% envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h ×
+//       1,25. K remis à 1.
+//   3.  Trigger haut : ratio WETH de la position ≤ 5% (prix proche du haut du range) → collecte AERO
+//       (50% envoyé/50% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h
+//       brut (×1). K remis à 1.
+//   4.  Si aucun envoi vers le wallet externe n'a eu lieu depuis 24h glissantes, réclame l'AERO
+//       accumulé sans fermer la LP et en envoie 25% (75% restent en solde non utilisé).
+//   Règles 2/3 vérifiées à chaque tick, sans confirmation sur plusieurs ticks (le ratio WETH d'une
+//   position CL évolue progressivement avec le prix, contrairement à un simple test de prix contre
+//   un seuil fixe — moins sujet au bruit).
+//   Supprimé dans cette refonte : les triggers de prix stockés (low/high trigger, p2_live_range),
+//   le paramètre K dynamique (doublement/division/coupe-circuit), le garde-fou de largeur, le
+//   compteur de confirmation à 5 ticks (p2_oor_count), la Règle 1c (resserrement ±1,5pt), la Règle
+//   1d (changement de tendance), le claim matinal 7h Paris. K reste persisté (p2_rule1_k, Redis +
+//   repli table bot_config) et affiché sur la page pools, mais chaque règle le remet simplement à 1
+//   — il ne pilote plus aucune formule.
+//   Réouvertures (Règles 1/2/3) : spread check (1,5% sur 20 derniers prix) avant de rouvrir — si le
+//   marché est trop agité, la réouverture est sautée, la Règle 1 la reprendra au tick suivant.
 
-// Coupe-circuit global : si false, botLoop() ne fait plus rien du tout (aucune règle, aucun claim
-// matinal) — la position ouverte reste telle quelle, en attente. Le code de chaque règle reste
-// intact, prêt à repartir en repassant ce flag à true.
+// Coupe-circuit global : si false, botLoop() ne fait plus rien du tout — la position ouverte reste
+// telle quelle, en attente. Le code de chaque règle reste intact, prêt à repartir en repassant ce
+// flag à true.
 const BOT_ENABLED = true;
-
-// Ancienne règle 1c désactivée — seules les nouvelles Règles 1, 2, 3, 4 (+ 5) sont actives.
-const RULE_1C_ENABLED = false;
-const MORNING_CLAIM_ENABLED = false;
 
 // Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire,
 // pas de zone neutre. Utilisé uniquement par autoStart() pour le code "open_trend" affiché (colonne
@@ -416,52 +398,18 @@ async function clearAlgoState() {
   ]);
 }
 
-async function closeEdgeZone(base, isLow) {
-  const out = {};
-
-  for (const step of [1, 2]) {
-    try {
-      const r = await fetch(`${base}/api/collectFees`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
-        signal:  AbortSignal.timeout(120000),
-      });
-      out[`step${step}`] = await r.json();
-    } catch (e) { out[`step${step}Error`] = e.message; }
-  }
-  // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2) —
-  // fiable, contrairement à un diff de solde wallet avant/après sur des requêtes séparées.
-  const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
-  out.aeroSplit = await sendAeroSplit(feesCollected, isLow);
-  await logAndAlertAeroSplit(out, feesCollected);
-
-  try   { out.closeLP = await closeLP(base, true, isLow ? 'oor_close_low' : 'oor_close_high', feesCollected, isLow ? 0.25 : 0.5); } // pas de swap forcé, quel que soit le côté
-  catch (e) { out.closeLPError = e.message; }
-
-  // Mémorise le côté de sortie pour déterminer le ratio de réouverture (Règle 2, tick suivant)
-  try { await kv.set('p2_last_exit_side', isLow ? 'low' : 'high', { ex: 3600 }); } catch (_) {}
-
-  await clearAlgoState();
-  return out;
-}
-
 /**
  * Collecte les AERO (pendant que la position est encore stakée), ferme la LP,
- * puis rouvre immédiatement avec tout le capital disponible au ratio de tendance.
+ * puis rouvre immédiatement avec tout le capital disponible au ratio voulu.
  * keepCurrentRatio : ignore targetRatio et rouvre avec les proportions WETH/USDC déjà
- * présentes dans le wallet après fermeture (pas de swap pour forcer un ratio).
- * maxWethCap / minWethCap : { trigger, target } — si keepCurrentRatio dépasse trigger (côté haut)
- * ou passe sous trigger (côté bas), on force le ratio à target à la place (swap partiel).
- *   Règle 2 : maxWethCap = { trigger: 0.80, target: 0.75 }
- *   Règle 3 : aucun (garde les proportions actuelles sans plafond/plancher)
- * explicitRangePct : largeur de range imposée (ex. range actuel doublé), sinon percentile×rangeMultiplier.
- * aeroLowSplit : fraction AERO envoyée au wallet externe — true = 25% (Règles 1c/2), false = 50% (Règle 3).
- * Spread check (même seuil que la Règle 1, 1.5% sur les 20 derniers prix) avant la réouverture :
- * si le marché est trop agité, la réouverture est sautée (capital laissé dans le wallet), la
- * Règle 1 la reprendra au tick suivant une fois le marché calmé.
+ * présentes dans le wallet après fermeture (pas de swap pour forcer un ratio) — Règle 1.
+ * explicitRangePct : largeur de range imposée (percentile24h × multiplicateur de la règle).
+ * aeroLowSplit : fraction AERO envoyée au wallet externe — true = 25% (Règle 2), false = 50% (Règle 3).
+ * Spread check (1,5% sur les 20 derniers prix) avant la réouverture : si le marché est trop agité,
+ * la réouverture est sautée (capital laissé dans le wallet), la Règle 1 la reprendra au tick
+ * suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 4, keepCurrentRatio = false, explicitRangePct = null, maxWethCap = null, minWethCap = null, aeroLowSplit = true, lowTriggerMode = 'reset', oldLowTrigger = null, skipAeroSplit = false, kForFormula = null, triggerAnchorPrice = null, aeroSplitSource = null) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true) {
   const out = {};
 
   // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
@@ -478,14 +426,10 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   }
   // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
   const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
-  // skipAeroSplit : règle qui doit garder 100% des fees/AERO dans la position (pas d'envoi externe
-  // ce cycle) — on n'appelle même pas sendAeroSplit pour éviter toute tentative de transfert.
-  out.aeroSplit = skipAeroSplit ? { skipped: 'rule_no_external_send' } : await sendAeroSplit(feesCollected, aeroLowSplit, aeroSplitSource);
+  out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit);
   await logAndAlertAeroSplit(out, feesCollected);
 
-  // Fermer la LP — aeroSplitFraction=null coupe aussi le split résiduel côté closePositions
-  // (sinon il enverrait quand même une part de l'AERO résiduel swappé pendant la fermeture)
-  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAeroSplit ? null : (aeroLowSplit ? 0.25 : 0.5)); }
+  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, aeroLowSplit ? 0.25 : 0.5); }
   catch (e) { out.closeLPError = e.message; }
 
   // Fermeture ratée (exception ou {error} dans la réponse) → ne pas ouvrir une nouvelle position
@@ -499,27 +443,20 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Réinitialiser l'état algo
   await clearAlgoState();
 
-  // Ratio effectif : soit le ratio cible fourni, soit (keepCurrentRatio) les proportions
-  // WETH/USDC réellement présentes dans le wallet après la fermeture — aucun swap forcé,
-  // sauf si ça franchit le trigger de maxWethCap/minWethCap (swap partiel vers leur target).
+  // Ratio effectif : soit le ratio cible fourni (swap forcé, Règles 2/3), soit (keepCurrentRatio,
+  // Règle 1) les proportions WETH/USDC réellement présentes dans le wallet après la fermeture —
+  // aucun swap forcé dans ce cas.
   let effectiveTargetRatio = targetRatio;
   if (keepCurrentRatio) {
     const [usdcBal, wethBal] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
     const capital = usdcBal + wethBal * price;
     effectiveTargetRatio = capital > 0 ? (wethBal * price) / capital : 0.5;
     out.keptRatio = parseFloat(effectiveTargetRatio.toFixed(4));
-    if (maxWethCap && effectiveTargetRatio > maxWethCap.trigger) {
-      effectiveTargetRatio = maxWethCap.target;
-      out.cappedRatio = maxWethCap.target;
-    } else if (minWethCap && effectiveTargetRatio < minWethCap.trigger) {
-      effectiveTargetRatio = minWethCap.target;
-      out.cappedRatio = minWethCap.target;
-    }
   }
 
-  // Spread check : marché trop agité → ne pas rouvrir tout de suite (même seuil que la Règle 1).
-  // Le capital reste dans le wallet (non réinvesti) ; la position étant fermée, la Règle 1 la
-  // rouvrira au tick suivant dès que le marché se sera calmé.
+  // Spread check : marché trop agité → ne pas rouvrir tout de suite. Le capital reste dans le
+  // wallet (non réinvesti) ; la position étant fermée, la Règle 1 la rouvrira au tick suivant dès
+  // que le marché se sera calmé.
   const recentPrices = await getLastNPrices(20);
   if (recentPrices.length >= 10) {
     const minP   = Math.min(...recentPrices);
@@ -530,70 +467,31 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
     if (spread > 1.5) {
       out.reopenSkippedSpread = true;
       // Mémorise les paramètres de la réouverture voulue : la Règle 1 (aucune position) les
-      // reprendra au tick suivant au lieu d'ouvrir en 50/50 avec le percentile brut.
+      // reprendra au tick suivant au lieu d'ouvrir en gardant les proportions du wallet.
       await kv.set('p2_pending_reopen', {
-        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct, lowTriggerMode, oldLowTrigger, closeReason, kForFormula, triggerAnchorPrice,
+        targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct,
       }, { ex: 24 * 3600 }).catch(() => {});
       return out;
     }
   }
 
-  // Rouvrir LP avec tout le capital disponible au ratio cible — toujours au VRAI prix de marché
-  // (valorisation du capital et centrage réel de la position), jamais sur un prix d'ancrage.
+  // Rouvrir LP avec tout le capital disponible au ratio cible, au prix de marché réel.
   out.autoStart = await autoStart({ base, price, targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct });
 
-  // Sauvegarder le nouveau range + bornes. triggerAnchorPrice (si fourni, ex. Règle 3 : ancien high
-  // trigger) sert UNIQUEMENT au calcul des formules de bornes, pas à la position réelle ci-dessus.
-  await saveRangeAndLowTrigger(out, triggerAnchorPrice ?? price, lowTriggerMode, oldLowTrigger, kForFormula, price);
+  await saveRangeAndLowTrigger(out, price);
   await kv.del('p2_pending_reopen').catch(() => {});
 
   return out;
 }
 
-// Sauvegarde le range réouvert + bornes basse/haute :
-//   'k-formula'   = Règle 1 (K réinitialisé à 1) : low = rMin + range × 1/2^(K+1) (donne range/4,
-//                   la suite 1/4, 1/8, 1/16... si K évoluait). Zone haute désactivée (Infinity) —
-//                   la Règle 3 ne doit jamais se déclencher sur une position tout juste ouverte à
-//                   vide (la Règle 4, plancher WETH, reste indépendante et s'applique toujours).
-//   'k-symmetric' = Règle 2, K ≤ 3 : même formule pour low (avec le K déjà incrémenté), et une
-//                   borne haute symétrique à cette borne basse par rapport au prix de réouverture.
-//   'center'      = Règle 2, K > 3 : low centré entre le nouveau rMin et le prix de réouverture
-//                   (coupe-circuit, repart plus prudemment). Zone haute désactivée (Infinity).
-//   défaut        = reset à rMin + 25% du nouveau range (sortie haute, Règle 3/4) — pas de borne
-//                   haute stockée, repli sur la formule générique rMin + 50%.
-async function saveRangeAndLowTrigger(out, price, lowTriggerMode, oldLowTrigger, kForFormula = null, realPrice = null) {
+// Sauvegarde le range réouvert. Les anciennes bornes basse/haute (p2_live_range.lowTrigger/
+// highTrigger) ont disparu avec le système de triggers de prix/K dynamique (05/10) — plus aucune
+// règle n'en a besoin, les Règles 2/3 se décidant directement sur le ratio WETH de la position.
+async function saveRangeAndLowTrigger(out, price) {
   if (!out.autoStart?.pool?.tickLowerPrice || !out.autoStart?.pool?.tickUpperPrice) return;
   const newRMin = out.autoStart.pool.tickLowerPrice;
   const newRMax = out.autoStart.pool.tickUpperPrice;
-  // entryPrice = toujours le vrai prix de réouverture (jamais l'ancre substituée à `price` pour les
-  // formules de bornes ci-dessous) — c'est ce qui est affiché/stocké comme prix d'ouverture réel.
-  const entryPrice = realPrice ?? price;
-  let newLowTrigger;
-  let newHighTrigger = null; // null = pas de borne stockée → repli générique rMin + 50%
-
-  if (lowTriggerMode === 'k-formula' && kForFormula !== null) {
-    newLowTrigger  = newRMin + (newRMax - newRMin) * (1 / Math.pow(2, kForFormula + 1));
-    newHighTrigger = Infinity;
-  } else if (lowTriggerMode === 'k-symmetric' && kForFormula !== null) {
-    newLowTrigger  = newRMin + (newRMax - newRMin) * (1 / Math.pow(2, kForFormula + 1));
-    // Plafonné comme le mode 'halve' : le pivot de symétrie ne descend jamais sous le vrai prix.
-    // Sinon (ex. Règle 3 : pivot = ancien high trigger, prix qui a dérivé au-dessus pendant les 5
-    // ticks de confirmation) le nouveau high trigger se retrouverait sous le prix actuel — la
-    // position serait déjà "en zone haute" dès la réouverture.
-    const pivot = Math.max(price, entryPrice);
-    newHighTrigger = 2 * pivot - newLowTrigger;
-  } else if (lowTriggerMode === 'center') {
-    newLowTrigger  = (newRMin + price) / 2;
-    newHighTrigger = Infinity;
-  } else {
-    newLowTrigger = newRMin + 0.25 * (newRMax - newRMin);
-  }
-
-  out.newLowTrigger  = parseFloat(newLowTrigger.toFixed(2));
-  out.newHighTrigger = (newHighTrigger !== null && Number.isFinite(newHighTrigger))
-    ? parseFloat(newHighTrigger.toFixed(2))
-    : newHighTrigger;
-  await writeP2Range(newRMin, newRMax, entryPrice, newLowTrigger, newHighTrigger);
+  await writeP2Range(newRMin, newRMax, price);
 }
 
 /**
@@ -725,44 +623,23 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // 1. État LP + config runtime + compteur OOR (en parallèle)
-  const [lpState, rtConfig, oorCountRaw] = await Promise.all([
+  // 1. État LP + config runtime (en parallèle)
+  const [lpState, rtConfig] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
-    kv.get('p2_oor_count').catch(() => null),
   ]);
 
   const hasLP   = !!(lpState && lpState.action2 === null);
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
 
-  // Claim AERO matinal (7h Paris) : si rien n'a encore été envoyé aujourd'hui, on retire 25% des
-  // AERO accumulés sans fermer la LP (le reste des règles s'évalue normalement après, ce n'est
-  // pas un `return` anticipé).
-  if (MORNING_CLAIM_ENABLED && hasLP) {
-    const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
-    if (parisHour >= 7 && !(await wasAeroSentToday(2).catch(() => false))) {
-      try {
-        const r = await fetch(`${base}/api/claimAero`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ poolNum: 2, sendFraction: 0.25 }),
-          signal: AbortSignal.timeout(60000),
-        });
-        result.morningClaim = await r.json();
-      } catch (e) { result.morningClaim = { error: e.message }; }
-      // Rien à réclamer (non staké) ou déjà envoyé → pas la peine de retenter à chaque tick jusqu'à demain
-      if (result.morningClaim?.ok || result.morningClaim?.skipped) await writeAeroSentToday(2).catch(() => {});
-    }
-  }
-
-  // Règle 5 : si aucun envoi vers le wallet externe (Règles 2/3 ou ce claim lui-même) n'a eu
-  // lieu depuis 24h glissantes, réclame les AERO accumulés sans fermer la LP et en envoie 25% au
-  // wallet externe (75% restent en solde USDC non utilisé dans le wallet du bot) — garantit un
-  // minimum d'envoi régulier même quand le marché reste calme (aucune sortie de zone déclenchée).
-  // Sur skip (rien à réclamer/non stakée) on repousse quand même le compteur de 24h, pour ne pas
-  // retenter à chaque tick jusqu'à ce qu'il y ait effectivement quelque chose à claim.
-  const PERIODIC_AERO_CLAIM_ENABLED = true;
-  if (PERIODIC_AERO_CLAIM_ENABLED && hasLP) {
+  // Règle 4 : si aucun envoi vers le wallet externe (Règles 2/3 ou ce claim lui-même) n'a eu lieu
+  // depuis 24h glissantes, réclame les AERO accumulés sans fermer la LP et en envoie 25% au wallet
+  // externe (75% restent en solde USDC non utilisé dans le wallet du bot) — garantit un minimum
+  // d'envoi régulier même quand le marché reste calme (aucun trigger WETH déclenché). Sur skip
+  // (rien à réclamer/non stakée) on repousse quand même le compteur de 24h, pour ne pas retenter à
+  // chaque tick jusqu'à ce qu'il y ait effectivement quelque chose à claim.
+  if (hasLP) {
     const lastSendAt = parseInt(await kv.get('p2_last_aero_send_at').catch(() => null)) || 0;
     if (Date.now() - lastSendAt > 24 * 3600 * 1000) {
       try {
@@ -779,20 +656,14 @@ export async function botLoop({ base, price }) {
     }
   }
 
-  // Lire p2_live_range : range réel (fallback si absent de lpState) + bornes basse/haute stockées
-  let storedLowTrigger  = null;
-  let storedHighTrigger = null;
-  if (hasLP) {
+  // Range réel (fallback si absent de lpState, ex. juste après un retry-stake)
+  if (hasLP && (rMin == null || isNaN(rMin))) {
     const lr = await readP2Range();
-    if (rMin == null || isNaN(rMin)) {
-      if (lr?.min) {
-        rMin = parseFloat(lr.min);
-        rMax = parseFloat(lr.max);
-        console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
-      }
+    if (lr?.min) {
+      rMin = parseFloat(lr.min);
+      rMax = parseFloat(lr.max);
+      console.log(`[botLoop] range lu depuis p2_live_range: ${rMin}–${rMax}`);
     }
-    if (lr?.lowTrigger)  storedLowTrigger  = parseFloat(lr.lowTrigger);
-    if (lr?.highTrigger) storedHighTrigger = parseFloat(lr.highTrigger);
   }
 
   const centerPrice = (!isNaN(rMin) && !isNaN(rMax) && rMin > 0 && rMax > 0)
@@ -805,250 +676,53 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règle 4 : indépendante des zones/volatilité — si WETH < 5% de la position, recale à 25% WETH
-  // (swap partiel), quel que soit l'endroit du range où se trouve le prix. Vérifiée à chaque tick,
-  // pas de streak de confirmation (contrairement aux Règles 2/3). Largeur = percentile24h brut
-  // (29/09, plus la largeur actuelle) ; repli sur la largeur actuelle si le percentile n'est pas
-  // encore disponible (pas assez de points).
-  // K décrémenté de 1 si >1 (02/10) — même traitement que la Règle 3, pour ne pas laisser la zone
-  // haute sur le repli générique rMin+50% (actif, pas désactivé) après un retour au plancher WETH :
-  //   K encore >1 après décrément → mode 'k-symmetric' (comme la Règle 3).
-  //   K=1 après décrément (ou déjà à 1) → mode 'k-formula' (zone haute désactivée, comme la Règle 1).
+  // Règles 2 et 3 : déclenchées directement sur le ratio WETH de la position (pool + wallet),
+  // vérifié à chaque tick, sans confirmation sur plusieurs ticks — le ratio WETH évolue
+  // progressivement avec le prix, contrairement à un simple test de prix contre un seuil fixe.
   if (hasLP) {
     const wethRatio = (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
-    if (wethRatio !== null && wethRatio < 0.05) {
-      const rangePctActuel = (!isNaN(rMin) && !isNaN(rMax)) ? (rMax - rMin) / rMin * 100 : null;
-      const pctData4       = await getPercentileRange();
-      const p24h4          = pctData4 && pctData4.cnt >= 10 && pctData4.p05 > 0
-        ? (pctData4.p95 - pctData4.p05) / pctData4.p05 * 100
-        : null;
-      const currentK4 = await readRule1K();
-      let nextK4 = currentK4;
-      if (currentK4 > 1) {
-        nextK4 = currentK4 - 1;
-        await writeRule1K(nextK4);
-        result.rule1K = nextK4;
-      }
-      const triggerMode4 = nextK4 > 1 ? 'k-symmetric' : 'k-formula';
-      // K=1 après décrément (ou déjà à 1) : largeur = percentile24h × 1.5 (03/10, tous les cas K=1
-      // confondus), au lieu du percentile24h brut réservé au cas K>1.
-      const baseWidth4     = p24h4 !== null ? p24h4 : rangePctActuel;
-      const newRangePct4   = triggerMode4 === 'k-formula' && baseWidth4 !== null ? Math.max(baseWidth4 * 1.5, 1.5) : baseWidth4;
-      result.action          = 'weth_floor_rebalance';
-      result.rangePctActuel  = rangePctActuel !== null ? parseFloat(rangePctActuel.toFixed(2)) : null;
-      result.percentileRange = p24h4 !== null ? parseFloat(p24h4.toFixed(2)) : null;
-      result.collect = await runCollect(base, price, 0.25, 'weth_floor_rebalance', 1, false, newRangePct4, null, null, false, triggerMode4, null, false, nextK4);
-      await logBotTick(kv, result);
-      return result;
-    }
-  }
 
-  // Garde-fou largeur (03/10) : indépendant des zones/volatilité et du compteur K — si la largeur
-  // actuelle dépasse 2× le percentile24h (quelle que soit la raison : doublements Règle 2, ou
-  // percentile qui a lui-même rétréci depuis), réduit directement à range_percentile SANS swap
-  // (garde les proportions WETH/USDC actuelles). Vérifié à chaque tick, pas de streak. K remis à 1,
-  // mode 'k-formula' (zone haute désactivée) — repart sur une base propre comme une Règle 1.
-  // AERO : même split qu'un rebalance bas (25% envoyé/75% gardé + top-up gas), pas 50/50.
-  // Uniquement si K=1 (03/10) : ne pas interférer avec une échelle Règle 2/3 en cours (K>1).
-  if (hasLP && !isNaN(rMin) && !isNaN(rMax)) {
-    const currentK5       = await readRule1K();
-    const rangePctActuel5 = (rMax - rMin) / rMin * 100;
-    const pctData5        = await getPercentileRange();
-    const p24h5            = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0
-      ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
-      : null;
-    // Comparé à 2× la largeur CIBLE (avec plancher 1.5%), pas 2× le percentile brut (04/10) :
-    // sinon, dès que le percentile repasse sous 0.75%, la largeur plancher (1.5%) dépasse
-    // systématiquement ce seuil et se redéclenche en boucle sans jamais se stabiliser (incident du
-    // 04/10, width_shrink_rebalance toutes les ~6 min, aucune position tenue assez longtemps pour
-    // accumuler de l'AERO).
-    const widthK5 = p24h5 !== null ? Math.max(p24h5 * 1.5, 1.5) : null;
-    if (currentK5 === 1 && widthK5 !== null && rangePctActuel5 > 2 * widthK5) {
+    if (wethRatio !== null && wethRatio >= 0.95) {
+      // Règle 2 : trigger bas (position quasi entièrement en WETH) — collecte AERO (25%
+      // envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h × 1.25.
+      // Plancher 1.5% (04/10) : évite une range trop étroite si le percentile24h est anormalement
+      // bas, qui ferait ressortir la position presque aussitôt, en boucle.
+      const pctData2 = await getPercentileRange();
+      const p24h2    = pctData2 && pctData2.cnt >= 10 && pctData2.p05 > 0
+        ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
+        : null;
+      const width2 = p24h2 !== null ? Math.max(p24h2 * 1.25, 1.5) : 1.5;
       await writeRule1K(1);
       result.rule1K          = 1;
-      result.action          = 'width_shrink_rebalance';
-      result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
-      result.percentileRange = parseFloat(p24h5.toFixed(2));
-      result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, widthK5, null, null, true, 'k-formula', null, false, 1, null, 'width_shrink');
+      result.action          = 'low_weth_rebalance';
+      result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
+      result.newRangePct     = parseFloat(width2.toFixed(2));
+      result.collect = await runCollect(base, price, 0.75, 'low_weth_rebalance', 1, false, width2, true);
+      await logBotTick(kv, result);
+      return result;
+    }
+
+    if (wethRatio !== null && wethRatio <= 0.05) {
+      // Règle 3 : trigger haut (position quasi entièrement en USDC) — collecte AERO (50%
+      // envoyé/50% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut.
+      const pctData3 = await getPercentileRange();
+      const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
+        ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
+        : null;
+      const width3 = p24h3 !== null ? Math.max(p24h3, 1.5) : 1.5;
+      await writeRule1K(1);
+      result.rule1K          = 1;
+      result.action          = 'high_weth_rebalance';
+      result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
+      result.newRangePct     = parseFloat(width3.toFixed(2));
+      result.collect = await runCollect(base, price, 0.25, 'high_weth_rebalance', 1, false, width3, false);
       await logBotTick(kv, result);
       return result;
     }
   }
 
-  // Règles 2 (zone basse) et 3 (zone haute) : confirmées sur 5 ticks consécutifs, en réutilisant
-  // le compteur p2_oor_count/p2_oor_low et les dots déjà affichés sur la page pools (RangeBar).
-  // Zone basse : seuil stocké explicitement (p2_live_range.lowTrigger), pas dérivé du prix de
-  // réouverture — il se rapproche de rMin à chaque sortie basse répétée (voir Règle 2 plus bas) et
-  // se réinitialise à rMin + 25% du range sur sortie haute / Règle 4 / première ouverture.
-  const lowTrigger  = (hasLP && storedLowTrigger !== null)
-    ? storedLowTrigger
-    : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.25 * (rMax - rMin) : null; // fallback si jamais stocké (1ère ouverture)
-  // Zone haute : seuil stocké explicitement (p2_live_range.highTrigger) si présent — Infinity après
-  // une ouverture Règle 1 (zone haute désactivée pour cette position), sinon repli générique
-  // rMin + 50% du range (Règles 2/3/4).
-  const halfPoint   = (hasLP && storedHighTrigger !== null)
-    ? storedHighTrigger
-    : (hasLP && !isNaN(rMin) && !isNaN(rMax)) ? rMin + 0.5 * (rMax - rMin) : null;
-  const inLowZone   = lowTrigger !== null && price <= lowTrigger;
-  const inHighZone  = !inLowZone && halfPoint !== null && price >= halfPoint;
-
-  if (inLowZone || inHighZone) {
-    const newCount = (parseInt(oorCountRaw) || 0) + 1;
-    await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
-    await kv.set('p2_oor_low', inLowZone ? 1 : 0, { ex: 30 * 86400 });
-    result.oorCount = newCount;
-    result.isOORLow = inLowZone;
-
-    if (newCount < 5) {
-      result.action = 'oor_waiting';
-      await logBotTick(kv, result);
-      return result;
-    }
-
-    if (inLowZone) {
-      // Règle 2 : collecte AERO (25% envoyé/75% gardé), swap vers un ratio fixe 75% WETH (plus de
-      // "garder le ratio actuel" — trop proche du bord bas, ça recentrait le nouveau range de façon
-      // imprévisible, cf. simulation).
-      // K (p2_rule1_k) fait office de compteur de sorties basses consécutives, et de coupe-circuit :
-      //   K < 3 (donc K déjà incrémenté ≤ 3) : double la largeur ACTUELLE, K incrémenté de 1, low
-      //           trigger = rMin + range × 1/2^(K+1) (K déjà incrémenté), high trigger symétrique à
-      //           ce low trigger par rapport au prix de réouverture (mode "k-symmetric"). K plafonné
-      //           à 3 (03/10) — avant, le test était `> 3` au lieu de `>= 3`, ce qui laissait passer
-      //           un 4e doublement (K montait à 4) avant que le coupe-circuit ne se déclenche.
-      //   K ≥ 3 : au lieu de continuer à doubler indéfiniment, repart sur une largeur raisonnable
-      //           (percentile24h brut, comme la Règle 1), low trigger recentré entre le nouveau rMin
-      //           et le prix actuel (mode "center"), zone haute désactivée, K remis à 1 — casse le
-      //           cycle d'élargissement.
-      const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const currentK = await readRule1K();
-      result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
-      result.lowTrigger     = parseFloat(lowTrigger.toFixed(2));
-      result.action         = 'low_zone_rebalance';
-
-      if (currentK >= 3) {
-        const pctDataK = await getPercentileRange();
-        const p24hK    = pctDataK && pctDataK.cnt >= 10 && pctDataK.p05 > 0
-          ? (pctDataK.p95 - pctDataK.p05) / pctDataK.p05 * 100
-          : rangePctActuel; // repli si pas assez de points : garde la largeur actuelle
-        const widthK   = Math.max(p24hK * 1.5, 1.5); // K=1, plancher absolu 1.5% (04/10)
-        await writeRule1K(1);
-        result.rule1K       = 1;
-        result.kResetBranch = true;
-        result.newRangePct  = parseFloat(widthK.toFixed(2));
-        result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, widthK, null, null, true, 'center', lowTrigger);
-      } else {
-        const newRangePct = rangePctActuel * 2;
-        const nextK = currentK + 1;
-        await writeRule1K(nextK);
-        result.rule1K      = nextK;
-        result.newRangePct = parseFloat(newRangePct.toFixed(2));
-        result.collect = await runCollect(base, price, 0.75, 'low_zone_rebalance', 4, false, newRangePct, null, null, true, 'k-symmetric', lowTrigger, false, nextK);
-      }
-      await logBotTick(kv, result);
-      return result;
-    }
-
-    // Règle 3 : la zone haute est confirmée sur 5 ticks, mais l'écart de volatilité (lui) est
-    // revérifié à chaque tick une fois le streak atteint — pas compté sur 5 ticks séparément.
-    const pctData = await getPercentileRange();
-    const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
-      ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
-      : null;
-    if (p24h !== null) {
-      const rangePctActuel = (rMax - rMin) / rMin * 100;
-      if (Math.abs(p24h - rangePctActuel) > 1.5) {
-        // Collecte AERO (50% envoyé/50% gardé), resize AVEC swap à range/2 (jamais sous le
-        // percentile24h brut). K redescend de 1 si >1 (une sortie haute détend la mémoire accumulée
-        // par les sorties basses de la Règle 2), sans jamais repasser sous 1. Le "prix de
-        // réouverture" utilisé pour les nouvelles bornes (et pour recentrer la position) est
-        // l'ANCIEN high trigger qui vient de déclencher — pas le prix de marché courant :
-        //   K encore >1 après décrément → mode 'k-symmetric' (low = rMin + range/2^(K+1), high
-        //   symétrique à ce low par rapport à l'ancien high trigger).
-        //   K=1 après décrément → mode 'k-formula' (low = rMin + range/2^(K+1) = range/4, zone
-        //   haute désactivée), comme une ouverture Règle 1.
-        const currentK = await readRule1K();
-        let nextK = currentK;
-        if (currentK > 1) {
-          nextK = currentK - 1;
-          await writeRule1K(nextK);
-          result.rule1K = nextK;
-        }
-        // K=1 après décrément (ou déjà à 1) : largeur = percentile24h × 1.5 (03/10, tous les cas
-        // K=1 confondus), au lieu de la formule max(moitié, percentile) réservée au cas K>1.
-        const newRangePct = nextK > 1 ? Math.max(rangePctActuel / 2, p24h) : Math.max(p24h * 1.5, 1.5);
-        result.action          = 'high_half_rebalance';
-        result.halfPoint       = parseFloat(halfPoint.toFixed(2));
-        result.rangePctActuel  = parseFloat(rangePctActuel.toFixed(2));
-        result.percentileRange = parseFloat(p24h.toFixed(2));
-        result.newRangePct     = parseFloat(newRangePct.toFixed(2));
-        const reopenAnchor = halfPoint; // ancien high trigger — pour les formules de bornes ET le ratio cible
-
-        // Ratio WETH cible : celui qu'aurait la position (sur le NOUVEAU range, centré au vrai prix)
-        // si son "prix d'ouverture" de référence était l'ancien high trigger, pas le prix réel —
-        // même logique d'ancrage que les bornes, étendue au swap forcé (maths CL standard : valeur
-        // WETH ∝ √P×(√Pb−√P)/√Pb, valeur USDC ∝ √P−√Pa).
-        const halfFrac  = newRangePct / 200;
-        const newRMinR  = parseFloat((price / (1 + halfFrac)).toFixed(2));
-        const newRMaxR  = parseFloat((price * (1 + halfFrac)).toFixed(2));
-        const sqrtA = Math.sqrt(newRMinR), sqrtB = Math.sqrt(newRMaxR);
-        const sqrtX = Math.min(Math.max(Math.sqrt(reopenAnchor), sqrtA), sqrtB);
-        const valueWeth = sqrtX * (sqrtB - sqrtX) / sqrtB;
-        const valueUsdc = sqrtX - sqrtA;
-        const anchorRatio = (valueWeth + valueUsdc) > 0 ? valueWeth / (valueWeth + valueUsdc) : 0.5;
-        result.anchorRatio = parseFloat(anchorRatio.toFixed(4));
-
-        const triggerMode  = nextK > 1 ? 'k-symmetric' : 'k-formula';
-        result.collect = await runCollect(base, price, anchorRatio, 'high_half_rebalance', 1, false, newRangePct, null, null, false, triggerMode, null, false, nextK, reopenAnchor);
-        await logBotTick(kv, result);
-        return result;
-      }
-    }
-    // Zone haute confirmée mais volatilité pas encore assez divergente → on attend, compteur conservé
-    result.action = 'high_zone_waiting_volatility';
-    await logBotTick(kv, result);
-    return result;
-  }
-
-  // Prix hors des deux zones → reset compteur
-  if (oorCountRaw) { await kv.del('p2_oor_count'); await kv.del('p2_oor_low'); }
-
-  // Règle 1c : volatilité ±1.5pt → resserrer/élargir le range (ratio dynamique MM14j × MM24h)
-  // Uniquement si le total des revenus (pool + AERO + solde wallet − capital déployé) couvre
-  // au moins la part AERO déjà comptée dedans — évite de resizer (et réaliser une perte) si la
-  // position est globalement perdante hors farming AERO.
-  const revenueGate    = hasLP ? (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.revenueGate ?? null : null;
-  const revenueOk      = !!revenueGate && revenueGate.totalRevenus >= revenueGate.totalAeros;
-  result.revenueGate   = revenueGate;
-
-  if (RULE_1C_ENABLED && hasLP && revenueOk && !isNaN(rMin) && !isNaN(rMax)) {
-    const pctData = await getPercentileRange();
-    const p24h    = pctData && pctData.cnt >= 10 && pctData.p05 > 0
-      ? (pctData.p95 - pctData.p05) / pctData.p05 * 100
-      : null;
-    if (p24h !== null) {
-      const rangePctActuel = (rMax - rMin) / rMin * 100;
-      const optimalRange    = p24h * 4;
-      result.rangePctActuel = parseFloat(rangePctActuel.toFixed(2));
-      result.optimalRange   = parseFloat(optimalRange.toFixed(2));
-      if (optimalRange < rangePctActuel - 1.5) {
-        console.log(`[botLoop 1c] range_shrink — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
-        result.action  = 'range_shrink_rebalance';
-        result.collect = await runCollect(base, price, null, 'range_shrink_rebalance', 4, true);
-        await logBotTick(kv, result);
-        return result;
-      } else if (optimalRange > rangePctActuel + 1.5) {
-        console.log(`[botLoop 1c] range_expand — actuel=${rangePctActuel.toFixed(2)}% optimal=${optimalRange.toFixed(2)}% p24h=${p24h.toFixed(2)}%`);
-        result.action  = 'range_expand_rebalance';
-        result.collect = await runCollect(base, price, null, 'range_expand_rebalance', 4, true);
-        await logBotTick(kv, result);
-        return result;
-      }
-    }
-  }
-
-
-  // Règle 2 : aucune position → auto-start
+  // Règle 1 : aucune position → auto-start
   if (!hasLP) {
     // Vérifier si Redis est désynchronisé (position active en DB, Redis dit CLOSE_OK)
     try {
@@ -1067,7 +741,7 @@ export async function botLoop({ base, price }) {
       }
     } catch (_) {}
 
-    // Spread check : marché trop agité → attendre (appliqué quel que soit le côté de sortie Règle 1A)
+    // Spread check : marché trop agité → attendre
     const recentPrices = await getLastNPrices(20);
     if (recentPrices.length >= 10) {
       const minP   = Math.min(...recentPrices);
@@ -1082,9 +756,10 @@ export async function botLoop({ base, price }) {
       }
     }
 
-    // Nouvelle Règle 1 : aucune position → ouvrir au range percentile24h brut (×1), 50/50 WETH/USDC.
-    // Sauf si une réouverture a été retardée par le spread check (Règles 2/3/4) : on reprend alors
-    // exactement ses paramètres (ratio, largeur, trigger) au lieu de repartir de zéro.
+    // Règle 1 : aucune position → ouvre en gardant les proportions WETH/USDC déjà présentes dans
+    // le wallet (pas de swap forcé), largeur = percentile24h brut. Sauf si une réouverture a été
+    // retardée par le spread check (Règles 1/2/3) : on reprend alors exactement ses paramètres au
+    // lieu de repartir de zéro.
     const pending = await kv.get('p2_pending_reopen').catch(() => null);
     if (pending) {
       result.autoStart = await autoStart({
@@ -1095,32 +770,33 @@ export async function botLoop({ base, price }) {
       });
       result.pendingReopen = true;
       if (!result.autoStart.skipped && !result.autoStart.error) {
-        await saveRangeAndLowTrigger(result, pending.triggerAnchorPrice ?? price, pending.lowTriggerMode ?? 'reset', pending.oldLowTrigger ?? null, pending.kForFormula ?? null, price);
+        await saveRangeAndLowTrigger(result, price);
         await kv.del('p2_pending_reopen').catch(() => {});
       }
     } else {
-      // K (p2_rule1_k, Redis + repli table bot_config) : multiplicateur du range percentile24h.
-      // Une ouverture à vide (pas une reprise de réouverture différée) réinitialise K à 1 — c'est
-      // un vrai nouveau départ, la mémoire des sorties basses/hautes passées ne s'applique plus.
+      // K (p2_rule1_k, Redis + repli table bot_config) : réinitialisé à 1 — pure information
+      // affichée sur la page pools, ne pilote plus aucune formule depuis la refonte du 05/10.
       await writeRule1K(1);
-      const k = 1;
-      result.rule1K = k;
-      // Largeur = max(percentile24h × 1.5, 1.5% plancher absolu) pour K=1 (03/10, tous les cas K=1
-      // confondus ; plancher ajouté le 04/10 — incident où percentile24h est tombé à 0.47%, donnant
-      // une range si étroite que la position ressortait presque aussitôt, en boucle).
+      result.rule1K = 1;
+
+      // Garder les proportions WETH/USDC déjà présentes dans le wallet (aucune LP à fermer ici,
+      // donc lues directement, pas via keepCurrentRatio de runCollect).
+      const [usdcBal1, wethBal1] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
+      const capital1   = usdcBal1 + wethBal1 * price;
+      const keptRatio1 = capital1 > 0 ? (wethBal1 * price) / capital1 : 0.5;
+      result.keptRatio = parseFloat(keptRatio1.toFixed(4));
+
+      // Largeur = max(percentile24h, 1.5% plancher absolu) — plancher ajouté le 04/10 (incident où
+      // percentile24h est tombé à 0.47%, donnant une range si étroite que la position ressortait
+      // presque aussitôt, en boucle).
       const pctData1 = await getPercentileRange();
       const p24h1    = pctData1 && pctData1.cnt >= 10 && pctData1.p05 > 0
         ? (pctData1.p95 - pctData1.p05) / pctData1.p05 * 100
         : null;
-      const width1   = p24h1 !== null ? Math.max(p24h1 * 1.5, 1.5) : null;
-      result.autoStart = width1 !== null
-        ? await autoStart({ base, price, targetRatio: 0.5, explicitRangePct: width1 })
-        : await autoStart({ base, price, targetRatio: 0.5, rangeMultiplier: k * 1.5 });
-      // Sans ça, un trigger d'une ancienne position (parfois hors du nouveau range) reste en Redis
-      // et n'est jamais réinitialisé pour cette ouverture fraîche — la Règle 2 pourrait ne plus
-      // jamais détecter la zone basse si ce vieux trigger se trouve sous le nouveau rMin.
+      const width1   = p24h1 !== null ? Math.max(p24h1, 1.5) : 1.5;
+      result.autoStart = await autoStart({ base, price, targetRatio: keptRatio1, explicitRangePct: width1 });
       if (!result.autoStart.skipped && !result.autoStart.error) {
-        await saveRangeAndLowTrigger(result, price, 'k-formula', null, k);
+        await saveRangeAndLowTrigger(result, price);
       }
     }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';

@@ -50,6 +50,19 @@ const RPC_URLS = [
 
 global._cytPos2Cache = { data: null };
 
+// Ratio WETH de la position (pool + wallet) sur le total — pilote les Règles 2/3 du bot (loop.js :
+// ≥95% = trigger bas, ≤5% = trigger haut). Même formule que getGateSnapshotDirect côté bot.
+function computeWethRatio(positions, wethWalletUSD, usdcWallet) {
+  const pos = positions?.[0];
+  if (!pos) return null;
+  const wethPoolUsd   = parseFloat(pos.pool?.find(t => t.symbol === 'WETH')?.usd ?? 0) || 0;
+  const usdcPoolUsd    = parseFloat(pos.pool?.find(t => t.symbol === 'USDC')?.usd ?? 0) || 0;
+  const wethWalletUsd  = parseFloat(wethWalletUSD ?? 0) || 0;
+  const usdcWalletUsd  = parseFloat(usdcWallet ?? 0) || 0;
+  const totalUsd = wethPoolUsd + usdcPoolUsd + wethWalletUsd + usdcWalletUsd;
+  return totalUsd > 0 ? parseFloat(((wethPoolUsd + wethWalletUsd) / totalUsd).toFixed(4)) : null;
+}
+
 // ── RPC — un seul nœud sélectionné par requête ────────────────────────────────
 
 function isRetryable(msg) {
@@ -300,15 +313,11 @@ export async function GET() {
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
     const liveRange     = await kv.get('p2_live_range').catch(() => null);
     const entryPrice    = liveRange?.entry ? parseFloat(liveRange.entry) : null;
-    const lowTrigger    = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
-    // highTrigger peut valoir Infinity (Règle 1 : zone haute désactivée) — JSON ne sait pas
-    // sérialiser Infinity (devient null), donc on transporte un marqueur 'disabled' à la place.
-    const highTriggerNum = liveRange?.highTrigger ? parseFloat(liveRange.highTrigger) : null;
-    const highTrigger    = highTriggerNum === null ? null : (Number.isFinite(highTriggerNum) ? highTriggerNum : 'disabled');
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, highTrigger, lowZoneHits, highZoneHits, rule1K });
+    const wethRatio    = computeWethRatio(cached.positions, cached.wethWalletUSD, cached.usdcWallet);
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio });
   }
 
   try {
@@ -544,15 +553,11 @@ export async function GET() {
 
     if (positions.length > 0 && positions[0].rangeLow && positions[0].rangeHigh) {
       const existingRange = await kv.get('p2_live_range').catch(() => null);
-      // Préserve entry/lowTrigger/highTrigger déjà stockés — un writeP2Range sans ces valeurs les
-      // efface silencieusement (kv.set remplace tout l'objet), ce qui réinitialisait le vrai trigger
-      // évolutif du bot (Règle 2, mode "halve") ou le blocage de zone haute (Règle 1, highTrigger =
-      // Infinity) à chaque simple rafraîchissement de la page.
+      // Préserve entry déjà stocké — un writeP2Range sans cette valeur l'efface silencieusement
+      // (kv.set remplace tout l'objet) à chaque simple rafraîchissement de la page.
       await writeP2Range(
         positions[0].rangeLow, positions[0].rangeHigh,
         existingRange?.entry ? parseFloat(existingRange.entry) : null,
-        existingRange?.lowTrigger ? parseFloat(existingRange.lowTrigger) : null,
-        existingRange?.highTrigger ? parseFloat(existingRange.highTrigger) : null,
       );
     }
 
@@ -569,15 +574,11 @@ export async function GET() {
     const oorLow      = !!(await kv.get('p2_oor_low').catch(() => null));
     const liveRange     = await kv.get('p2_live_range').catch(() => null);
     const entryPrice    = liveRange?.entry ? parseFloat(liveRange.entry) : null;
-    const lowTrigger    = liveRange?.lowTrigger ? parseFloat(liveRange.lowTrigger) : null;
-    // highTrigger peut valoir Infinity (Règle 1 : zone haute désactivée) — JSON ne sait pas
-    // sérialiser Infinity (devient null), donc on transporte un marqueur 'disabled' à la place.
-    const highTriggerNum = liveRange?.highTrigger ? parseFloat(liveRange.highTrigger) : null;
-    const highTrigger    = highTriggerNum === null ? null : (Number.isFinite(highTriggerNum) ? highTriggerNum : 'disabled');
     const lowZoneHits  = await kv.bitcount('p2_low_zone_bits',  0, 1).catch(() => 0);
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowTrigger, highTrigger, lowZoneHits, highZoneHits, rule1K };
+    const wethRatio    = computeWethRatio(positions, wethWalletUSD, usdcWallet);
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);

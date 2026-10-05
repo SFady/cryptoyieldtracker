@@ -26,8 +26,7 @@ export default function ProfilePage() {
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
-  const [lowTriggerApi2, setLowTriggerApi2] = useState(null);
-  const [highTriggerApi2, setHighTriggerApi2] = useState(null);
+  const [wethRatio2, setWethRatio2] = useState(null);
   const [rule1K2, setRule1K2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
@@ -54,7 +53,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setLowTriggerApi2(d.lowTrigger ?? null); setHighTriggerApi2(d.highTrigger ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -81,15 +80,6 @@ export default function ProfilePage() {
             + parseFloat(wethWalletUSD2 || 0)
           : null;
         const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
-
-        // Low trigger Règle 2 : valeur stockée par le bot (se rapproche de rMin à chaque sortie
-        // basse répétée, reset à rMin + 25% sur sortie haute/Règle 4) — fallback 25% si jamais stocké
-        const rLow2  = parseFloat(pos2?.[0]?.rangeLow ?? "0");
-        const rHigh2 = parseFloat(pos2?.[0]?.rangeHigh ?? "0");
-        const lowTrigger2 = lowTriggerApi2 ?? (rLow2 > 0 ? rLow2 + 0.25 * (rHigh2 - rLow2) : null);
-        // High trigger Règle 3 : 'disabled' = zone haute désactivée (position ouverte par la Règle 1),
-        // sinon fallback rMin + 50% du range si jamais rien stocké.
-        const highTrigger2 = highTriggerApi2 === 'disabled' ? 'disabled' : (highTriggerApi2 ?? (rHigh2 > 0 ? rLow2 + 0.5 * (rHigh2 - rLow2) : null));
 
         return (
           <>
@@ -154,7 +144,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} lowTrigger={lowTrigger2} highTrigger={highTrigger2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} wethRatio={wethRatio2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -317,7 +307,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, lowTrigger = null, highTrigger = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, wethRatio = null, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -439,7 +429,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
           )}
         </div>
         {pos.rangeLow && (
-          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} lowTrigger={lowTrigger} highTrigger={highTrigger} />
+          <RangeBar low={pos.rangeLow} high={pos.rangeHigh} current={pos.wethPrice ?? pos.ethPrice} inRange={pos.inRange} oorCount={oorCount} oorLow={oorLow} wethRatio={wethRatio} />
         )}
       </div>
 
@@ -630,41 +620,53 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, lowTrigger = null, highTrigger = null }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, wethRatio = null }) {
   const lo    = parseFloat(low);
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
   const color  = inRange ? "#00e5a0" : "#c97070";
-  const Pc     = (lowTrigger != null && !isNaN(lowTrigger)) ? lowTrigger : lo + 0.25 * (hi - lo); // déclencheur bas (Règle 2 : trigger stocké par le bot, défaut rMin + 25%)
-  const highDisabled = highTrigger === 'disabled' || highTrigger == null; // zone haute désactivée (Règle 1/4, ou défaut sans borne stockée)
-  const Pu     = (typeof highTrigger === "number" && !isNaN(highTrigger)) ? highTrigger : lo + 0.5 * (hi - lo); // déclencheur haut (Règle 3 : point milieu du range, sauf désactivé)
   const TS = 8, TE = 92;
   const trackPct  = (v) => TS + ((v - lo) / (hi - lo)) * (TE - TS);
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));
-  const dotLeftPc = trackPct(Pc);
-  const dotLeftPu = trackPct(Pu);
   const dotLeftE1 = trackPct(lo + 0.05 * (hi - lo)); // repère 5% du bord bas
   const dotLeftE2 = trackPct(hi - 0.05 * (hi - lo)); // repère 5% du bord haut
+
+  // Ratio WETH de la position (pool + wallet) : pilote les Règles 2/3 du bot depuis la refonte du
+  // 05/10 (≥95% = trigger bas, gold ; ≤5% = trigger haut, cyan) — a remplacé l'ancien système de
+  // bornes basse/haute de prix stockées. Jauge dédiée (pas sur l'axe de prix ci-dessus : c'est une
+  // proportion, pas un point de prix).
+  const hasRatio   = wethRatio != null && !isNaN(wethRatio);
+  const ratioPct   = hasRatio ? Math.max(0, Math.min(100, wethRatio * 100)) : null;
+  const ratioLeft  = hasRatio ? TS + (ratioPct / 100) * (TE - TS) : null;
+  const ratioColor = !hasRatio ? "#555577" : ratioPct >= 95 ? "#f0b429" : ratioPct <= 5 ? "#29b6f0" : "#8888bb";
+  const threshLow  = TS + 0.95 * (TE - TS); // 95% WETH — trigger bas (gold)
+  const threshHigh = TS + 0.05 * (TE - TS); // 5% WETH — trigger haut (cyan)
+
   return (
     <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 38, gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "stretch", width: "100%", height: 50, gap: 4 }}>
         {/* Barre */}
         <div style={{ flex: 1, position: "relative" }}>
-          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: "50%", transform: "translateY(-50%)", height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
-          <div style={{ position: "absolute", left: `${dotLeftPc}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(240,180,40,0.55)" }} />
-          {!highDisabled && (
-            <div style={{ position: "absolute", left: `${dotLeftPu}%`, top: "28%", transform: "translateX(-50%)", width: 1, height: "44%", background: "rgba(41,182,240,0.55)" }} />
+          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: 13, height: 2, borderRadius: 1, background: inRange ? "rgba(0,229,160,0.35)" : "rgba(180,100,100,0.3)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: 8, transform: "translateX(-50%)", width: 1, height: 12, background: "rgba(200,200,225,0.35)" }} />
+          <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: 8, transform: "translateX(-50%)", width: 1, height: 12, background: "rgba(200,200,225,0.35)" }} />
+          <span style={{ position: "absolute", left: `${dotLeft}%`, top: 0, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
+          <div style={{ position: "absolute", left: `${dotLeft}%`, top: 14, transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
+          <span style={{ position: "absolute", left: `${TS}%`, top: 21, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${TE}%`, top: 21, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
+
+          {/* Jauge ratio WETH (Règles 2/3) */}
+          <div style={{ position: "absolute", left: `${TS}%`, right: `${100 - TE}%`, top: 34, height: 3, borderRadius: 2, background: "linear-gradient(90deg, rgba(41,182,240,0.3), rgba(136,136,187,0.15), rgba(240,180,41,0.3))" }} />
+          <div style={{ position: "absolute", left: `${threshHigh}%`, top: 31, width: 1, height: 9, background: "rgba(41,182,240,0.55)" }} />
+          <div style={{ position: "absolute", left: `${threshLow}%`,  top: 31, width: 1, height: 9, background: "rgba(240,180,40,0.55)" }} />
+          {hasRatio && (
+            <div style={{ position: "absolute", left: `${ratioLeft}%`, top: 35.5, transform: "translate(-50%, -50%)", width: 6, height: 6, borderRadius: "50%", background: ratioColor, boxShadow: `0 0 4px ${ratioColor}` }} />
           )}
-          <div style={{ position: "absolute", left: `${dotLeftE1}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
-          <div style={{ position: "absolute", left: `${dotLeftE2}%`, top: "36%", transform: "translateX(-50%)", width: 1, height: "28%", background: "rgba(200,200,225,0.35)" }} />
-          <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
-          <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
-          <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
-          <span style={{ position: "absolute", left: `${dotLeftPc}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(240,180,40,0.9)", whiteSpace: "nowrap" }}>${Pc.toFixed(0)}</span>
-          {!highDisabled && (
-            <span style={{ position: "absolute", left: `${dotLeftPu}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(41,182,240,0.9)", whiteSpace: "nowrap" }}>${Pu.toFixed(0)}</span>
+          <span style={{ position: "absolute", left: `${TS}%`, top: 41, fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(41,182,240,0.75)" }}>USDC</span>
+          <span style={{ position: "absolute", left: `${TE}%`, top: 41, transform: "translateX(-100%)", fontSize: "0.5rem", fontFamily: "monospace", color: "rgba(240,180,40,0.75)" }}>WETH</span>
+          {hasRatio && (
+            <span style={{ position: "absolute", left: `${ratioLeft}%`, top: 41, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color: ratioColor, whiteSpace: "nowrap" }}>{ratioPct.toFixed(0)}%</span>
           )}
-          <span style={{ position: "absolute", left: `${TE}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
         </div>
         {/* Panel droit */}
         <div style={{ flexShrink: 0, width: 36, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 1, paddingBottom: 2 }}>
