@@ -726,10 +726,10 @@ export async function botLoop({ base, price }) {
         const width2 = p24h2 !== null ? Math.max(p24h2 * 1.25, 1.5) : 1.5;
         await writeRule1K(1);
         result.rule1K          = 1;
-        result.action          = 'low_weth_rebalance';
+        result.action          = 'low_trigger';
         result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
         result.newRangePct     = parseFloat(width2.toFixed(2));
-        result.collect = await runCollect(base, price, 0.75, 'low_weth_rebalance', 1, false, width2, true);
+        result.collect = await runCollect(base, price, 0.75, 'low_trigger', 1, false, width2, true);
         await logBotTick(kv, result);
         return result;
       }
@@ -743,10 +743,10 @@ export async function botLoop({ base, price }) {
       const width3 = p24h3 !== null ? Math.max(p24h3, 1.5) : 1.5;
       await writeRule1K(1);
       result.rule1K          = 1;
-      result.action          = 'high_weth_rebalance';
+      result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
-      result.collect = await runCollect(base, price, 0.25, 'high_weth_rebalance', 1, false, width3, false);
+      result.collect = await runCollect(base, price, 0.25, 'high_trigger', 1, false, width3, false);
       await logBotTick(kv, result);
       return result;
     }
