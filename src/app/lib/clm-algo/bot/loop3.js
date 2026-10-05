@@ -4,6 +4,12 @@ import { neon }             from '@neondatabase/serverless';
 import { readLpState, writeLpState, readP3Range, writeP3Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
 import { logBotTick }       from './metrics3.js';
 
+// Mêmes routes internes protégées que loop.js (05/10) — voir lib/apiAuth.js.
+function authHeaders() {
+  const secret = process.env.CRON_SECRET;
+  return secret ? { Authorization: `Bearer ${secret}` } : {};
+}
+
 // Module 7bis — Orchestrateur cron pool 3 (copie isolée de loop.js, clés Redis p3_, wallet PRIVATE_KEY_3)
 // Règles identiques à pool 2 :
 //   1A. OOR 3 ticks consécutifs → fermer LP + swap WETH→USDC (si bas)
@@ -119,7 +125,7 @@ async function tryDailyTransfer(feesCollectedUsdc = 0) {
 async function closeLP(base) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body:    JSON.stringify({ keepWeth: true, poolNum: POOL_NUM, caseNum: 9, noTransfer: true }),
     signal:  AbortSignal.timeout(120000),
   });
@@ -148,7 +154,7 @@ async function closeAndSwap(base, isOORLow) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body:    JSON.stringify({ step, poolNum: POOL_NUM, noTransfer: true }),
         signal:  AbortSignal.timeout(120000),
       });
@@ -164,7 +170,7 @@ async function closeAndSwap(base, isOORLow) {
   try {
     const r = await fetch(`${base}/api/swap-weth-usdc`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ poolNum: POOL_NUM }),
       signal: AbortSignal.timeout(45000),
     });
@@ -187,7 +193,7 @@ async function runCollect(base, price, targetRatio = 0.5) {
     try {
       const r = await fetch(`${base}/api/collectFees`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body:    JSON.stringify({ step, poolNum: POOL_NUM, noTransfer: true }),
         signal:  AbortSignal.timeout(120000),
       });
@@ -236,7 +242,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
 
   const poolRes = await fetch(`${base}/api/createPosition`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body:    JSON.stringify({
       amountUSDC:   capital,
       minPrice,
@@ -256,7 +262,7 @@ async function autoStart({ base, price, targetRatio = 0.5 }) {
   try {
     const swapRes  = await fetch(`${base}/api/swap-weth-usdc`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ poolNum: POOL_NUM }),
       signal: AbortSignal.timeout(45000),
     });

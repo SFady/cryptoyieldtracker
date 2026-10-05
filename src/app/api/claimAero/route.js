@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { getPoolAddress } from "../../lib/config";
+import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 export const runtime     = "nodejs";
 export const maxDuration = 120;
@@ -129,6 +130,7 @@ async function waitForTx(tx) {
 }
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const body = await req.json().catch(() => ({}));
   const poolNum      = body.poolNum ?? 2;
   // sendFraction : part du delta USDC réellement envoyée au wallet externe (le reste reste dans

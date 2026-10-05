@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { writeCollectedToday, writeCollectErr, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress } from "../../lib/config";
+import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
@@ -434,6 +435,7 @@ async function handleStep3(poolNum, noTransfer, caseNum, body) {
 
 // ─── Handler principal ────────────────────────────────────────────────────────
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const body       = await req.json().catch(() => ({}));
   const poolNum    = body.poolNum    ?? 2;
   const caseNum    = body.caseNum    ?? 5;

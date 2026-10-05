@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { getPoolAddress } from '../../lib/config';
+import { isAuthorized, unauthorizedResponse } from '../../lib/apiAuth';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 60;
@@ -30,6 +31,7 @@ const V2_ROUTER_IFACE = new ethers.Interface([
 function freshDeadline() { return BigInt(Math.floor(Date.now() / 1000) + 120); }
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   let poolNum = 2;
   try { const body = await req.json(); if (body?.poolNum) poolNum = body.poolNum; } catch (_) {}
 

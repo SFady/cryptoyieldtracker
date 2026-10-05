@@ -2,6 +2,7 @@
 import { neon }   from "@neondatabase/serverless";
 import { readLpState, writeLpState, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress } from "../../lib/config";
+import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -278,6 +279,7 @@ function calcFees(liquidity, fgInside, fgInsideLast, owed) {
 
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const body = await req.json().catch(() => ({}));
   const poolNum          = body.poolNum ?? 2;
   const caseNum          = body.caseNum ?? null;

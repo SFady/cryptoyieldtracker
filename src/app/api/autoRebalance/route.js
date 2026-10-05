@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { neon } from "@neondatabase/serverless";
 import { getLastTwoPrices, getPercentileRange, readLpState, writeLpState, wasCollectedToday, readErrorState, writeErrorState, readCollectErr, writeCollectErr, checkRedisLock, acquireRedisLock } from "../../lib/cronKv";
 import { POOL_ADDRESS, getPoolAddress } from "../../lib/config";
+import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -129,6 +130,7 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noT
 }
 
 export async function GET(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const p = new URL(req.url).searchParams;
   const forceCase   = parseInt(p.get("case")    ?? "0");
   const poolNum     = parseInt(p.get("poolNum") ?? "2");
@@ -137,6 +139,7 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const { forceCase, poolNum, overrideTokenId } = await req.json().catch(() => ({}));
   return handleRequest(forceCase, poolNum ?? 2, overrideTokenId ?? null);
 }

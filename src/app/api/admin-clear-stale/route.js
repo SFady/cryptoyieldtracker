@@ -1,6 +1,7 @@
 import { kv } from '@vercel/kv';
 import { neon } from '@neondatabase/serverless';
 import { readP2Range, writeP2Range } from '../../lib/cronKv';
+import { isAuthorized, unauthorizedResponse } from '../../lib/apiAuth';
 
 export const runtime = 'nodejs';
 
@@ -10,6 +11,7 @@ export const runtime = 'nodejs';
 // le bot arrête de croire qu'une position morte est encore active et puisse en recréer une.
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const body = await req.json().catch(() => ({}));
   const poolNum = body.poolNum ?? 2;
   const reason  = body.reason ?? 'stuck_at_gauge';

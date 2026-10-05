@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { writeLpState, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress } from "../../lib/config";
+import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -247,6 +248,7 @@ async function pickRpc() {
 }
 
 export async function POST(req) {
+  if (!isAuthorized(req)) return unauthorizedResponse();
   const { amountUSDC, minPrice, maxPrice, currentPrice, targetRatio, poolNum, caseNum, exactBounds, weth_placed_hl } = await req.json();
   if (!amountUSDC || !minPrice || !maxPrice || !currentPrice)
     return Response.json({ error: "Paramètres manquants" }, { status: 400 });

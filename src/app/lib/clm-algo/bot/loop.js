@@ -6,6 +6,15 @@ import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRang
 import { NFPM_ADDRESS, POOL_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
+// Les routes internes (closePositions, createPosition, collectFees, claimAero, swap-weth-usdc)
+// exigent désormais une authentification (05/10 — elles étaient appelables par n'importe qui,
+// sans protection). Le bot s'authentifie en relayant CRON_SECRET, le même secret que cron/route.js
+// utilise déjà pour vérifier ses propres déclenchements — voir lib/apiAuth.js.
+function authHeaders() {
+  const secret = process.env.CRON_SECRET;
+  return secret ? { Authorization: `Bearer ${secret}` } : {};
+}
+
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return;
@@ -297,7 +306,7 @@ async function logAndAlertAeroSplit(out, feesCollected) {
 async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = null, aeroSplitFraction = null) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason, feesUsdc, aeroSplitFraction }),
     signal:  AbortSignal.timeout(120000),
   });
@@ -417,7 +426,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
     try {
       const r = await fetch(`${base}/api/collectFees`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
         signal:  AbortSignal.timeout(120000),
       });
@@ -530,7 +539,7 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
   // 3. Créer la LP au ratio cible
   const poolRes = await fetch(`${base}/api/createPosition`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body:    JSON.stringify({
       amountUSDC:   capital,
       minPrice,
@@ -549,7 +558,7 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
 
   // Convertir le WETH résiduel en USDC
   try {
-    const swapRes  = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', signal: AbortSignal.timeout(45000) });
+    const swapRes  = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', headers: authHeaders(), signal: AbortSignal.timeout(45000) });
     const swapData = await swapRes.json();
     if (swapData.ok && !swapData.skipped) result.wethSwapped = swapData.wethSwapped;
   } catch (_) {}
@@ -644,7 +653,7 @@ export async function botLoop({ base, price }) {
     if (Date.now() - lastSendAt > 24 * 3600 * 1000) {
       try {
         const r = await fetch(`${base}/api/claimAero`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({ poolNum: 2, sendFraction: 0.25, source: 'periodic_24h_claim' }),
           signal: AbortSignal.timeout(60000),
         });
