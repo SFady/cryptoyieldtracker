@@ -38,8 +38,10 @@ async function sendErrorEmail(subject, body) {
 // Règles (05/10, refonte complète — abandon du système de triggers de prix/K dynamique au profit
 // d'un déclenchement direct sur le ratio WETH de la position) :
 //   1.  Aucune position → ouverture en gardant les proportions WETH/USDC déjà présentes dans le
-//       wallet (keepCurrentRatio, aucun swap forcé — le range se place de façon asymétrique pour
-//       matcher ce qui est déjà détenu), largeur = percentile24h brut (×1). K remis à 1.
+//       wallet (le range se place de façon asymétrique pour matcher ce qui est déjà détenu),
+//       plafonnées à 70/30 des deux côtés (swap partiel si le wallet dépasse cette fourchette) —
+//       évite un centre de range collé à un bord, fragile face au prix pendant le mint (05/10).
+//       Largeur = percentile24h brut (×1). K remis à 1.
 //   2.  Trigger bas : ratio WETH de la position ≥ 95% (prix proche du bas du range) → collecte AERO
 //       (25% envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h ×
 //       1,25. K remis à 1.
@@ -48,12 +50,11 @@ async function sendErrorEmail(subject, body) {
 //       brut (×1). K remis à 1.
 //   4.  Si aucun envoi vers le wallet externe n'a eu lieu depuis 24h glissantes, réclame l'AERO
 //       accumulé sans fermer la LP et en envoie 25% (75% restent en solde non utilisé).
-//   Règles 2/3 vérifiées à chaque tick, sans confirmation sur plusieurs ticks (le ratio WETH d'une
-//   position CL évolue progressivement avec le prix, contrairement à un simple test de prix contre
-//   un seuil fixe — moins sujet au bruit).
+//   Règles 2/3 confirmées sur 5 ticks consécutifs (même compteur/dots que l'ancien système,
+//   p2_oor_count/p2_oor_low) avant de rebalancer — évite de réagir à un ratio qui ne fait que
+//   passer la frontière un instant.
 //   Supprimé dans cette refonte : les triggers de prix stockés (low/high trigger, p2_live_range),
-//   le paramètre K dynamique (doublement/division/coupe-circuit), le garde-fou de largeur, le
-//   compteur de confirmation à 5 ticks (p2_oor_count), la Règle 1c (resserrement ±1,5pt), la Règle
+//   le paramètre K dynamique (doublement/division/coupe-circuit), le garde-fou de largeur, la Règle
 //   1d (changement de tendance), le claim matinal 7h Paris. K reste persisté (p2_rule1_k, Redis +
 //   repli table bot_config) et affiché sur la page pools, mais chaque règle le remet simplement à 1
 //   — il ne pilote plus aucune formule.
@@ -632,10 +633,11 @@ export async function botLoop({ base, price }) {
     return result;
   }
 
-  // 1. État LP + config runtime (en parallèle)
-  const [lpState, rtConfig] = await Promise.all([
+  // 1. État LP + config runtime + compteur de confirmation Règles 2/3 (en parallèle)
+  const [lpState, rtConfig, oorCountRaw] = await Promise.all([
     readLpState(ALGO_CONFIG.POOL_NUM),
     kv.get(REDIS_KEYS.RUNTIME_CONFIG),
+    kv.get('p2_oor_count').catch(() => null),
   ]);
 
   const hasLP   = !!(lpState && lpState.action2 === null);
@@ -685,34 +687,53 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règles 2 et 3 : déclenchées directement sur le ratio WETH de la position (pool + wallet),
-  // vérifié à chaque tick, sans confirmation sur plusieurs ticks — le ratio WETH évolue
-  // progressivement avec le prix, contrairement à un simple test de prix contre un seuil fixe.
+  // Règles 2 et 3 : déclenchées sur le ratio WETH de la position (pool + wallet), confirmées sur 5
+  // ticks consécutifs — même compteur/dots que l'ancien système (p2_oor_count/p2_oor_low, affichés
+  // sur la page pools), pour ne pas rebalancer sur un ratio qui ne fait que passer la frontière un
+  // instant. oorLow=true (dots rouges) = Règle 2 (trigger bas) ; oorLow=false (dots cyan) = Règle 3.
   if (hasLP) {
     const wethRatio = (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
 
-    if (wethRatio !== null && wethRatio >= 0.95) {
-      // Règle 2 : trigger bas (position quasi entièrement en WETH) — collecte AERO (25%
-      // envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h × 1.25.
-      // Plancher 1.5% (04/10) : évite une range trop étroite si le percentile24h est anormalement
-      // bas, qui ferait ressortir la position presque aussitôt, en boucle.
-      const pctData2 = await getPercentileRange();
-      const p24h2    = pctData2 && pctData2.cnt >= 10 && pctData2.p05 > 0
-        ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
-        : null;
-      const width2 = p24h2 !== null ? Math.max(p24h2 * 1.25, 1.5) : 1.5;
-      await writeRule1K(1);
-      result.rule1K          = 1;
-      result.action          = 'low_weth_rebalance';
-      result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
-      result.newRangePct     = parseFloat(width2.toFixed(2));
-      result.collect = await runCollect(base, price, 0.75, 'low_weth_rebalance', 1, false, width2, true);
-      await logBotTick(kv, result);
-      return result;
-    }
+    const inLowZone  = wethRatio !== null && wethRatio >= 0.95;
+    const inHighZone = wethRatio !== null && wethRatio <= 0.05;
 
-    if (wethRatio !== null && wethRatio <= 0.05) {
+    if (inLowZone || inHighZone) {
+      const newCount = (parseInt(oorCountRaw) || 0) + 1;
+      await kv.set('p2_oor_count', newCount, { ex: 30 * 86400 });
+      await kv.set('p2_oor_low', inLowZone ? 1 : 0, { ex: 30 * 86400 });
+      result.oorCount = newCount;
+      result.isOORLow = inLowZone;
+
+      if (newCount < 5) {
+        result.action = 'oor_waiting';
+        await logBotTick(kv, result);
+        return result;
+      }
+
+      await kv.del('p2_oor_count').catch(() => {});
+      await kv.del('p2_oor_low').catch(() => {});
+
+      if (inLowZone) {
+        // Règle 2 : trigger bas (position quasi entièrement en WETH) — collecte AERO (25%
+        // envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h × 1.25.
+        // Plancher 1.5% (04/10) : évite une range trop étroite si le percentile24h est anormalement
+        // bas, qui ferait ressortir la position presque aussitôt, en boucle.
+        const pctData2 = await getPercentileRange();
+        const p24h2    = pctData2 && pctData2.cnt >= 10 && pctData2.p05 > 0
+          ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
+          : null;
+        const width2 = p24h2 !== null ? Math.max(p24h2 * 1.25, 1.5) : 1.5;
+        await writeRule1K(1);
+        result.rule1K          = 1;
+        result.action          = 'low_weth_rebalance';
+        result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
+        result.newRangePct     = parseFloat(width2.toFixed(2));
+        result.collect = await runCollect(base, price, 0.75, 'low_weth_rebalance', 1, false, width2, true);
+        await logBotTick(kv, result);
+        return result;
+      }
+
       // Règle 3 : trigger haut (position quasi entièrement en USDC) — collecte AERO (50%
       // envoyé/50% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut.
       const pctData3 = await getPercentileRange();
@@ -729,6 +750,9 @@ export async function botLoop({ base, price }) {
       await logBotTick(kv, result);
       return result;
     }
+
+    // Ratio hors des deux zones → reset compteur
+    if (oorCountRaw) { await kv.del('p2_oor_count').catch(() => {}); await kv.del('p2_oor_low').catch(() => {}); }
   }
 
   // Règle 1 : aucune position → auto-start
@@ -813,11 +837,17 @@ export async function botLoop({ base, price }) {
       result.rule1K = 1;
 
       // Garder les proportions WETH/USDC déjà présentes dans le wallet (aucune LP à fermer ici,
-      // donc lues directement, pas via keepCurrentRatio de runCollect).
+      // donc lues directement, pas via keepCurrentRatio de runCollect) — plafonnées à 70/30 (05/10) :
+      // un ratio trop loin de 50/50 force le centre du range (étroit, percentile24h) à se placer
+      // presque collé à un bord, où le ratio "correct" est hyper-sensible au prix — tout mouvement
+      // pendant les ~30-60s de swaps/confirmations du mint peut alors laisser une grosse part du
+      // capital non déployée (incident du 05/10 : $281 sur $607 restés inutilisés dans le wallet).
       const [usdcBal1, wethBal1] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
       const capital1   = usdcBal1 + wethBal1 * price;
-      const keptRatio1 = capital1 > 0 ? (wethBal1 * price) / capital1 : 0.5;
-      result.keptRatio = parseFloat(keptRatio1.toFixed(4));
+      const rawRatio1  = capital1 > 0 ? (wethBal1 * price) / capital1 : 0.5;
+      const keptRatio1 = Math.min(0.70, Math.max(0.30, rawRatio1));
+      result.rawKeptRatio = parseFloat(rawRatio1.toFixed(4));
+      result.keptRatio    = parseFloat(keptRatio1.toFixed(4));
 
       // Largeur = max(percentile24h, 1.5% plancher absolu) — plancher ajouté le 04/10 (incident où
       // percentile24h est tombé à 0.47%, donnant une range si étroite que la position ressortait
