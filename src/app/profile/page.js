@@ -620,7 +620,7 @@ function TotalRow({ label, value, highlight, percent, percentSuffix = "%" }) {
   );
 }
 
-function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, wethRatio = null }) {
+function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false }) {
   const lo    = parseFloat(low);
   const hi    = parseFloat(high);
   const cur   = parseFloat(current);
@@ -630,9 +630,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, w
   const dotLeft   = Math.max(TS, Math.min(TE, trackPct(cur)));
   const dotLeftE1 = trackPct(lo + 0.05 * (hi - lo)); // repère 5% du bord bas
   const dotLeftE2 = trackPct(hi - 0.05 * (hi - lo)); // repère 5% du bord haut
-
-  const hasRatio = wethRatio != null && !isNaN(wethRatio);
-  const ratioPct = hasRatio ? Math.max(0, Math.min(100, wethRatio * 100)) : null;
 
   return (
     <div style={{ width: "100%" }}>
@@ -645,9 +642,6 @@ function RangeBar({ low, high, current, inRange, oorCount = 0, oorLow = false, w
           <span style={{ position: "absolute", left: `${dotLeft}%`, top: 2, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", fontWeight: 700, color, whiteSpace: "nowrap" }}>${cur.toFixed(0)}</span>
           <div style={{ position: "absolute", left: `${dotLeft}%`, top: "50%", transform: "translate(-50%, -50%)", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 5px ${color}` }} />
           <span style={{ position: "absolute", left: `${TS}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${lo.toFixed(0)}</span>
-          {hasRatio && (
-            <span style={{ position: "absolute", left: "50%", bottom: 1, transform: "translateX(-50%)", fontSize: "0.5rem", fontFamily: "monospace", fontWeight: 700, color: ratioPct >= 95 ? "#f0b429" : ratioPct <= 5 ? "#29b6f0" : "#8888bb", whiteSpace: "nowrap" }}>{ratioPct.toFixed(0)}% WETH</span>
-          )}
           <span style={{ position: "absolute", left: `${TE}%`, bottom: 1, transform: "translateX(-50%)", fontSize: "0.55rem", fontFamily: "monospace", color: "#555599", whiteSpace: "nowrap" }}>${hi.toFixed(0)}</span>
         </div>
         {/* Panel droit */}
