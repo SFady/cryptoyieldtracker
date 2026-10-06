@@ -155,6 +155,50 @@ async function waitForTx(tx) {
   }
 }
 
+// Nonce suivi en mémoire sur l'instance wallet (une par requête), pour toute la durée de
+// l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents (évite une course
+// de propagation entre deux appels, cf. incidents nonce du 02-04/10 dans closePositions/
+// createPosition). Avant ce fix, ce fichier appelait wallet.sendTransaction() directement, sans
+// aucun retry ni gestion de nonce — d'où le "replacement transaction underpriced" sur l'approve
+// AERO (06/10) : deux envois concurrents avec le même nonce "pending" stale, le second pas assez
+// cher pour remplacer le premier.
+async function sendTx(wallet, params) {
+  if (wallet._nextNonce == null) {
+    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+  }
+  let nonce = params.nonce ?? wallet._nextNonce;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tx = await wallet.sendTransaction({ ...params, nonce });
+      wallet._nextNonce = nonce + 1;
+      return tx;
+    } catch (e) {
+      const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
+      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
+        const feeData = await wallet.provider.getFeeData();
+        params = {
+          ...params,
+          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
+          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
+        };
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
+        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+        wallet._nextNonce = nonce;
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
 function parseUsdcReceived(receipt, walletAddress) {
   if (!receipt?.logs) return 0n;
@@ -225,7 +269,7 @@ async function handleStep1(poolNum) {
 
     // Appel getReward inconditionnellement — si la position n'est pas stakée, la tx échoue et on log
     try {
-      const tx = await wallet.sendTransaction({ to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
+      const tx = await sendTx(wallet, { to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
       await waitForTx(tx);
       console.log(`[collectFees step1 getReward] OK`);
     } catch (e) {
@@ -282,7 +326,7 @@ async function handleStep2(poolNum, body) {
           const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
           const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
           if (current < wethFees) {
-            await waitForTx(await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) }));
+            await waitForTx(await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) }));
           }
         } catch (_) {}
 
@@ -307,7 +351,7 @@ async function handleStep2(poolNum, body) {
             }]);
             try { swapGas = (await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData })) * 3n / 2n; }
             catch (_) { if (pct > 0n) continue; }
-            const txSwap = await wallet.sendTransaction({ to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
+            const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
             swapWethHash = txSwap.hash;
             await waitForTx(txSwap);
             swapOk = true;
@@ -327,7 +371,7 @@ async function handleStep2(poolNum, body) {
       aeroBalance = ethers.formatUnits(aeroBal, 18);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
       if (aeroBal >= MIN_AERO) {
-        await waitForTx(await wallet.sendTransaction({
+        await waitForTx(await sendTx(wallet, {
           to: AERO, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         }));
         const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
@@ -346,7 +390,7 @@ async function handleStep2(poolNum, body) {
             ]);
             try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; }
             catch (_) { if (pct > 0n) continue; }
-            const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
+            const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
             aeroSwapHash = txSwap.hash;
             const receipt = await waitForTx(txSwap);
             // Montant réel reçu, lu depuis les logs Transfer du receipt — fiable même si un
@@ -399,7 +443,7 @@ async function handleStep3(poolNum, noTransfer, caseNum, body) {
         const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
         const toSend    = delta / 2n;
         if (toSend > 0n) {
-          const txTransfer = await wallet.sendTransaction({
+          const txTransfer = await sendTx(wallet, {
             to: USDC, data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
           });
           transferHash = txTransfer.hash;
