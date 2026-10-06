@@ -51,6 +51,20 @@ const GAUGE_IFACE = new ethers.Interface([
   "function getReward(uint256 tokenId)",
 ]);
 
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+function parseUsdcReceived(receipt, walletAddress) {
+  if (!receipt?.logs) return 0n;
+  const walletTopic = ethers.zeroPadValue(walletAddress, 32).toLowerCase();
+  let total = 0n;
+  for (const log of receipt.logs) {
+    if (!log?.address || log.address.toLowerCase() !== USDC.toLowerCase()) continue;
+    if (!log.topics || log.topics[0] !== TRANSFER_TOPIC) continue;
+    if (!log.topics[2] || log.topics[2].toLowerCase() !== walletTopic) continue;
+    try { total += BigInt(log.data); } catch (_) {}
+  }
+  return total;
+}
+
 const VOTER_IFACE = new ethers.Interface([
   "function gauges(address pool) view returns (address)",
 ]);
@@ -129,6 +143,47 @@ async function waitForTx(tx) {
   }
 }
 
+// Nonce suivi en mémoire sur l'instance wallet (une par requête), pour toute la durée de
+// l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents (même correctif
+// que closePositions/createPosition/close-lp-quick/collectFees — évite le "replacement transaction
+// underpriced" d'un appel wallet.sendTransaction() direct sans gestion de nonce).
+async function sendTx(wallet, params) {
+  if (wallet._nextNonce == null) {
+    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+  }
+  let nonce = params.nonce ?? wallet._nextNonce;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tx = await wallet.sendTransaction({ ...params, nonce });
+      wallet._nextNonce = nonce + 1;
+      return tx;
+    } catch (e) {
+      const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
+      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
+        const feeData = await wallet.provider.getFeeData();
+        params = {
+          ...params,
+          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
+          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
+        };
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
+        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
+        wallet._nextNonce = nonce;
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 export async function POST(req) {
   if (!isAuthorized(req)) return unauthorizedResponse();
   const body = await req.json().catch(() => ({}));
@@ -193,21 +248,24 @@ export async function POST(req) {
         const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data });
         gasLimit = est * 3n / 2n;
       } catch (_) {}
-      const tx = await wallet.sendTransaction({ to: gaugeAddr, data, gasLimit });
+      const tx = await sendTx(wallet, { to: gaugeAddr, data, gasLimit });
       await waitForTx(tx);
     } catch (e) {
       getRewardOk = false;
       console.log(`[claimAero getReward] ${e.message ?? e}`);
     }
 
-    // 4. Swap AERO → USDC
+    // 4. Swap AERO → USDC — montant reçu lu depuis les logs Transfer du reçu (fiable même si un
+    // delta de solde avant/après atterrirait sur des RPC pas au même niveau de sync, cf. incident
+    // du 05/10 dans closePositions/route.js où ce calcul par delta a fait échouer silencieusement
+    // l'envoi externe alors que le swap avait réussi).
     let aeroSwapHash = null;
-    const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
+    let swapUsdcReceivedRaw = 0n;
     try {
       const aeroBal = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
       if (aeroBal >= MIN_AERO) {
-        const txApp = await wallet.sendTransaction({
+        const txApp = await sendTx(wallet, {
           to: AERO,
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         });
@@ -218,25 +276,25 @@ export async function POST(req) {
         ]);
         let aeroSwapGas = 300000n;
         try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
-        const txSwap = await wallet.sendTransaction({ to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
+        const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
         aeroSwapHash = txSwap.hash;
-        await waitForTx(txSwap);
+        const swapReceipt = await waitForTx(txSwap);
+        swapUsdcReceivedRaw = parseUsdcReceived(swapReceipt, wallet.address);
       }
     } catch (_) {}
 
-    // 5. Envoyer une fraction du delta USDC vers DESTINATION_WALLET, garder le reste dans le wallet
+    // 5. Envoyer une fraction du montant reçu vers DESTINATION_WALLET, garder le reste dans le wallet
     let transferHash  = null;
-    let deltaUsdcTotal = 0; // delta complet (envoyé + gardé) — pour le log fees_usdc ci-dessous
+    let deltaUsdcTotal = 0; // montant complet (envoyé + gardé) — pour le log fees_usdc ci-dessous
     try {
-      const usdcAfter = await readBal(USDC, wallet.address).catch(() => 0n);
-      const delta     = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0n;
+      const delta     = swapUsdcReceivedRaw;
       deltaUsdcTotal  = parseFloat(ethers.formatUnits(delta, 6));
       const dest      = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
       if (dest) {
         const toSend = sendFraction >= 1 ? delta : (delta * BigInt(Math.round(sendFraction * 10000))) / 10000n;
-        console.log(`[claimAero] before=${usdcBefore} after=${usdcAfter} delta=${delta} sendFraction=${sendFraction} toSend=${toSend} dest=${dest}`);
+        console.log(`[claimAero] swapReceived=${delta} sendFraction=${sendFraction} toSend=${toSend} dest=${dest}`);
         if (toSend > 0n) {
-          const txTransfer = await wallet.sendTransaction({
+          const txTransfer = await sendTx(wallet, {
             to: USDC,
             data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSend]),
           });

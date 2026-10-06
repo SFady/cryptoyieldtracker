@@ -44,6 +44,45 @@ async function ethCall(to, data) {
   throw new Error(`eth_call(${to}) failed`);
 }
 
+// Nonce suivi en mémoire sur l'instance wallet (une par requête) — même correctif que les autres
+// routes (évite le "replacement transaction underpriced" d'un envoi direct sans gestion de nonce).
+async function sendTx(wallet, params) {
+  if (wallet._nextNonce == null) {
+    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, 'pending');
+  }
+  let nonce = params.nonce ?? wallet._nextNonce;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tx = await wallet.sendTransaction({ ...params, nonce });
+      wallet._nextNonce = nonce + 1;
+      return tx;
+    } catch (e) {
+      const msg = ((e.shortMessage ?? '') + ' ' + (e.message ?? '')).toLowerCase();
+      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
+        const feeData = await wallet.provider.getFeeData();
+        params = {
+          ...params,
+          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
+          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
+        };
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
+        nonce = await wallet.provider.getTransactionCount(wallet.address, 'pending');
+        wallet._nextNonce = nonce;
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function pickRpc() {
   return new Promise((resolve) => {
     let done = false;
@@ -111,7 +150,7 @@ export async function POST(req) {
     steps.push(`AERO earned = ${parseFloat(ethers.formatUnits(earnedBefore, 18)).toFixed(4)}`);
 
     // getReward
-    const tx = await wallet.sendTransaction({
+    const tx = await sendTx(wallet, {
       to:   gaugeAddr,
       data: GAUGE_IFACE.encodeFunctionData('getReward', [tokenId]),
     });
