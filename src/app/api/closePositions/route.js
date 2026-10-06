@@ -93,6 +93,25 @@ const V2_ROUTER_IFACE = new ethers.Interface([
 
 const WETH_IFACE = new ethers.Interface(["function withdraw(uint256)"]);
 
+// Montant USDC reçu par le wallet, lu directement depuis les logs Transfer du reçu — fiable même si
+// un delta de solde avant/après serait faussé par deux lectures RPC atterrissant sur des nœuds pas
+// également à jour (incident du 05/10 : le swap AERO résiduel réussissait mais le delta avant/après
+// retombait à 0 à cause d'autres swaps dans la même fermeture, donc le split externe ne partait
+// jamais — même classe de problème que le "replacement transaction underpriced" déjà vu).
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+function parseUsdcReceived(receipt, walletAddress, tokenAddress) {
+  if (!receipt?.logs) return 0n;
+  const walletTopic = ethers.zeroPadValue(walletAddress, 32).toLowerCase();
+  let total = 0n;
+  for (const log of receipt.logs) {
+    if (!log?.address || log.address.toLowerCase() !== tokenAddress.toLowerCase()) continue;
+    if (!log.topics || log.topics[0] !== TRANSFER_TOPIC) continue;
+    if (!log.topics[2] || log.topics[2].toLowerCase() !== walletTopic) continue;
+    try { total += BigInt(log.data); } catch (_) {}
+  }
+  return total;
+}
+
 const POOL_IFACE = new ethers.Interface([
   "function token0() view returns (address)",
   "function token1() view returns (address)",
@@ -817,8 +836,8 @@ export async function POST(req) {
           const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
           expectedAeroOut = amounts[amounts.length - 1];
         } catch (_) {}
-        const usdcBeforeAeroSwap = await readBal(stablecoin, wallet.address).catch(() => stableBalLp);
         let aeroSwapGas = 300000n;
+        let aeroSwapReceipt = null;
         for (const pct of [990n, 980n, 970n]) {
           try {
             const minOut = expectedAeroOut * pct / 1000n;
@@ -828,7 +847,7 @@ export async function POST(req) {
             try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
             const txAeroSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
             aeroSwapHash = txAeroSwap.hash;
-            await waitForTx(provider, txAeroSwap);
+            aeroSwapReceipt = await waitForTx(provider, txAeroSwap);
             aeroResidualError = null;
             break;
           } catch (e) { aeroResidualError = e.message ?? String(e); }
@@ -837,8 +856,7 @@ export async function POST(req) {
           console.log(`[closePositions aeroSwap résiduel] échec — bal=${ethers.formatUnits(aeroBal, 18)} — ${aeroResidualError}`);
         }
         if (aeroSwapHash) {
-          const usdcAfterAeroSwap = await readBal(stablecoin, wallet.address).catch(() => usdcBeforeAeroSwap);
-          const aeroSwapUsdcReceivedRaw = usdcAfterAeroSwap > usdcBeforeAeroSwap ? usdcAfterAeroSwap - usdcBeforeAeroSwap : 0n;
+          const aeroSwapUsdcReceivedRaw = parseUsdcReceived(aeroSwapReceipt, wallet.address, stablecoin);
           aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(aeroSwapUsdcReceivedRaw, 6));
 
           // Split de ce résidu AERO vers le wallet externe (même logique que sendAeroSplit côté bot,
