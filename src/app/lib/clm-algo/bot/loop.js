@@ -34,7 +34,7 @@ async function sendErrorEmail(subject, body) {
 }
 
 // Module 7 — Orchestrateur cron pool 2
-// BOT_ENABLED = true — seules les Règles 1 à 4 ci-dessous sont actives.
+// BOT_ENABLED = true — seules les Règles 1 à 5 ci-dessous sont actives.
 // Règles (05/10, refonte complète — abandon du système de triggers de prix/K dynamique au profit
 // d'un déclenchement direct sur le ratio WETH de la position) :
 //   1.  Aucune position → ouverture en gardant les proportions WETH/USDC déjà présentes dans le
@@ -50,14 +50,19 @@ async function sendErrorEmail(subject, body) {
 //       brut (×1). K remis à 1.
 //   4.  Si aucun envoi vers le wallet externe n'a eu lieu depuis 24h glissantes, réclame l'AERO
 //       accumulé sans fermer la LP et en envoie 25% (75% restent en solde non utilisé).
+//   5.  Range devenu trop large : percentile24h tombé à au moins 1pt sous la largeur actuelle →
+//       resserre directement à percentile24h, SANS swap (garde les proportions WETH/USDC actuelles).
+//       K remis à 1. (07/10 — remplace l'ancien garde-fou de largeur, supprimé le 05/10, avec un
+//       déclencheur plus simple : écart direct au percentile, pas de comparaison ×2.)
 //   Règles 2/3 confirmées sur 5 ticks consécutifs (même compteur/dots que l'ancien système,
 //   p2_oor_count/p2_oor_low) avant de rebalancer — évite de réagir à un ratio qui ne fait que
-//   passer la frontière un instant.
+//   passer la frontière un instant. Règle 5 vérifiée à chaque tick sans confirmation (le percentile24h
+//   est déjà une moyenne glissante sur 24h, peu sujette au bruit instantané).
 //   Supprimé dans cette refonte : les triggers de prix stockés (low/high trigger, p2_live_range),
-//   le paramètre K dynamique (doublement/division/coupe-circuit), le garde-fou de largeur, la Règle
-//   1d (changement de tendance), le claim matinal 7h Paris. K reste persisté (p2_rule1_k, Redis +
-//   repli table bot_config) et affiché sur la page pools, mais chaque règle le remet simplement à 1
-//   — il ne pilote plus aucune formule.
+//   le paramètre K dynamique (doublement/division/coupe-circuit), la Règle 1d (changement de
+//   tendance), le claim matinal 7h Paris. K reste persisté (p2_rule1_k, Redis + repli table
+//   bot_config) et affiché sur la page pools, mais chaque règle le remet simplement à 1 — il ne
+//   pilote plus aucune formule.
 //   Réouvertures (Règles 1/2/3) : spread check (1,5% sur 20 derniers prix) avant de rouvrir — si le
 //   marché est trop agité, la réouverture est sautée, la Règle 1 la reprendra au tick suivant.
 
@@ -753,6 +758,31 @@ export async function botLoop({ base, price }) {
 
     // Ratio hors des deux zones → reset compteur
     if (oorCountRaw) { await kv.del('p2_oor_count').catch(() => {}); await kv.del('p2_oor_low').catch(() => {}); }
+
+    // Règle 5 : le range actuel est devenu trop large par rapport à la volatilité réelle (percentile24h
+    // tombé à au moins 1pt sous la largeur actuelle) → resserre directement à range_percentile, SANS
+    // swap (garde les proportions WETH/USDC actuelles de la position). Vérifiée à chaque tick, pas de
+    // confirmation sur plusieurs ticks (le percentile24h est déjà une moyenne glissante sur 24h, donc
+    // peu sujet au bruit instantané, contrairement au prix/ratio). Plancher 1,5% comme les autres règles.
+    if (!isNaN(rMin) && !isNaN(rMax)) {
+      const rangePctActuel5 = (rMax - rMin) / rMin * 100;
+      const pctData5        = await getPercentileRange();
+      const p24h5           = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0
+        ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
+        : null;
+      if (p24h5 !== null && rangePctActuel5 - p24h5 > 1) {
+        const width5 = Math.max(p24h5, 1.5);
+        await writeRule1K(1);
+        result.rule1K          = 1;
+        result.action          = 'width_shrink_rebalance';
+        result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
+        result.percentileRange = parseFloat(p24h5.toFixed(2));
+        result.newRangePct     = parseFloat(width5.toFixed(2));
+        result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, width5, true);
+        await logBotTick(kv, result);
+        return result;
+      }
+    }
   }
 
   // Règle 1 : aucune position → auto-start
