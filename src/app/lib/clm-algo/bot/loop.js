@@ -424,27 +424,37 @@ async function clearAlgoState() {
  * la réouverture est sautée (capital laissé dans le wallet), la Règle 1 la reprendra au tick
  * suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true, skipAero = false) {
   const out = {};
 
-  // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
-  for (const step of [1, 2]) {
-    try {
-      const r = await fetch(`${base}/api/collectFees`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
-        signal:  AbortSignal.timeout(120000),
-      });
-      out[`step${step}`] = await r.json();
-    } catch (e) { out[`step${step}Error`] = e.message; }
+  let feesCollected = 0;
+  if (!skipAero) {
+    // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
+    for (const step of [1, 2]) {
+      try {
+        const r = await fetch(`${base}/api/collectFees`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
+          signal:  AbortSignal.timeout(120000),
+        });
+        out[`step${step}`] = await r.json();
+      } catch (e) { out[`step${step}Error`] = e.message; }
+    }
+    // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
+    feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
+    out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit);
+    await logAndAlertAeroSplit(out, feesCollected);
+  } else {
+    // Garde-fou largeur (04/10) : pas de retrait AERO sur ce rebalance, juste un redimensionnement
+    // de la position — on laisse l'AERO continuer à courir sur le gauge jusqu'au prochain claim.
+    out.aeroSplit = { skipped: 'no_aero_on_shrink' };
   }
-  // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
-  const feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
-  out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit);
-  await logAndAlertAeroSplit(out, feesCollected);
 
-  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, aeroLowSplit ? 0.25 : 0.5); }
+  // skipAero : aeroSplitFraction=null coupe aussi l'envoi externe du résidu AERO côté closePositions
+  // (le unstake peut auto-régler des rewards en attente, mais on ne les envoie pas — ils restent en
+  // USDC dans le wallet, repris proprement au prochain vrai cycle de collecte).
+  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAero ? null : (aeroLowSplit ? 0.25 : 0.5)); }
   catch (e) { out.closeLPError = e.message; }
 
   // Fermeture ratée (exception ou {error} dans la réponse) → ne pas ouvrir une nouvelle position
@@ -778,7 +788,7 @@ export async function botLoop({ base, price }) {
         result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
         result.percentileRange = parseFloat(p24h5.toFixed(2));
         result.newRangePct     = parseFloat(width5.toFixed(2));
-        result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, width5, true);
+        result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, width5, true, true);
         await logBotTick(kv, result);
         return result;
       }
