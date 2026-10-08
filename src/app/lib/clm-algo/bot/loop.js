@@ -228,6 +228,10 @@ async function topUpGasFromUsdc(usdcAmount) {
 // Règle 1c (resserrement/élargissement, pas de direction) : toujours 25%/75% (isLow=true).
 // Gas (03/10) : 2% du TOTAL collecté est prélevé sur la part GARDÉE (pas sur la part envoyée au
 // wallet externe, qui reste exactement fraction×total) et converti en ETH natif pour le gas.
+// Gas bot (08/10) : 0,05$ supplémentaires prélevés sur la part GARDÉE (jamais sur `toSend`) et
+// convertis en ETH natif pour alimenter le gas DU WALLET DU BOT, à chaque envoi externe dont le
+// montant envoyé dépasse 0,05$. Volontairement invisible dans dest_transfers/"envois" (demande
+// explicite) ; tracé seulement dans botGasTopUp ci-dessous.
 // sourceOverride : étiquette explicite pour dest_transfers/transferHistory, au lieu du libellé
 // générique edge_low_25pct/edge_high_50pct déduit de isLow — pour bien distinguer dans "envois" un
 // cas qui emprunte le même split (25/75) qu'une Règle 2 mais qui n'en est pas une (ex. garde-fou
@@ -262,6 +266,7 @@ async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
     await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
                 VALUES (${toSend}, ${sourceOverride ?? (isLow ? 'edge_low_25pct' : 'edge_high_50pct')}, ${txHash}, ${2})`;
   } catch (_) {}
+
   await writeAeroSentToday(2).catch(() => {});
   // Compte aussi comme un envoi externe pour la Règle 5 (claim périodique 24h) — évite un envoi
   // redondant peu après si une sortie de zone vient déjà d'en déclencher un.
@@ -273,9 +278,18 @@ async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
   const gasUsdc = parseFloat((feesCollectedUsdc * 0.02).toFixed(6));
   let gasTopUp = null;
   try { gasTopUp = await topUpGasFromUsdc(gasUsdc); } catch (e) { gasTopUp = { error: e.message ?? String(e), usdcAmount: gasUsdc }; }
-  const keptMinusGas = feesCollectedUsdc - toSend - (gasTopUp?.ok ? gasUsdc : 0);
 
-  return { ok: true, sent: toSend, kept: parseFloat(keptMinusGas.toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction, gasTopUp };
+  // 0,05$ supplémentaires pour le gas du wallet du bot, uniquement si le montant envoyé dépasse ce
+  // seuil — prélevés eux aussi sur la part gardée, jamais sur `toSend`.
+  const BOT_GAS_TOPUP_USD = 0.05;
+  let botGasTopUp = null;
+  if (toSend > BOT_GAS_TOPUP_USD) {
+    try { botGasTopUp = await topUpGasFromUsdc(BOT_GAS_TOPUP_USD); } catch (e) { botGasTopUp = { error: e.message ?? String(e), usdcAmount: BOT_GAS_TOPUP_USD }; }
+  }
+
+  const keptMinusGas = feesCollectedUsdc - toSend - (gasTopUp?.ok ? gasUsdc : 0) - (botGasTopUp?.ok ? BOT_GAS_TOPUP_USD : 0);
+
+  return { ok: true, sent: toSend, kept: parseFloat(keptMinusGas.toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction, gasTopUp, botGasTopUp };
 }
 
 // Persiste systématiquement le résultat du split AERO en base (lp_events, pas de TTL — contrairement
