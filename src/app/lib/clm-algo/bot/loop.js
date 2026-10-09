@@ -462,7 +462,12 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   } else {
     // Garde-fou largeur (04/10) : pas de retrait AERO sur ce rebalance, juste un redimensionnement
     // de la position — on laisse l'AERO continuer à courir sur le gauge jusqu'au prochain claim.
-    out.aeroSplit = { skipped: 'no_aero_on_shrink' };
+    // Gas bot (09/10) : même sans AERO collecté/envoyé ici, on alimente quand même le gas du wallet
+    // du bot avec 0,05$ pris sur l'USDC déjà présent dans le wallet — pas de notion de part "gardée"
+    // à calculer puisqu'il n'y a pas de split externe sur ce chemin.
+    let botGasTopUp = null;
+    try { botGasTopUp = await topUpGasFromUsdc(0.05); } catch (e) { botGasTopUp = { error: e.message ?? String(e), usdcAmount: 0.05 }; }
+    out.aeroSplit = { skipped: 'no_aero_on_shrink', botGasTopUp };
   }
 
   // skipAero : aeroSplitFraction=null coupe aussi l'envoi externe du résidu AERO côté closePositions
