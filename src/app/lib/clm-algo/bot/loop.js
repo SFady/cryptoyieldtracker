@@ -170,11 +170,10 @@ async function getAeroUsdValue(tokenId) {
 // ETH natif (WETH.withdraw) — alimente le gas du wallet. Non-bloquant : un échec ici ne doit jamais
 // faire échouer sendAeroSplit (l'envoi externe reste prioritaire).
 async function topUpGasFromUsdc(usdcAmount) {
-  // Désactivé (03/10) : sur de petits montants, le gas des 3 tx (approve+swap+unwrap) dépassait
-  // l'ETH obtenu — effet inverse de celui voulu. À réactiver avec un seuil minimum sûr.
-  return { skipped: 'disabled', usdcAmount };
-  /* istanbul ignore next */
-  if (!usdcAmount || usdcAmount < 0.01) return { skipped: 'insufficient', usdcAmount };
+  // Réactivé (09/10) — désactivé le 03/10 car sur de trop petits montants, le gas des 3 tx
+  // (approve+swap+unwrap) dépassait l'ETH obtenu. Seuil minimum relevé à 0,05$ (au lieu de 0,01$)
+  // pour rester sûr : en-dessous, on skippe plutôt que de risquer un coût net négatif.
+  if (!usdcAmount || usdcAmount < 0.05) return { skipped: 'insufficient', usdcAmount };
   const amountIn = ethers.parseUnits(usdcAmount.toFixed(6), 6);
   const routes = [{ from: USDC_ADDRESS, to: WETH_ADDRESS, stable: false, factory: V2_FACTORY }];
   const deadline = Math.floor(Date.now() / 1000) + 600;
@@ -272,24 +271,18 @@ async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
   // redondant peu après si une sortie de zone vient déjà d'en déclencher un.
   await kv.set('p2_last_aero_send_at', Date.now(), { ex: 30 * 86400 }).catch(() => {});
 
-  // 2% du total collecté, prélevé sur la part gardée (jamais sur `toSend`), converti en ETH natif
-  // pour le gas. Best-effort : un échec ici n'affecte ni le transfert externe (déjà fait) ni le
-  // résultat global de sendAeroSplit (toujours ok:true si on arrive jusqu'ici).
-  const gasUsdc = parseFloat((feesCollectedUsdc * 0.02).toFixed(6));
-  let gasTopUp = null;
-  try { gasTopUp = await topUpGasFromUsdc(gasUsdc); } catch (e) { gasTopUp = { error: e.message ?? String(e), usdcAmount: gasUsdc }; }
-
-  // 0,05$ supplémentaires pour le gas du wallet du bot, uniquement si le montant envoyé dépasse ce
-  // seuil — prélevés eux aussi sur la part gardée, jamais sur `toSend`.
+  // 0,05$ pour le gas du wallet du bot, uniquement si le montant envoyé dépasse ce seuil — prélevés
+  // sur la part gardée, jamais sur `toSend`. Best-effort : un échec ici n'affecte ni le transfert
+  // externe (déjà fait) ni le résultat global de sendAeroSplit (toujours ok:true si on arrive jusqu'ici).
   const BOT_GAS_TOPUP_USD = 0.05;
   let botGasTopUp = null;
   if (toSend > BOT_GAS_TOPUP_USD) {
     try { botGasTopUp = await topUpGasFromUsdc(BOT_GAS_TOPUP_USD); } catch (e) { botGasTopUp = { error: e.message ?? String(e), usdcAmount: BOT_GAS_TOPUP_USD }; }
   }
 
-  const keptMinusGas = feesCollectedUsdc - toSend - (gasTopUp?.ok ? gasUsdc : 0) - (botGasTopUp?.ok ? BOT_GAS_TOPUP_USD : 0);
+  const keptMinusGas = feesCollectedUsdc - toSend - (botGasTopUp?.ok ? BOT_GAS_TOPUP_USD : 0);
 
-  return { ok: true, sent: toSend, kept: parseFloat(keptMinusGas.toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction, gasTopUp, botGasTopUp };
+  return { ok: true, sent: toSend, kept: parseFloat(keptMinusGas.toFixed(6)), txHash, side: isLow ? 'low' : 'high', fraction, botGasTopUp };
 }
 
 // Persiste systématiquement le résultat du split AERO en base (lp_events, pas de TTL — contrairement
