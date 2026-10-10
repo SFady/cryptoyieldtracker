@@ -316,11 +316,11 @@ async function logAndAlertAeroSplit(out, feesCollected) {
   }
 }
 
-async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = null, aeroSplitFraction = null) {
+async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = null, aeroSplitFraction = null, aeroSourceOverride = null) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason, feesUsdc, aeroSplitFraction }),
+    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason, feesUsdc, aeroSplitFraction, aeroSourceOverride }),
     signal:  AbortSignal.timeout(120000),
   });
   return res.json();
@@ -431,7 +431,7 @@ async function clearAlgoState() {
  * la réouverture est sautée (capital laissé dans le wallet), la Règle 1 la reprendra au tick
  * suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true, skipAero = false) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true, skipAero = false, sourceOverride = null) {
   const out = {};
 
   let feesCollected = 0;
@@ -450,23 +450,20 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
     }
     // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
     feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
-    out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit);
+    out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit, sourceOverride);
     await logAndAlertAeroSplit(out, feesCollected);
   } else {
-    // Garde-fou largeur (04/10) : pas de retrait AERO sur ce rebalance, juste un redimensionnement
-    // de la position — on laisse l'AERO continuer à courir sur le gauge jusqu'au prochain claim.
-    // Gas bot (09/10) : même sans AERO collecté/envoyé ici, on alimente quand même le gas du wallet
-    // du bot avec 0,05$ pris sur l'USDC déjà présent dans le wallet — pas de notion de part "gardée"
-    // à calculer puisqu'il n'y a pas de split externe sur ce chemin.
-    let botGasTopUp = null;
-    try { botGasTopUp = await topUpGasFromUsdc(0.05); } catch (e) { botGasTopUp = { error: e.message ?? String(e), usdcAmount: 0.05 }; }
-    out.aeroSplit = { skipped: 'no_aero_on_shrink', botGasTopUp };
+    // Garde-fou largeur : pas de retrait AERO sur ce rebalance, juste un redimensionnement de la
+    // position — on laisse l'AERO continuer à courir sur le gauge jusqu'au prochain claim.
+    // (Plus utilisé par aucune règle depuis le 10/10 — la Règle 5 envoie maintenant aussi 25%,
+    // comme un trigger bas. Conservé pour un éventuel futur appel avec skipAero=true.)
+    out.aeroSplit = { skipped: 'no_aero_on_shrink' };
   }
 
   // skipAero : aeroSplitFraction=null coupe aussi l'envoi externe du résidu AERO côté closePositions
   // (le unstake peut auto-régler des rewards en attente, mais on ne les envoie pas — ils restent en
   // USDC dans le wallet, repris proprement au prochain vrai cycle de collecte).
-  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAero ? null : (aeroLowSplit ? 0.25 : 0.5)); }
+  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAero ? null : (aeroLowSplit ? 0.25 : 0.5), sourceOverride); }
   catch (e) { out.closeLPError = e.message; }
 
   // Fermeture ratée (exception ou {error} dans la réponse) → ne pas ouvrir une nouvelle position
@@ -792,7 +789,7 @@ export async function botLoop({ base, price }) {
       const p24h5           = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0
         ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
         : null;
-      if (p24h5 !== null && rangePctActuel5 - p24h5 > 1) {
+      if (p24h5 !== null && rangePctActuel5 > 1.5 && rangePctActuel5 - p24h5 > 1) {
         const width5 = Math.max(p24h5, 1.5);
         await writeRule1K(1);
         result.rule1K          = 1;
@@ -800,7 +797,7 @@ export async function botLoop({ base, price }) {
         result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
         result.percentileRange = parseFloat(p24h5.toFixed(2));
         result.newRangePct     = parseFloat(width5.toFixed(2));
-        result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, width5, true, true);
+        result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, width5, true, false, 'width_shrink_25pct');
         await logBotTick(kv, result);
         return result;
       }

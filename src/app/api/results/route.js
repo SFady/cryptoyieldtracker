@@ -42,7 +42,7 @@ export async function GET() {
       transfers = await sql`
         SELECT amount_usdc, pool_num, created_at
         FROM dest_transfers
-        WHERE source IN ('edge_low_25pct', 'edge_high_50pct', 'claimAero', 'morning_claim_25pct', 'periodic_24h_claim')
+        WHERE source IN ('edge_low_25pct', 'edge_high_50pct', 'claimAero', 'morning_claim_25pct', 'periodic_24h_claim', 'width_shrink_25pct')
         ORDER BY created_at ASC
       `;
     } catch (_) {}

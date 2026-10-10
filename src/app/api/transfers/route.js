@@ -19,6 +19,7 @@ function formatSource(source) {
   if (source === "edge_low_25pct") return "Sortie basse 25%";
   if (source === "edge_high_50pct") return "Sortie haute 50%";
   if (source === "width_shrink") return "Garde-fou largeur 25%";
+  if (source === "width_shrink_25pct") return "Width shrink 25%";
   return source;
 }
 

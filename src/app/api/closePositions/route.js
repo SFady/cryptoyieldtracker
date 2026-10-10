@@ -305,6 +305,7 @@ export async function POST(req) {
   const closeReason      = body.closeReason ?? null;
   const feesUsdc         = body.feesUsdc ?? null;
   const aeroSplitFraction = body.aeroSplitFraction ?? null;
+  const aeroSourceOverride = body.aeroSourceOverride ?? null;
   const keepWeth           = body.keepWeth === true;
   const sellWethFees       = body.sellWethFees === true;
   const halfFees           = body.halfFees === true;
@@ -870,7 +871,7 @@ export async function POST(req) {
                 if (toSendRaw > 0n) {
                   const txResidual = await sendTx(wallet, { to: stablecoin, data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSendRaw]) });
                   await waitForTx(provider, txResidual);
-                  const source = aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct";
+                  const source = aeroSourceOverride ?? (aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct");
                   await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${parseFloat(ethers.formatUnits(toSendRaw, 6))}, ${source}, ${txResidual.hash}, ${poolNum})`;
 
                   // 2% du total AERO→USDC résiduel, prélevé sur la part gardée (jamais sur toSendRaw),
