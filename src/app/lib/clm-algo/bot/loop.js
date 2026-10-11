@@ -278,6 +278,16 @@ async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
   let botGasTopUp = null;
   if (toSend > BOT_GAS_TOPUP_USD) {
     try { botGasTopUp = await topUpGasFromUsdc(BOT_GAS_TOPUP_USD); } catch (e) { botGasTopUp = { error: e.message ?? String(e), usdcAmount: BOT_GAS_TOPUP_USD }; }
+    // Trace visible sur la page Envois (ligne "Gas") — volontairement exclue du total affiché
+    // (gérée côté front via rawSource === 'bot_gas_topup'), puisque cet argent reste dans le wallet
+    // du bot, il n'est jamais envoyé au wallet externe.
+    if (botGasTopUp?.ok) {
+      try {
+        const sqlDb = neon(process.env.DATABASE_URL);
+        await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
+                    VALUES (${BOT_GAS_TOPUP_USD}, ${'bot_gas_topup'}, ${botGasTopUp.swapHash ?? botGasTopUp.unwrapHash ?? null}, ${2})`;
+      } catch (_) {}
+    }
   }
 
   const keptMinusGas = feesCollectedUsdc - toSend - (botGasTopUp?.ok ? BOT_GAS_TOPUP_USD : 0);

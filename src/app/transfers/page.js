@@ -29,7 +29,8 @@ export default function TransfersPage() {
   }, []);
 
   const poolRows = transfers ?? [];
-  const total    = poolRows.reduce((s, t) => s + parseFloat(t.amount), 0);
+  // "Gas" (bot_gas_topup) reste dans le wallet du bot — jamais envoyé à l'externe, donc exclu du total.
+  const total    = poolRows.reduce((s, t) => s + (t.rawSource === "bot_gas_topup" ? 0 : parseFloat(t.amount)), 0);
   const pages    = Math.max(1, Math.ceil(poolRows.length / PAGE_SIZE));
   const pageRows = poolRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
