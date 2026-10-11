@@ -789,7 +789,11 @@ export async function botLoop({ base, price }) {
       const p24h5           = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0
         ? (pctData5.p95 - pctData5.p05) / pctData5.p05 * 100
         : null;
-      if (p24h5 !== null && rangePctActuel5 > 1.5 && rangePctActuel5 - p24h5 > 1) {
+      // Marge de 0,1pt au-dessus du plancher (1,5%) : le range réel on-chain après un shrink au
+      // plancher n'atterrit jamais exactement à 1,50% (arrondi aux ticks du pool — observé à 1,51%
+      // dans les faits), donc un seuil strict à 1,5% ne protégeait pas contre la boucle inutile
+      // shrink → 1,51% → re-déclenche → shrink → 1,51% → ... (11/10).
+      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1) {
         const width5 = Math.max(p24h5, 1.5);
         await writeRule1K(1);
         result.rule1K          = 1;
