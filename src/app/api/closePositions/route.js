@@ -247,10 +247,10 @@ async function readBal(token, address) {
 // en ETH natif (WETH.withdraw) — alimente le gas DE CE wallet, reste ici, n'est jamais envoyé
 // ailleurs. Non-bloquant : un échec ici ne doit jamais faire échouer le split résiduel AERO.
 async function topUpGasFromUsdc(wallet, stablecoinAddr, usdcAmountRaw) {
-  // Désactivé (03/10) : sur de petits montants, le gas des 3 tx (approve+swap+unwrap) dépassait
-  // l'ETH obtenu — effet inverse de celui voulu. À réactiver avec un seuil minimum sûr.
-  return { skipped: "disabled" };
-  if (!usdcAmountRaw || usdcAmountRaw <= 0n) return { skipped: "insufficient" };
+  // Réactivé (12/10) — désactivé le 03/10 car sur de trop petits montants, le gas des 3 tx
+  // (approve+swap+unwrap) dépassait l'ETH obtenu. Seuil minimum 0,10$ (appelé uniquement avec ce
+  // montant fixe désormais, cf. l'appel ci-dessous — remplace l'ancien calcul à 2% du résidu).
+  if (!usdcAmountRaw || usdcAmountRaw < 100000n) return { skipped: "insufficient" };
   try {
     const routes = [{ from: stablecoinAddr, to: WETH, stable: false, factory: V2_FACTORY }];
     const txApp = await sendTx(wallet, { to: stablecoinAddr, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
@@ -874,12 +874,23 @@ export async function POST(req) {
                   const source = aeroSourceOverride ?? (aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct");
                   await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${parseFloat(ethers.formatUnits(toSendRaw, 6))}, ${source}, ${txResidual.hash}, ${poolNum})`;
 
-                  // 2% du total AERO→USDC résiduel, prélevé sur la part gardée (jamais sur toSendRaw),
-                  // converti en ETH natif pour le gas — reste dans CE wallet, jamais envoyé ailleurs.
-                  // Non-bloquant : un échec ici n'affecte ni le transfert externe (déjà fait) ni le
-                  // résultat global du split résiduel.
-                  const gasRaw = aeroSwapUsdcReceivedRaw * 2n / 100n;
-                  try { await topUpGasFromUsdc(wallet, stablecoin, gasRaw); } catch (_) {}
+                  // 0,10$ pour le gas du wallet du bot (même montant fixe que sendAeroSplit côté
+                  // bot), prélevés sur la part gardée (jamais sur toSendRaw), uniquement si le
+                  // montant envoyé dépasse ce seuil. Remplace l'ancien calcul à 2% du résidu (mort,
+                  // la fonction était désactivée). Trace "Gas" dans dest_transfers pour cohérence
+                  // avec la page Envois — non comptée dans son total (filtré côté front).
+                  const BOT_GAS_TOPUP_USD = 0.10;
+                  const botGasRaw = ethers.parseUnits(BOT_GAS_TOPUP_USD.toFixed(6), 6);
+                  if (aeroSwapUsdcReceivedRaw > botGasRaw) {
+                    let botGasTopUp = null;
+                    try { botGasTopUp = await topUpGasFromUsdc(wallet, stablecoin, botGasRaw); } catch (_) {}
+                    if (botGasTopUp?.ok) {
+                      try {
+                        await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
+                                  VALUES (${BOT_GAS_TOPUP_USD}, ${'bot_gas_topup'}, ${botGasTopUp.swapHash ?? botGasTopUp.unwrapHash ?? null}, ${poolNum})`;
+                      } catch (_) {}
+                    }
+                  }
                 }
               } else {
                 aeroResidualError = 'no_dest_wallet';
