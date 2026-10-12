@@ -46,7 +46,7 @@ async function sendErrorEmail(subject, body) {
 //       (25% envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h ×
 //       1,25. K remis à 1.
 //   3.  Trigger haut : ratio WETH de la position ≤ 5% (prix proche du haut du range) → collecte AERO
-//       (50% envoyé/50% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h
+//       (40% envoyé/60% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h
 //       brut (×1). K remis à 1.
 //   4.  Si aucun envoi vers le wallet externe n'a eu lieu depuis 24h glissantes, réclame l'AERO
 //       accumulé sans fermer la LP et en envoie 25% (75% restent en solde non utilisé).
@@ -223,7 +223,7 @@ async function topUpGasFromUsdc(usdcAmount) {
 }
 
 // Verse une fraction des AERO déjà convertis en USDC vers DESTINATION_WALLET.
-// Règle 1A (sortie directionnelle) : haut → 50% envoyés/50% gardés ; bas → 25%/75%.
+// Règle 1A (sortie directionnelle) : haut → 40% envoyés/60% gardés ; bas → 25%/75%.
 // Règle 1c (resserrement/élargissement, pas de direction) : toujours 25%/75% (isLow=true).
 // Gas (03/10) : 2% du TOTAL collecté est prélevé sur la part GARDÉE (pas sur la part envoyée au
 // wallet externe, qui reste exactement fraction×total) et converti en ETH natif pour le gas.
@@ -238,7 +238,7 @@ async function topUpGasFromUsdc(usdcAmount) {
 async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
   if (!feesCollectedUsdc || feesCollectedUsdc < 0.01) return { skipped: 'insufficient', feesCollectedUsdc };
 
-  const fraction = isLow ? 0.25 : 0.5;
+  const fraction = isLow ? 0.25 : 0.4;
   const toSend   = parseFloat((feesCollectedUsdc * fraction).toFixed(6));
   const dest     = process.env.DESTINATION_WALLET;
   if (!dest) return { skipped: 'no_dest_wallet' };
@@ -768,8 +768,8 @@ export async function botLoop({ base, price }) {
         return result;
       }
 
-      // Règle 3 : trigger haut (position quasi entièrement en USDC) — collecte AERO (50%
-      // envoyé/50% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut.
+      // Règle 3 : trigger haut (position quasi entièrement en USDC) — collecte AERO (40%
+      // envoyé/60% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut.
       const pctData3 = await getPercentileRange();
       const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
