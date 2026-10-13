@@ -84,6 +84,24 @@ const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 const ERC20_IFACE  = new ethers.Interface(['function transfer(address,uint256) returns (bool)', 'function approve(address,uint256) returns (bool)']);
 const WETH_IFACE   = new ethers.Interface(['function withdraw(uint256)']);
 const V2_SWAP_IFACE = new ethers.Interface(['function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)']);
+
+// Montant d'un token reçu par `walletAddress`, lu directement depuis les logs Transfer du receipt
+// — fiable même si un delta de solde avant/après atterrirait sur deux nœuds RPC pas au même niveau
+// de sync derrière un même endpoint public (cause du "no_weth_received" du 13/10 sur le gas top-up).
+const TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
+function parseTokenReceived(receipt, walletAddress, tokenAddress) {
+  if (!receipt?.logs) return 0n;
+  const walletTopic = ethers.zeroPadValue(walletAddress, 32).toLowerCase();
+  let total = 0n;
+  for (const log of receipt.logs) {
+    if (!log?.address || log.address.toLowerCase() !== tokenAddress.toLowerCase()) continue;
+    if (!log.topics || log.topics[0] !== TRANSFER_TOPIC) continue;
+    if (!log.topics[2] || log.topics[2].toLowerCase() !== walletTopic) continue;
+    try { total += BigInt(log.data); } catch (_) {}
+  }
+  return total;
+}
+
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
   'https://base.drpc.org',
@@ -195,18 +213,16 @@ async function topUpGasFromUsdc(usdcAmount) {
         minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
       } catch (_) {}
 
-      // Delta avant/après (pas le solde WETH total) : le wallet peut déjà détenir du WETH utilisé
-      // ailleurs (comptabilité de la position) — on n'unwrap que ce que CE swap vient de produire.
-      const wethBefore = await readWalletToken(WETH_ADDRESS, 18, url);
+      // Montant reçu lu depuis les logs Transfer du receipt (pas un delta de solde avant/après,
+      // qui peut faussement voir 0 si les deux lectures atterrissent sur des nœuds RPC désynchronisés
+      // derrière un même endpoint public — cause du "no_weth_received" du 13/10).
       const txSwap = await wallet.sendTransaction({
         to:   V2_ROUTER,
         data: V2_SWAP_IFACE.encodeFunctionData('swapExactTokensForTokens', [amountIn, minOut, routes, wallet.address, deadline]),
       });
-      await txSwap.wait();
-      const wethAfter = await readWalletToken(WETH_ADDRESS, 18, url);
-      const wethReceived = Math.max(0, wethAfter - wethBefore);
-      if (wethReceived <= 0) return { error: 'no_weth_received', usdcAmount };
-      const wethReceivedRaw = ethers.parseUnits(wethReceived.toFixed(18), 18);
+      const swapReceipt = await txSwap.wait();
+      const wethReceivedRaw = parseTokenReceived(swapReceipt, wallet.address, WETH_ADDRESS);
+      if (wethReceivedRaw <= 0n) return { error: 'no_weth_received', usdcAmount };
 
       const txUnwrap = await wallet.sendTransaction({
         to:   WETH_ADDRESS,

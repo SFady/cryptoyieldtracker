@@ -263,15 +263,16 @@ async function topUpGasFromUsdc(wallet, stablecoinAddr, usdcAmountRaw) {
       minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
     } catch (_) {}
 
-    const wethBefore = await readBal(WETH, wallet.address);
+    // Montant reçu lu depuis les logs Transfer du receipt (pas un delta de solde avant/après, qui
+    // peut faussement voir 0 si les deux lectures atterrissent sur des nœuds RPC désynchronisés
+    // derrière un même endpoint public — même cause que le "no_weth_received" du 13/10 côté bot).
     const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [usdcAmountRaw, minOut, routes, wallet.address, freshDeadline()]);
     let swapGas = 300000n;
     try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
     const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: swapGas });
-    await waitForTx(provider, txSwap);
+    const swapReceipt = await waitForTx(provider, txSwap);
 
-    const wethAfter = await readBal(WETH, wallet.address);
-    const wethReceivedRaw = wethAfter > wethBefore ? wethAfter - wethBefore : 0n;
+    const wethReceivedRaw = parseUsdcReceived(swapReceipt, wallet.address, WETH);
     if (wethReceivedRaw <= 0n) return { error: "no_weth_received" };
 
     const txUnwrap = await sendTx(wallet, { to: WETH, data: WETH_IFACE.encodeFunctionData("withdraw", [wethReceivedRaw]) });
