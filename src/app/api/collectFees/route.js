@@ -303,6 +303,11 @@ async function handleStep2(poolNum, body) {
     const POOL = getPoolAddress(poolNum);
 
     const wethBefore = BigInt(body.wethBefore ?? "0");
+    // Par défaut swap l'AERO réclamé en USDC immédiatement (comportement historique, gardé pour le
+    // bouton "Collecter" manuel). Le bot (runCollect) passe swapAero:false (14/10) — l'AERO doit
+    // rester en AERO dans le wallet, converti en USDC uniquement par la distribution quotidienne de
+    // 6h (Règle 4), pas à chaque collecte.
+    const swapAero = body.swapAero !== false;
 
     const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
     const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -370,7 +375,7 @@ async function handleStep2(poolNum, body) {
       const aeroBal  = await readBal(AERO, wallet.address);
       aeroBalance = ethers.formatUnits(aeroBal, 18);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
-      if (aeroBal >= MIN_AERO) {
+      if (swapAero && aeroBal >= MIN_AERO) {
         await waitForTx(await sendTx(wallet, {
           to: AERO, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
         }));

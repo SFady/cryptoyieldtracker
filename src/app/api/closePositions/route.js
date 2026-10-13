@@ -1,6 +1,6 @@
 ﻿import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { readLpState, writeLpState, writeErrorState, readFeesBank, writeFeesBank } from "../../lib/cronKv";
+import { readLpState, writeLpState, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
@@ -265,6 +265,10 @@ export async function POST(req) {
   const feesUsdc         = body.feesUsdc ?? null;
   const aeroSplitFraction = body.aeroSplitFraction ?? null;
   const aeroSourceOverride = body.aeroSourceOverride ?? null;
+  // Par défaut swap le résidu AERO en USDC (comportement historique, gardé pour les fermetures
+  // manuelles/test). Le bot (loop.js closeLP) passe swapAero:false (14/10) — l'AERO doit rester en
+  // AERO dans le wallet jusqu'à la distribution quotidienne de 6h (Règle 4).
+  const swapAero           = body.swapAero !== false;
   const keepWeth           = body.keepWeth === true;
   const sellWethFees       = body.sellWethFees === true;
   const halfFees           = body.halfFees === true;
@@ -774,7 +778,8 @@ export async function POST(req) {
       Number(ethers.formatUnits(principalUsdc1Acc, 6))
     ).toFixed(2);
 
-    // 4a. Swap AERO → USDC (non-bloquant)
+    // 4a. Swap AERO → USDC (non-bloquant) — seulement si swapAero (défaut true, bot passe false :
+    // l'AERO doit rester en AERO dans le wallet jusqu'à la distribution quotidienne de 6h)
     let aeroSwapHash = null;
     let aeroSwapUsdcReceived = 0;
     let aeroResidualError = null;
@@ -782,7 +787,7 @@ export async function POST(req) {
       const aeroBal = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
 
-      if (aeroBal >= MIN_AERO) {
+      if (swapAero && aeroBal >= MIN_AERO) {
         const txApp = await sendTx(wallet, {
           to: AERO,
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
@@ -818,19 +823,6 @@ export async function POST(req) {
         if (aeroSwapHash) {
           const aeroSwapUsdcReceivedRaw = parseUsdcReceived(aeroSwapReceipt, wallet.address, stablecoin);
           aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(aeroSwapUsdcReceivedRaw, 6));
-
-          // Résidu AERO (converti en USDC ci-dessus) gardé entièrement dans le wallet du bot (14/10)
-          // — plus d'envoi vers le wallet externe, même logique que sendAeroSplit côté bot. Ajouté à
-          // la banque p2_fees_bank (pool 2 uniquement — ce helper n'est pas paramétré par poolNum,
-          // donc on ne l'utilise pas pour le pool 3) pour être redistribué par la Règle 4 (6h Paris).
-          // aeroSplitFraction/aeroSourceOverride gardés dans la signature pour ne pas devoir modifier
-          // chaque appelant, mais ne jouent plus aucun rôle.
-          if (poolNum === 2 && aeroSwapUsdcReceived > 0) {
-            try {
-              const bank = (await readFeesBank().catch(() => 0)) + aeroSwapUsdcReceived;
-              await writeFeesBank(bank);
-            } catch (_) {}
-          }
         }
       }
     } catch (e) { aeroResidualError = e.message ?? String(e); }

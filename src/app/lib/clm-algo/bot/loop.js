@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, writeAeroSentToday, readRule1K, writeRule1K, readFeesBank, writeFeesBank, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, writeRule1K, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -42,17 +42,18 @@ async function sendErrorEmail(subject, body) {
 //       plafonnées à 70/30 des deux côtés (swap partiel si le wallet dépasse cette fourchette) —
 //       évite un centre de range collé à un bord, fragile face au prix pendant le mint (05/10).
 //       Largeur = percentile24h brut (×1). K remis à 1.
-//   2.  Trigger bas : ratio WETH de la position ≥ 95% (prix proche du bas du range) → collecte AERO
-//       (gardé intégralement dans le wallet du bot, cf. sendAeroSplit), ferme et rouvre à 75% WETH
-//       (swap forcé), largeur = percentile24h × 1,25. K remis à 1.
-//   3.  Trigger haut : ratio WETH de la position ≤ 5% (prix proche du haut du range) → collecte AERO
-//       (gardé intégralement), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h
-//       brut (×1). K remis à 1.
+//   2.  Trigger bas : ratio WETH de la position ≥ 95% (prix proche du bas du range) → claim l'AERO
+//       (laissé en AERO dans le wallet, jamais swappé ici, cf. note ci-dessous), ferme et rouvre à
+//       75% WETH (swap forcé), largeur = percentile24h × 1,25. K remis à 1.
+//   3.  Trigger haut : ratio WETH de la position ≤ 5% (prix proche du haut du range) → claim l'AERO
+//       (laissé en AERO), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut
+//       (×1). K remis à 1.
 //   4.  Une fois par jour à 6h Paris (14/10 — remplace l'ancien claim périodique 24h glissantes) :
-//       réclame l'AERO encore en attente dans le gauge, l'ajoute à ce que les Règles 2/3/5 ont
-//       accumulé dans la journée (banque p2_fees_bank), puis distribue le total : 35% vers
-//       DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 60% restent en USDC dans le
-//       wallet. Seule règle qui envoie encore hors du wallet du bot.
+//       réclame l'AERO encore en attente dans le gauge (rejoint ce que les Règles 2/3/5 ont laissé
+//       en AERO dans la journée), swap la TOTALITÉ du solde AERO du wallet en USDC en un seul coup,
+//       puis distribue : 35% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 60%
+//       restent en USDC dans le wallet. Seule règle qui swap encore l'AERO et qui envoie hors du
+//       wallet du bot.
 //   5.  Range devenu trop large : percentile24h tombé à au moins 1pt sous la largeur actuelle →
 //       resserre directement à percentile24h, SANS swap (garde les proportions WETH/USDC actuelles).
 //       K remis à 1. (07/10 — remplace l'ancien garde-fou de largeur, supprimé le 05/10, avec un
@@ -61,9 +62,13 @@ async function sendErrorEmail(subject, body) {
 //   p2_oor_count/p2_oor_low) avant de rebalancer — évite de réagir à un ratio qui ne fait que
 //   passer la frontière un instant. Règle 5 vérifiée à chaque tick sans confirmation (le percentile24h
 //   est déjà une moyenne glissante sur 24h, peu sujette au bruit instantané).
-//   Envois immédiats vers le wallet externe supprimés (14/10) — Règles 2/3/5 gardent désormais 100%
-//   de l'AERO collecté dans le wallet du bot au moment de la collecte (plus de split 25/75 ou
-//   40/60) ; tout est redistribué une fois par jour par la Règle 4 (35/60/5 ci-dessus).
+//   AERO non swappé à la collecte (14/10) — collectFees et closePositions sont appelés avec
+//   swapAero:false par le bot (toujours true par défaut pour le bouton "Collecter" manuel et les
+//   fermetures test, comportement inchangé pour eux) : l'AERO claimé par les Règles 2/3/5 reste en
+//   AERO dans le wallet toute la journée, et n'est converti en USDC qu'une fois, par la Règle 4 à
+//   6h. Ça élimine aussi, par construction, le risque qu'une réouverture (Règle 1/5, keepCurrentRatio)
+//   redéploie de l'AERO fraîchement gardé dans une nouvelle position : l'AERO n'entre jamais dans le
+//   calcul de capital (USDC + WETH uniquement) tant qu'il n'a pas été swappé.
 //   Supprimé dans cette refonte : les triggers de prix stockés (low/high trigger, p2_live_range),
 //   le paramètre K dynamique (doublement/division/coupe-circuit), la Règle 1d (changement de
 //   tendance), le claim matinal 7h Paris. K reste persisté (p2_rule1_k, Redis + repli table
@@ -170,58 +175,13 @@ async function getAeroUsdValue(tokenId) {
 }
 
 
-// Garde la totalité des AERO déjà convertis en USDC dans le wallet du bot — plus aucun envoi direct
-// vers DESTINATION_WALLET à la collecte (14/10, remplace l'ancien split 25/75 ou 40/60). Le montant
-// est ajouté à la "banque" p2_fees_bank (même pattern que p3_fees_bank côté pool 3), redistribuée
-// une fois par jour à 6h Paris par dailyAeroDistribution (remplace l'ancienne Règle 4). isLow/
-// sourceOverride gardés dans la signature pour ne pas devoir modifier chaque appelant (Règles 2/3/5),
-// mais ne jouent plus aucun rôle dans la distribution elle-même.
-async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
-  if (!feesCollectedUsdc || feesCollectedUsdc < 0.01) return { skipped: 'insufficient', feesCollectedUsdc };
-  await writeAeroSentToday(2).catch(() => {});
-  try {
-    const bank = (await readFeesBank().catch(() => 0)) + feesCollectedUsdc;
-    await writeFeesBank(bank);
-  } catch (_) {}
-  return { ok: true, sent: 0, kept: parseFloat(feesCollectedUsdc.toFixed(6)), side: isLow ? 'low' : 'high' };
-}
-
-// Persiste systématiquement le résultat du split AERO en base (lp_events, pas de TTL — contrairement
-// au log Redis p2_algo_metrics qui expire au bout de 7 jours) et alerte par email en cas d'échec
-// anormal (claim/swap AERO cassé côté collectFees, RPC down, wallet dest mal configuré) — pour
-// éviter de reproduire l'incident du 22/09 (rebalance à 5h15, AERO non transféré, aucune trace
-// exploitable après coup).
-async function logAndAlertAeroSplit(out, feesCollected) {
-  try {
-    const sqlDb = neon(process.env.DATABASE_URL);
-    const detail = JSON.stringify({
-      feesCollected,
-      aeroBalance:   out.step2?.aeroBalance ?? null,
-      aeroSwapError: out.step2?.aeroSwapError ?? null,
-      aeroSplit:     out.aeroSplit,
-    });
-    await sqlDb`INSERT INTO lp_events (action1, action2, error_msg, pool_num)
-                VALUES ('AERO_SPLIT', ${out.aeroSplit?.ok ? 'OK' : 'ISSUE'}, ${detail}, ${2})`;
-  } catch (_) {}
-
-  if (!out.aeroSplit?.ok) {
-    const isRealFailure = !!out.step2?.aeroSwapError
-      || out.aeroSplit?.error === 'transfer_failed'
-      || out.aeroSplit?.skipped === 'no_dest_wallet';
-    if (isRealFailure) {
-      await sendErrorEmail(
-        '[CryptoYieldTracker] AERO non transféré — sendAeroSplit',
-        `feesCollected: ${feesCollected}\naeroBalance (step2): ${out.step2?.aeroBalance ?? 'n/a'}\naeroSwapError: ${out.step2?.aeroSwapError ?? 'n/a'}\naeroSplit: ${JSON.stringify(out.aeroSplit)}`,
-      );
-    }
-  }
-}
-
 async function closeLP(base, keepWeth = true, closeReason = null, feesUsdc = null, aeroSplitFraction = null, aeroSourceOverride = null) {
   const res = await fetch(`${base}/api/closePositions`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason, feesUsdc, aeroSplitFraction, aeroSourceOverride }),
+    // swapAero:false (14/10) — l'AERO résiduel reste en AERO dans le wallet, converti en USDC
+    // uniquement par la distribution quotidienne de 6h (Règle 4).
+    body:    JSON.stringify({ keepWeth, poolNum: ALGO_CONFIG.POOL_NUM, caseNum: 9, noTransfer: true, closeReason, feesUsdc, aeroSplitFraction, aeroSourceOverride, swapAero: false }),
     signal:  AbortSignal.timeout(120000),
   });
   return res.json();
@@ -292,37 +252,94 @@ async function convertUsdcToEth(usdcAmount) {
   return { error: 'all_rpcs_failed', usdcAmount };
 }
 
-// Distribution quotidienne de l'AERO déjà collecté (une fois par jour à 6h Paris, remplace
-// l'ancienne Règle 4) :
-//   1. Réclame l'AERO encore en attente dans le gauge (sendFraction:0 → tout reste dans le wallet,
-//      /api/claimAero fait le claim+swap) et l'ajoute à la banque p2_fees_bank, qui contient déjà
-//      tout ce que les Règles 2/3/5 ont accumulé au fil de la journée (sendAeroSplit).
-//   2. Sur le total : 35% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 60%
-//      restent simplement dans le wallet en USDC (déjà là, aucune action nécessaire).
-//   3. Banque remise à 0 après distribution.
+// Swap la totalité du solde AERO du wallet vers USDC — utilisé UNIQUEMENT par dailyAeroDistribution.
+// C'est le seul endroit où l'AERO est encore converti en USDC (14/10) : toutes les collectes de la
+// journée (Règles 2/3/5, claim du gauge ci-dessous) laissent l'AERO tel quel dans le wallet.
+const DAILY_AERO_SWAP_IFACE = new ethers.Interface(['function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)']);
+function parseUsdcReceivedFromAero(receipt, walletAddress) {
+  if (!receipt?.logs) return 0n;
+  const walletTopic = ethers.zeroPadValue(walletAddress, 32).toLowerCase();
+  let total = 0n;
+  for (const log of receipt.logs) {
+    if (!log?.address || log.address.toLowerCase() !== USDC_ADDRESS.toLowerCase()) continue;
+    if (!log.topics || log.topics[0] !== DAILY_TRANSFER_TOPIC) continue;
+    if (!log.topics[2] || log.topics[2].toLowerCase() !== walletTopic) continue;
+    try { total += BigInt(log.data); } catch (_) {}
+  }
+  return total;
+}
+async function convertAeroToUsdc(aeroAmountRaw) {
+  if (!aeroAmountRaw || aeroAmountRaw <= 0n) return { skipped: 'insufficient' };
+  const routes = [{ from: AERO, to: USDC_ADDRESS, stable: false, factory: V2_FACTORY }];
+  const deadline = Math.floor(Date.now() / 1000) + 600;
+  for (const url of RPC_URLS) {
+    try {
+      const provider = new ethers.JsonRpcProvider(url);
+      const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
+
+      const txApp = await wallet.sendTransaction({
+        to: AERO,
+        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [V2_ROUTER, ethers.MaxUint256]),
+      });
+      await txApp.wait();
+
+      let minOut = 0n;
+      try {
+        const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData('getAmountsOut', [aeroAmountRaw, routes]));
+        const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult('getAmountsOut', outHex);
+        minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
+      } catch (_) {}
+
+      const txSwap = await wallet.sendTransaction({
+        to:   V2_ROUTER,
+        data: DAILY_AERO_SWAP_IFACE.encodeFunctionData('swapExactTokensForTokens', [aeroAmountRaw, minOut, routes, wallet.address, deadline]),
+      });
+      const swapReceipt = await txSwap.wait();
+      const usdcReceivedRaw = parseUsdcReceivedFromAero(swapReceipt, wallet.address);
+      if (usdcReceivedRaw <= 0n) return { error: 'no_usdc_received' };
+
+      return { ok: true, usdcReceived: parseFloat(ethers.formatUnits(usdcReceivedRaw, 6)), swapHash: txSwap.hash };
+    } catch (e) {
+      if (url === RPC_URLS[RPC_URLS.length - 1]) return { error: e.message ?? String(e) };
+    }
+  }
+  return { error: 'all_rpcs_failed' };
+}
+
+// Distribution quotidienne de l'AERO (une fois par jour à 6h Paris, remplace l'ancienne Règle 4) :
+//   1. Réclame l'AERO encore en attente dans le gauge (swapAero:false → le claim a lieu, l'AERO
+//      reste en AERO dans le wallet, rejoint ce que les Règles 2/3/5 ont déjà laissé dans la
+//      journée — aucune collecte ne swap plus l'AERO depuis le 14/10).
+//   2. Swap la totalité du solde AERO du wallet en USDC (un seul swap, sur un montant conséquent —
+//      le gas reste négligeable, contrairement à l'ancien swap par petit événement).
+//   3. Sur l'USDC obtenu : 35% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 60%
+//      restent simplement dans le wallet en USDC.
 async function dailyAeroDistribution(base) {
   const out = {};
 
   try {
     const r = await fetch(`${base}/api/claimAero`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ poolNum: 2, sendFraction: 0, source: 'daily_6am_claim' }),
+      body: JSON.stringify({ poolNum: 2, swapAero: false, source: 'daily_6am_claim' }),
       signal: AbortSignal.timeout(60000),
     });
     out.claim = await r.json();
   } catch (e) { out.claim = { error: e.message ?? String(e) }; }
-  const claimedUsdc = parseFloat(out.claim?.deltaUsdcTotal ?? 0) || 0;
 
-  const bankBefore = await readFeesBank().catch(() => 0);
-  const bank = parseFloat((bankBefore + claimedUsdc).toFixed(6));
-  out.bankBefore = bankBefore;
-  out.claimedUsdc = claimedUsdc;
+  let aeroBalRaw = 0n;
+  try {
+    const privateKey = process.env.PRIVATE_KEY;
+    const wallet      = new ethers.Wallet(privateKey.trim());
+    const balHex      = await ethCall(AERO, (new ethers.Interface(['function balanceOf(address) view returns (uint256)'])).encodeFunctionData('balanceOf', [wallet.address]));
+    [aeroBalRaw] = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], balHex);
+  } catch (_) {}
+  out.aeroBalance = parseFloat(ethers.formatUnits(aeroBalRaw, 18));
+  if (aeroBalRaw <= 0n) return { ...out, skipped: 'insufficient' };
+
+  out.swap = await convertAeroToUsdc(aeroBalRaw);
+  const bank = out.swap?.ok ? out.swap.usdcReceived : 0;
   out.bank = bank;
-
-  if (bank < 0.01) {
-    await writeFeesBank(0).catch(() => {});
-    return { ...out, skipped: 'insufficient' };
-  }
+  if (bank < 0.01) return { ...out, skipped: 'swap_failed' };
 
   const toExternal = parseFloat((bank * 0.35).toFixed(6));
   const toEth       = parseFloat((bank * 0.05).toFixed(6));
@@ -366,7 +383,13 @@ async function dailyAeroDistribution(base) {
     out.ethTopUp = await convertUsdcToEth(toEth);
   }
 
-  await writeFeesBank(0).catch(() => {});
+  if (out.externalError || out.ethTopUp?.error) {
+    await sendErrorEmail(
+      '[CryptoYieldTracker] Distribution quotidienne AERO — problème',
+      `aeroBalance: ${out.aeroBalance}\nbank (USDC): ${bank}\ntoExternal: ${toExternal}\nexternalError: ${out.externalError ?? 'n/a'}\ntoEth: ${toEth}\nethTopUp: ${JSON.stringify(out.ethTopUp)}`,
+    );
+  }
+
   out.ok = true;
   return out;
 }
@@ -481,22 +504,21 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
 
   let feesCollected = 0;
   if (!skipAero) {
-    // Collect AERO avant fermeture — position encore stakée, getReward fonctionne
+    // Collect AERO avant fermeture — position encore stakée, getReward fonctionne. swapAero:false
+    // (14/10) : l'AERO claimé reste en AERO dans le wallet, converti en USDC uniquement par la
+    // distribution quotidienne de 6h (Règle 4) — pas à chaque collecte.
     for (const step of [1, 2]) {
       try {
         const r = await fetch(`${base}/api/collectFees`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body:    JSON.stringify({ step, poolNum: 2, noTransfer: true }),
+          body:    JSON.stringify({ step, poolNum: 2, noTransfer: true, swapAero: false }),
           signal:  AbortSignal.timeout(120000),
         });
         out[`step${step}`] = await r.json();
       } catch (e) { out[`step${step}Error`] = e.message; }
     }
-    // Montant AERO→USDC réel, lu depuis les logs Transfer du receipt (collectFees step2)
-    feesCollected = parseFloat(out.step2?.aeroUsdcReceived ?? 0) || 0;
-    out.aeroSplit = await sendAeroSplit(feesCollected, aeroLowSplit, sourceOverride);
-    await logAndAlertAeroSplit(out, feesCollected);
+    out.aeroSplit = { skipped: 'kept_as_aero' };
   } else {
     // Garde-fou largeur : pas de retrait AERO sur ce rebalance, juste un redimensionnement de la
     // position — on laisse l'AERO continuer à courir sur le gauge jusqu'au prochain claim.
@@ -579,7 +601,11 @@ async function saveRangeAndLowTrigger(out, price) {
 async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, explicitRangePct = null }) {
   const result = { action: 'auto_start' };
 
-  // 1. Capital disponible = USDC + WETH dans le wallet
+  // 1. Capital disponible = USDC + WETH dans le wallet. L'AERO réclamé par les Règles 2/3/5 reste
+  // en AERO (14/10, jamais swappé avant la distribution de 6h) — il n'entre donc jamais dans ce
+  // calcul et ne peut pas être redéployé par erreur dans une réouverture (incident du 13/10, qui
+  // avait motivé une première version de cette protection basée sur une banque USDC séparée,
+  // devenue inutile puisque l'AERO ne transite plus jamais par de l'USDC avant 6h).
   const [usdcBal, wethBal] = await Promise.all([getWalletUsdc(), getWalletWeth()]);
   const capital = usdcBal + wethBal * price;
   if (capital < 10) return { ...result, skipped: true, reason: `Capital insuffisant : $${capital.toFixed(2)}` };

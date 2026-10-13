@@ -192,6 +192,11 @@ export async function POST(req) {
   // le wallet du bot) — 1 par défaut (comportement historique du bouton manuel), 0.25 pour le
   // claim matinal automatique 7h.
   const sendFraction = Math.min(1, Math.max(0, parseFloat(body.sendFraction ?? 1)));
+  // swapAero : si false, le claim (getReward) a bien lieu mais l'AERO reste en AERO dans le wallet
+  // — pas de swap, pas d'envoi (sendFraction n'a alors aucun effet). Utilisé par le bot (14/10,
+  // Règles 2/3/5 via collectFees/closePositions, et le claim de la Règle 4 à 6h) : l'AERO n'est
+  // converti en USDC qu'une fois par jour par dailyAeroDistribution, pas à chaque claim.
+  const swapAero = body.swapAero !== false;
   let rawTokenId = null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
@@ -264,7 +269,7 @@ export async function POST(req) {
     try {
       const aeroBal = await readBal(AERO, wallet.address);
       const MIN_AERO = ethers.parseUnits("0.01", 18);
-      if (aeroBal >= MIN_AERO) {
+      if (swapAero && aeroBal >= MIN_AERO) {
         const txApp = await sendTx(wallet, {
           to: AERO,
           data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
