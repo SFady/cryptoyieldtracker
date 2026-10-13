@@ -80,6 +80,7 @@ export default function ProfilePage() {
             }, 0)
             + parseFloat(usdcWallet2 || 0)
             + parseFloat(wethWalletUSD2 || 0)
+            + parseFloat(aeroWalletUSD2 || 0)
           : null;
         const delta2 = total2 !== null && openingTotal2 !== null ? total2 - openingTotal2 : null;
 
