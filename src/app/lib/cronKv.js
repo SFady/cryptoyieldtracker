@@ -155,6 +155,18 @@ export async function wasAeroSentToday(poolNum) {
   try { return !!(await kv.get(`aero-sent-${poolNum}-${today}`)); } catch (_) { return false; }
 }
 
+// Flag "distribution quotidienne AERO (6h Paris) déjà faite aujourd'hui" par pool — remplace
+// l'ancienne Règle 4 (claim périodique 24h glissantes).
+export async function writeDailyAeroBatchDone(poolNum) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  try { await kv.set(`daily-aero-batch-${poolNum}-${today}`, 1, { ex: LP_STATE_TTL }); } catch (_) {}
+}
+
+export async function wasDailyAeroBatchDone(poolNum) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+  try { return !!(await kv.get(`daily-aero-batch-${poolNum}-${today}`)); } catch (_) { return false; }
+}
+
 // Lock distribué (remplace lp_events RUNNING) — TTL 5 min géré par Redis
 export async function checkRedisLock() {
   try { return !!(await kv.get("lp-running")); } catch (_) { return false; }

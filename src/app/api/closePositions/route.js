@@ -1,6 +1,6 @@
 ﻿import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
-import { readLpState, writeLpState, writeErrorState } from "../../lib/cronKv";
+import { readLpState, writeLpState, writeErrorState, readFeesBank, writeFeesBank } from "../../lib/cronKv";
 import { getPoolAddress } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
@@ -90,8 +90,6 @@ const V2_ROUTER_IFACE = new ethers.Interface([
   "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
   "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
 ]);
-
-const WETH_IFACE = new ethers.Interface(["function withdraw(uint256)"]);
 
 // Montant USDC reçu par le wallet, lu directement depuis les logs Transfer du reçu — fiable même si
 // un delta de solde avant/après serait faussé par deux lectures RPC atterrissant sur des nœuds pas
@@ -243,46 +241,6 @@ async function readBal(token, address) {
   return ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h)[0];
 }
 
-// Swap une partie de l'USDC gardé (jamais la part envoyée au wallet externe) vers WETH puis unwrap
-// en ETH natif (WETH.withdraw) — alimente le gas DE CE wallet, reste ici, n'est jamais envoyé
-// ailleurs. Non-bloquant : un échec ici ne doit jamais faire échouer le split résiduel AERO.
-async function topUpGasFromUsdc(wallet, stablecoinAddr, usdcAmountRaw) {
-  // Réactivé (12/10) — désactivé le 03/10 car sur de trop petits montants, le gas des 3 tx
-  // (approve+swap+unwrap) dépassait l'ETH obtenu. Seuil minimum 0,05$ (appelé uniquement avec ce
-  // montant fixe désormais, cf. l'appel ci-dessous — remplace l'ancien calcul à 2% du résidu).
-  if (!usdcAmountRaw || usdcAmountRaw < 50000n) return { skipped: "insufficient" };
-  try {
-    const routes = [{ from: stablecoinAddr, to: WETH, stable: false, factory: V2_FACTORY }];
-    const txApp = await sendTx(wallet, { to: stablecoinAddr, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
-    await waitForTx(provider, txApp);
-
-    let minOut = 0n;
-    try {
-      const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [usdcAmountRaw, routes]));
-      const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
-      minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
-    } catch (_) {}
-
-    // Montant reçu lu depuis les logs Transfer du receipt (pas un delta de solde avant/après, qui
-    // peut faussement voir 0 si les deux lectures atterrissent sur des nœuds RPC désynchronisés
-    // derrière un même endpoint public — même cause que le "no_weth_received" du 13/10 côté bot).
-    const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [usdcAmountRaw, minOut, routes, wallet.address, freshDeadline()]);
-    let swapGas = 300000n;
-    try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); swapGas = est * 3n / 2n; } catch (_) {}
-    const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: swapGas });
-    const swapReceipt = await waitForTx(provider, txSwap);
-
-    const wethReceivedRaw = parseUsdcReceived(swapReceipt, wallet.address, WETH);
-    if (wethReceivedRaw <= 0n) return { error: "no_weth_received" };
-
-    const txUnwrap = await sendTx(wallet, { to: WETH, data: WETH_IFACE.encodeFunctionData("withdraw", [wethReceivedRaw]) });
-    await waitForTx(provider, txUnwrap);
-
-    return { ok: true, usdcSpent: parseFloat(ethers.formatUnits(usdcAmountRaw, 6)), ethReceived: parseFloat(ethers.formatUnits(wethReceivedRaw, 18)), swapHash: txSwap.hash, unwrapHash: txUnwrap.hash };
-  } catch (e) {
-    return { error: e.message ?? String(e) };
-  }
-}
 // ── Helpers fee calculation (same as positions/route.js) ─────────────────────
 const M256 = 1n << 256n;
 function mod256(n) { return ((n % M256) + M256) % M256; }
@@ -861,42 +819,17 @@ export async function POST(req) {
           const aeroSwapUsdcReceivedRaw = parseUsdcReceived(aeroSwapReceipt, wallet.address, stablecoin);
           aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(aeroSwapUsdcReceivedRaw, 6));
 
-          // Split de ce résidu AERO vers le wallet externe (même logique que sendAeroSplit côté bot,
-          // qui ne peut pas voir ce montant car il s'exécute avant ce swap-ci)
-          if (aeroSplitFraction && aeroSwapUsdcReceivedRaw > 0n) {
+          // Résidu AERO (converti en USDC ci-dessus) gardé entièrement dans le wallet du bot (14/10)
+          // — plus d'envoi vers le wallet externe, même logique que sendAeroSplit côté bot. Ajouté à
+          // la banque p2_fees_bank (pool 2 uniquement — ce helper n'est pas paramétré par poolNum,
+          // donc on ne l'utilise pas pour le pool 3) pour être redistribué par la Règle 4 (6h Paris).
+          // aeroSplitFraction/aeroSourceOverride gardés dans la signature pour ne pas devoir modifier
+          // chaque appelant, mais ne jouent plus aucun rôle.
+          if (poolNum === 2 && aeroSwapUsdcReceived > 0) {
             try {
-              const dest = poolNum === 3 ? process.env.DESTINATION_WALLET_3 : process.env.DESTINATION_WALLET;
-              if (dest) {
-                const pct = Math.round(aeroSplitFraction * 1000);
-                const toSendRaw = aeroSwapUsdcReceivedRaw * BigInt(pct) / 1000n;
-                if (toSendRaw > 0n) {
-                  const txResidual = await sendTx(wallet, { to: stablecoin, data: ERC20_IFACE.encodeFunctionData("transfer", [dest, toSendRaw]) });
-                  await waitForTx(provider, txResidual);
-                  const source = aeroSourceOverride ?? (aeroSplitFraction <= 0.25 ? "edge_low_25pct" : "edge_high_50pct");
-                  await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num) VALUES (${parseFloat(ethers.formatUnits(toSendRaw, 6))}, ${source}, ${txResidual.hash}, ${poolNum})`;
-
-                  // 0,10$ pour le gas du wallet du bot (même montant fixe que sendAeroSplit côté
-                  // bot), prélevés sur la part gardée (jamais sur toSendRaw), uniquement si le
-                  // montant envoyé dépasse ce seuil. Remplace l'ancien calcul à 2% du résidu (mort,
-                  // la fonction était désactivée). Trace "Gas" dans dest_transfers pour cohérence
-                  // avec la page Envois — non comptée dans son total (filtré côté front).
-                  const BOT_GAS_TOPUP_USD = 0.05;
-                  const botGasRaw = ethers.parseUnits(BOT_GAS_TOPUP_USD.toFixed(6), 6);
-                  if (aeroSwapUsdcReceivedRaw > botGasRaw) {
-                    let botGasTopUp = null;
-                    try { botGasTopUp = await topUpGasFromUsdc(wallet, stablecoin, botGasRaw); } catch (_) {}
-                    if (botGasTopUp?.ok) {
-                      try {
-                        await sql`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
-                                  VALUES (${BOT_GAS_TOPUP_USD}, ${'bot_gas_topup'}, ${botGasTopUp.swapHash ?? botGasTopUp.unwrapHash ?? null}, ${poolNum})`;
-                      } catch (_) {}
-                    }
-                  }
-                }
-              } else {
-                aeroResidualError = 'no_dest_wallet';
-              }
-            } catch (e) { aeroResidualError = e.message ?? String(e); }
+              const bank = (await readFeesBank().catch(() => 0)) + aeroSwapUsdcReceived;
+              await writeFeesBank(bank);
+            } catch (_) {}
           }
         }
       }
