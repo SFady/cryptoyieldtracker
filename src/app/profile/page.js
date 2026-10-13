@@ -21,6 +21,8 @@ export default function ProfilePage() {
   const [wethWalletUSD2, setWethWalletUSD2] = useState(null);
   const [ethWallet2, setEthWallet2] = useState(null);
   const [ethWalletUSD2, setEthWalletUSD2] = useState(null);
+  const [aeroWallet2, setAeroWallet2] = useState(null);
+  const [aeroWalletUSD2, setAeroWalletUSD2] = useState(null);
   const [percentileRange2, setPercentileRange2] = useState(null);
   const [lastCronAt2, setLastCronAt2] = useState(null);
   const [edgeStreak2, setEdgeStreak2] = useState({ zone: null, count: 0 });
@@ -53,7 +55,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -130,7 +132,7 @@ export default function ProfilePage() {
             {pos2 && pos2.length === 0 && !loading2 && (
               <>
                 <Empty />
-                {(parseFloat(usdcWallet2 || 0) > 0 || parseFloat(wethWallet2 || 0) > 0) && (
+                {(parseFloat(usdcWallet2 || 0) > 0 || parseFloat(wethWallet2 || 0) > 0 || parseFloat(aeroWallet2 || 0) > 0) && (
                   <div style={{ background: "rgba(20,26,36,0.95)", border: "1px solid rgba(124,77,255,0.15)", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
                     <Section label="Solde non utilisé">
                       {parseFloat(usdcWallet2 || 0) > 0 && (
@@ -139,12 +141,15 @@ export default function ProfilePage() {
                       {parseFloat(wethWallet2 || 0) > 0 && (
                         <TokenRow token={{ symbol: "WETH", balance: wethWallet2, usd: wethWalletUSD2 ?? "0.00" }} accent="#627eea" />
                       )}
+                      {parseFloat(aeroWallet2 || 0) > 0 && (
+                        <TokenRow token={{ symbol: "AERO", balance: aeroWallet2, usd: aeroWalletUSD2 ?? "0.00" }} accent="#e86c00" />
+                      )}
                     </Section>
                   </div>
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} wethRatio={wethRatio2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} aeroWallet={i === 0 ? aeroWallet2 : null} aeroWalletUSD={i === 0 ? aeroWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} wethRatio={wethRatio2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
           </>
         );
       })()}
@@ -307,7 +312,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, wethRatio = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, aeroWallet = null, aeroWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, wethRatio = null, openingDelta = null, openingTotal = null, openingLp = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -439,13 +444,16 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
       </Section>
 
       {/* Solde non utilisé */}
-      {(usdcWallet !== null || wethWallet !== null) && (
+      {(usdcWallet !== null || wethWallet !== null || aeroWallet !== null) && (
         <Section label="Solde non utilisé">
           {usdcWallet && parseFloat(usdcWallet) > 0 && (
             <TokenRow token={{ symbol: "USDC", balance: usdcWallet, usd: usdcWallet }} accent="#00e5a0" />
           )}
           {wethWallet !== null && (
             <TokenRow token={{ symbol: "WETH", balance: wethWallet ?? "0.000000", usd: wethWalletUSD ?? "0.00" }} accent="#627eea" />
+          )}
+          {aeroWallet !== null && (
+            <TokenRow token={{ symbol: "AERO", balance: aeroWallet ?? "0.000000", usd: aeroWalletUSD ?? "0.00" }} accent="#e86c00" />
           )}
         </Section>
       )}

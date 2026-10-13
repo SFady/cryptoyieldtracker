@@ -412,7 +412,19 @@ export async function GET() {
         const ethPriceNum = Number((sqrtPX96 * sqrtPX96 * 10n ** 12n) / (1n << 192n));
         if (ethPriceNum > 0) ethWalletUSD = (ethAmt * ethPriceNum).toFixed(2);
       } catch (_) {}
-      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, walletShort };
+      // AERO résiduel (non claim, non position) laissé dans le wallet
+      let aeroWallet = "0.000000", aeroWalletUSD = "0.00";
+      try {
+        const hex = await ethCall(AERO, "0x70a08231" + walletPad);
+        const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
+        const aeroAmt = Number(ethers.formatUnits(raw, 18));
+        aeroWallet = aeroAmt.toFixed(6);
+        if (aeroAmt > 0) {
+          const aeroPriceNum = await getAeroPrice(ethCall);
+          if (aeroPriceNum > 0) aeroWalletUSD = (aeroAmt * aeroPriceNum).toFixed(2);
+        }
+      } catch (_) {}
+      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, walletShort };
       global._cytPos2Cache = { data };
       await writePositionsCache(2, data);
       return Response.json(data);
@@ -529,6 +541,20 @@ export async function GET() {
       if (ethPriceNum > 0) ethWalletUSD = (ethAmt * ethPriceNum).toFixed(2);
     } catch (_) {}
 
+    // AERO résiduel (non claim, non position) laissé dans le wallet
+    let aeroWallet = "0.000000";
+    let aeroWalletUSD = "0.00";
+    try {
+      const hex = await ethCall(AERO, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
+      const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
+      const aeroAmt = Number(ethers.formatUnits(raw, 18));
+      aeroWallet = aeroAmt.toFixed(6);
+      if (aeroAmt > 0) {
+        const aeroPriceNum = await getAeroPrice(ethCall);
+        if (aeroPriceNum > 0) aeroWalletUSD = (aeroAmt * aeroPriceNum).toFixed(2);
+      }
+    } catch (_) {}
+
     // Range percentile 5%–95% sur les 24h dernières
     let percentileRangePct = null;
     try {
@@ -585,7 +611,7 @@ export async function GET() {
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
     const wethRatio    = computeWethRatio(positions, wethWalletUSD, usdcWallet);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
