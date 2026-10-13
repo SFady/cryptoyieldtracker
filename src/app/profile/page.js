@@ -317,13 +317,6 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
     ? adjustedPoolUSD + aeroUSD + parseFloat(usdcWallet || 0) + parseFloat(wethWalletUSD || 0) - openingTotal
     : openingDelta;
 
-  const feePct      = showFeePercent && pos.openTimestamp && totalRevenus != null
-    ? (() => {
-        const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
-        const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
-        return ((totalRevenus / base) / hours * 24 * 30 * 100).toFixed(2);
-      })()
-    : null;
   const aeroPct     = showFeePercent && pos.openTimestamp && aeroUSD > 0.001
     ? (() => {
         const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
@@ -472,7 +465,7 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         {aeroUSD > 0.001 && (
           <TokenRow token={{ symbol: "AERO", balance: pos.aeroBalance ?? "", usd: aeroUSD.toFixed(2) }} accent="#e86c00" badge={aeroPct ? `${aeroPct}%/mois` : null} />
         )}
-        <TotalRow label="Total revenus" value={totalRevenus != null ? `$${totalRevenus.toFixed(2)}` : "—"} highlight percent={feePct} percentSuffix="%/mois" />
+        <TotalRow label="Total revenus" value={totalRevenus != null ? `$${totalRevenus.toFixed(2)}` : "—"} highlight />
       </Section>
 
       {/* Footer */}
