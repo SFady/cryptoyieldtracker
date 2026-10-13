@@ -290,7 +290,9 @@ async function sendAeroSplit(feesCollectedUsdc, isLow, sourceOverride = null) {
   // 0,05$ pour le gas du wallet du bot, uniquement si le montant envoyé dépasse ce seuil — prélevés
   // sur la part gardée, jamais sur `toSend`. Best-effort : un échec ici n'affecte ni le transfert
   // externe (déjà fait) ni le résultat global de sendAeroSplit (toujours ok:true si on arrive jusqu'ici).
-  const BOT_GAS_TOPUP_USD = 0.10;
+  // Repassé à 0,05$ (13/10) : à 0,10$, la plupart des petits envois (souvent $0,06-$0,09) ne
+  // dépassaient plus jamais le seuil, donc plus aucune tentative de top-up ne se déclenchait.
+  const BOT_GAS_TOPUP_USD = 0.05;
   let botGasTopUp = null;
   if (toSend > BOT_GAS_TOPUP_USD) {
     try { botGasTopUp = await topUpGasFromUsdc(BOT_GAS_TOPUP_USD); } catch (e) { botGasTopUp = { error: e.message ?? String(e), usdcAmount: BOT_GAS_TOPUP_USD }; }
@@ -489,7 +491,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // skipAero : aeroSplitFraction=null coupe aussi l'envoi externe du résidu AERO côté closePositions
   // (le unstake peut auto-régler des rewards en attente, mais on ne les envoie pas — ils restent en
   // USDC dans le wallet, repris proprement au prochain vrai cycle de collecte).
-  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAero ? null : (aeroLowSplit ? 0.25 : 0.5), sourceOverride); }
+  try   { out.closeLP = await closeLP(base, true, closeReason, feesCollected, skipAero ? null : (aeroLowSplit ? 0.25 : 0.4), sourceOverride); }
   catch (e) { out.closeLPError = e.message; }
 
   // Fermeture ratée (exception ou {error} dans la réponse) → ne pas ouvrir une nouvelle position

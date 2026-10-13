@@ -248,9 +248,9 @@ async function readBal(token, address) {
 // ailleurs. Non-bloquant : un échec ici ne doit jamais faire échouer le split résiduel AERO.
 async function topUpGasFromUsdc(wallet, stablecoinAddr, usdcAmountRaw) {
   // Réactivé (12/10) — désactivé le 03/10 car sur de trop petits montants, le gas des 3 tx
-  // (approve+swap+unwrap) dépassait l'ETH obtenu. Seuil minimum 0,10$ (appelé uniquement avec ce
+  // (approve+swap+unwrap) dépassait l'ETH obtenu. Seuil minimum 0,05$ (appelé uniquement avec ce
   // montant fixe désormais, cf. l'appel ci-dessous — remplace l'ancien calcul à 2% du résidu).
-  if (!usdcAmountRaw || usdcAmountRaw < 100000n) return { skipped: "insufficient" };
+  if (!usdcAmountRaw || usdcAmountRaw < 50000n) return { skipped: "insufficient" };
   try {
     const routes = [{ from: stablecoinAddr, to: WETH, stable: false, factory: V2_FACTORY }];
     const txApp = await sendTx(wallet, { to: stablecoinAddr, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
@@ -880,7 +880,7 @@ export async function POST(req) {
                   // montant envoyé dépasse ce seuil. Remplace l'ancien calcul à 2% du résidu (mort,
                   // la fonction était désactivée). Trace "Gas" dans dest_transfers pour cohérence
                   // avec la page Envois — non comptée dans son total (filtré côté front).
-                  const BOT_GAS_TOPUP_USD = 0.10;
+                  const BOT_GAS_TOPUP_USD = 0.05;
                   const botGasRaw = ethers.parseUnits(BOT_GAS_TOPUP_USD.toFixed(6), 6);
                   if (aeroSwapUsdcReceivedRaw > botGasRaw) {
                     let botGasTopUp = null;
