@@ -51,7 +51,7 @@ async function sendErrorEmail(subject, body) {
 //   4.  Une fois par jour à 6h Paris (14/10 — remplace l'ancien claim périodique 24h glissantes) :
 //       réclame l'AERO encore en attente dans le gauge (rejoint ce que les Règles 2/3/5 ont laissé
 //       en AERO dans la journée), swap la TOTALITÉ du solde AERO du wallet en USDC en un seul coup,
-//       puis distribue : 35% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 60%
+//       puis distribue : 30% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 65%
 //       restent en USDC dans le wallet. Seule règle qui swap encore l'AERO et qui envoie hors du
 //       wallet du bot.
 //   5.  Range devenu trop large : percentile24h tombé à au moins 1pt sous la largeur actuelle →
@@ -312,7 +312,7 @@ async function convertAeroToUsdc(aeroAmountRaw) {
 //      journée — aucune collecte ne swap plus l'AERO depuis le 14/10).
 //   2. Swap la totalité du solde AERO du wallet en USDC (un seul swap, sur un montant conséquent —
 //      le gas reste négligeable, contrairement à l'ancien swap par petit événement).
-//   3. Sur l'USDC obtenu : 35% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 60%
+//   3. Sur l'USDC obtenu : 30% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 65%
 //      restent simplement dans le wallet en USDC.
 async function dailyAeroDistribution(base) {
   const out = {};
@@ -341,7 +341,7 @@ async function dailyAeroDistribution(base) {
   out.bank = bank;
   if (bank < 0.01) return { ...out, skipped: 'swap_failed' };
 
-  const toExternal = parseFloat((bank * 0.35).toFixed(6));
+  const toExternal = parseFloat((bank * 0.30).toFixed(6));
   const toEth       = parseFloat((bank * 0.05).toFixed(6));
   out.toExternal = toExternal;
   out.toEth      = toEth;
@@ -371,7 +371,7 @@ async function dailyAeroDistribution(base) {
         try {
           const sqlDb = neon(process.env.DATABASE_URL);
           await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
-                      VALUES (${toExternal}, ${'daily_6am_35pct'}, ${txHash}, ${2})`;
+                      VALUES (${toExternal}, ${'daily_6am_30pct'}, ${txHash}, ${2})`;
         } catch (_) {}
       } else {
         out.externalError = 'transfer_failed';
@@ -740,10 +740,10 @@ export async function botLoop({ base, price }) {
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
 
   // Règle 4 (14/10 — remplace l'ancien claim périodique 24h glissantes) : une fois par jour à 6h
-  // Paris, réclame l'AERO encore en attente dans le gauge, l'ajoute à ce que les Règles 2/3/5 ont
-  // déjà accumulé dans la journée (banque p2_fees_bank), puis distribue le tout : 35% vers
-  // DESTINATION_WALLET, 5% converti en ETH natif pour le gas du bot, 60% restent en USDC dans le
-  // wallet (déjà là, aucune action). Gating par date Paris (wasDailyAeroBatchDone), pas un
+  // Paris, réclame l'AERO encore en attente dans le gauge (rejoint ce que les Règles 2/3/5 ont
+  // laissé en AERO dans la journée), swap la totalité du solde AERO du wallet en USDC en un seul
+  // coup, puis distribue : 30% vers DESTINATION_WALLET, 5% converti en ETH natif pour le gas du
+  // bot, 65% restent en USDC dans le wallet. Gating par date Paris (wasDailyAeroBatchDone), pas un
   // intervalle glissant — ne se déclenche qu'une fois par jour, à heure fixe.
   if (hasLP) {
     const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
