@@ -51,7 +51,7 @@ async function sendErrorEmail(subject, body) {
 //   4.  Une fois par jour à 6h Paris (14/10 — remplace l'ancien claim périodique 24h glissantes) :
 //       réclame l'AERO encore en attente dans le gauge (rejoint ce que les Règles 2/3/5 ont laissé
 //       en AERO dans la journée), swap la TOTALITÉ du solde AERO du wallet en USDC en un seul coup,
-//       puis distribue : 30% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 65%
+//       puis distribue : 25% vers DESTINATION_WALLET, 7% converti en ETH natif (gas du bot), 68%
 //       restent en USDC dans le wallet. Seule règle qui swap encore l'AERO et qui envoie hors du
 //       wallet du bot.
 //   5.  Range devenu trop large : percentile24h tombé à au moins 1pt sous la largeur actuelle →
@@ -312,7 +312,7 @@ async function convertAeroToUsdc(aeroAmountRaw) {
 //      journée — aucune collecte ne swap plus l'AERO depuis le 14/10).
 //   2. Swap la totalité du solde AERO du wallet en USDC (un seul swap, sur un montant conséquent —
 //      le gas reste négligeable, contrairement à l'ancien swap par petit événement).
-//   3. Sur l'USDC obtenu : 30% vers DESTINATION_WALLET, 5% converti en ETH natif (gas du bot), 65%
+//   3. Sur l'USDC obtenu : 25% vers DESTINATION_WALLET, 7% converti en ETH natif (gas du bot), 68%
 //      restent simplement dans le wallet en USDC.
 async function dailyAeroDistribution(base) {
   const out = {};
@@ -341,8 +341,8 @@ async function dailyAeroDistribution(base) {
   out.bank = bank;
   if (bank < 0.01) return { ...out, skipped: 'swap_failed' };
 
-  const toExternal = parseFloat((bank * 0.30).toFixed(6));
-  const toEth       = parseFloat((bank * 0.05).toFixed(6));
+  const toExternal = parseFloat((bank * 0.25).toFixed(6));
+  const toEth       = parseFloat((bank * 0.07).toFixed(6));
   out.toExternal = toExternal;
   out.toEth      = toEth;
 
@@ -371,7 +371,7 @@ async function dailyAeroDistribution(base) {
         try {
           const sqlDb = neon(process.env.DATABASE_URL);
           await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
-                      VALUES (${toExternal}, ${'daily_6am_30pct'}, ${txHash}, ${2})`;
+                      VALUES (${toExternal}, ${'daily_6am_25pct'}, ${txHash}, ${2})`;
         } catch (_) {}
       } else {
         out.externalError = 'transfer_failed';

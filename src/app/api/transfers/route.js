@@ -21,7 +21,9 @@ function formatSource(source) {
   if (source === "width_shrink") return "Garde-fou largeur 25%";
   if (source === "width_shrink_25pct") return "Width shrink 25%";
   if (source === "bot_gas_topup") return "Gas";
-  if (source === "daily_6am_30pct") return "Distribution 6h 30%";
+  if (source === "daily_6am_35pct") return "Daily 35%";
+  if (source === "daily_6am_30pct") return "Daily 30%";
+  if (source === "daily_6am_25pct") return "Daily 25%";
   return source;
 }
 
