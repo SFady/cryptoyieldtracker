@@ -50,10 +50,11 @@ async function sendErrorEmail(subject, body) {
 //       (×1). K remis à 1.
 //   4.  Une fois par jour à 6h Paris (14/10 — remplace l'ancien claim périodique 24h glissantes) :
 //       réclame l'AERO encore en attente dans le gauge (rejoint ce que les Règles 2/3/5 ont laissé
-//       en AERO dans la journée), swap la TOTALITÉ du solde AERO du wallet en USDC en un seul coup,
-//       puis distribue : 25% vers DESTINATION_WALLET, 7% converti en ETH natif (gas du bot), 68%
-//       restent en USDC dans le wallet. Seule règle qui swap encore l'AERO et qui envoie hors du
-//       wallet du bot.
+//       en AERO dans la journée), swap la TOTALITÉ du solde AERO du wallet en USDC en un seul coup.
+//       Complément gas (16/10) : si le solde ETH natif du wallet vaut moins de 5$, complète jusqu'à
+//       5$ en prélevant sur ce gain AERO (pas un pourcentage fixe). Sur ce qui reste : 25% vers
+//       DESTINATION_WALLET, 75% restent en USDC dans le wallet. Seule règle qui swap encore l'AERO
+//       et qui envoie hors du wallet du bot.
 //   5.  Range devenu trop large : percentile24h tombé à au moins 1pt sous la largeur actuelle →
 //       resserre directement à percentile24h, SANS swap (garde les proportions WETH/USDC actuelles).
 //       K remis à 1. (07/10 — remplace l'ancien garde-fou de largeur, supprimé le 05/10, avec un
@@ -129,6 +130,26 @@ async function readWalletToken(tokenAddress, decimals, pinnedUrl = null) {
 
 const getWalletUsdc = (pinnedUrl) => readWalletToken(USDC_ADDRESS, 6, pinnedUrl);
 const getWalletWeth = (pinnedUrl) => readWalletToken(WETH_ADDRESS, 18, pinnedUrl);
+
+// Solde ETH natif (gas) du wallet du bot — pas un token ERC20, lecture eth_getBalance directe.
+async function getWalletEthNative(pinnedUrl = null) {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) return 0;
+  const wallet = new ethers.Wallet(privateKey.trim());
+  for (const url of (pinnedUrl ? [pinnedUrl] : RPC_URLS)) {
+    try {
+      const res  = await fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [wallet.address, 'latest'] }),
+        signal:  AbortSignal.timeout(6000),
+      });
+      const json = await res.json();
+      if (json.result) return Number(BigInt(json.result)) / 1e18;
+    } catch (_) {}
+  }
+  return 0;
+}
 
 // ── Valorisation directe de la position (Règle 4) sans passer par /api/positions2 ─────────
 // Mêmes adresses/formules que positions2 et claimAero, dupliquées ici pour que le bot puisse
@@ -312,9 +333,11 @@ async function convertAeroToUsdc(aeroAmountRaw) {
 //      journée — aucune collecte ne swap plus l'AERO depuis le 14/10).
 //   2. Swap la totalité du solde AERO du wallet en USDC (un seul swap, sur un montant conséquent —
 //      le gas reste négligeable, contrairement à l'ancien swap par petit événement).
-//   3. Sur l'USDC obtenu : 25% vers DESTINATION_WALLET, 7% converti en ETH natif (gas du bot), 68%
-//      restent simplement dans le wallet en USDC.
-async function dailyAeroDistribution(base) {
+//   3. Complément gas (16/10) : si le solde ETH natif du wallet vaut moins de 5$, convertit assez
+//      d'USDC (prélevé sur le gain AERO ci-dessus) pour compléter jusqu'à 5$ — pas un pourcentage
+//      fixe, juste ce qu'il faut. Remplace l'ancien taux fixe de 7%.
+//   4. Sur ce qui reste de l'USDC obtenu : 75% restent dans le wallet, 25% vers DESTINATION_WALLET.
+async function dailyAeroDistribution(base, price) {
   const out = {};
 
   try {
@@ -337,14 +360,30 @@ async function dailyAeroDistribution(base) {
   if (aeroBalRaw <= 0n) return { ...out, skipped: 'insufficient' };
 
   out.swap = await convertAeroToUsdc(aeroBalRaw);
-  const bank = out.swap?.ok ? out.swap.usdcReceived : 0;
+  let bank = out.swap?.ok ? out.swap.usdcReceived : 0;
   out.bank = bank;
   if (bank < 0.01) return { ...out, skipped: 'swap_failed' };
 
+  // Complément gas : seulement si le solde ETH natif actuel vaut moins de 5$, et seulement le
+  // manquant (jamais plus que ce que le gain AERO permet).
+  const MIN_ETH_USD = 5;
+  try {
+    const ethBal    = await getWalletEthNative();
+    const ethValueUsd = price ? ethBal * price : null;
+    out.ethBalanceUsd = ethValueUsd;
+    if (ethValueUsd !== null && ethValueUsd < MIN_ETH_USD) {
+      const complement = parseFloat(Math.min(MIN_ETH_USD - ethValueUsd, bank).toFixed(6));
+      out.gasComplement = complement;
+      if (complement > 0.01) {
+        out.ethTopUp = await convertUsdcToEth(complement);
+        if (out.ethTopUp?.ok) bank = parseFloat((bank - complement).toFixed(6));
+      }
+    }
+  } catch (e) { out.gasComplementError = e.message ?? String(e); }
+  out.bankAfterGas = bank;
+
   const toExternal = parseFloat((bank * 0.25).toFixed(6));
-  const toEth       = parseFloat((bank * 0.07).toFixed(6));
   out.toExternal = toExternal;
-  out.toEth      = toEth;
 
   if (toExternal > 0.01) {
     const dest = process.env.DESTINATION_WALLET;
@@ -379,14 +418,10 @@ async function dailyAeroDistribution(base) {
     }
   }
 
-  if (toEth > 0.01) {
-    out.ethTopUp = await convertUsdcToEth(toEth);
-  }
-
   if (out.externalError || out.ethTopUp?.error) {
     await sendErrorEmail(
       '[CryptoYieldTracker] Distribution quotidienne AERO — problème',
-      `aeroBalance: ${out.aeroBalance}\nbank (USDC): ${bank}\ntoExternal: ${toExternal}\nexternalError: ${out.externalError ?? 'n/a'}\ntoEth: ${toEth}\nethTopUp: ${JSON.stringify(out.ethTopUp)}`,
+      `aeroBalance: ${out.aeroBalance}\nbank (USDC): ${out.bank}\nethBalanceUsd: ${out.ethBalanceUsd ?? 'n/a'}\ngasComplement: ${out.gasComplement ?? 'n/a'}\nbankAfterGas: ${out.bankAfterGas}\ntoExternal: ${toExternal}\nexternalError: ${out.externalError ?? 'n/a'}\nethTopUp: ${JSON.stringify(out.ethTopUp)}`,
     );
   }
 
@@ -739,16 +774,18 @@ export async function botLoop({ base, price }) {
   let rMin = hasLP ? parseFloat(lpState.range_min) : null;
   let rMax = hasLP ? parseFloat(lpState.range_max) : null;
 
-  // Règle 4 (14/10 — remplace l'ancien claim périodique 24h glissantes) : une fois par jour à 6h
-  // Paris, réclame l'AERO encore en attente dans le gauge (rejoint ce que les Règles 2/3/5 ont
-  // laissé en AERO dans la journée), swap la totalité du solde AERO du wallet en USDC en un seul
-  // coup, puis distribue : 30% vers DESTINATION_WALLET, 5% converti en ETH natif pour le gas du
-  // bot, 65% restent en USDC dans le wallet. Gating par date Paris (wasDailyAeroBatchDone), pas un
-  // intervalle glissant — ne se déclenche qu'une fois par jour, à heure fixe.
+  // Règle 4 (14/10 — remplace l'ancien claim périodique 24h glissantes ; complément gas revu le
+  // 16/10) : une fois par jour à 6h Paris, réclame l'AERO encore en attente dans le gauge (rejoint
+  // ce que les Règles 2/3/5 ont laissé en AERO dans la journée), swap la totalité du solde AERO du
+  // wallet en USDC en un seul coup. Si le solde ETH natif du wallet vaut moins de 5$, complète
+  // jusqu'à 5$ en prélevant sur ce gain AERO (pas un pourcentage fixe). Sur ce qui reste : 25% vers
+  // DESTINATION_WALLET, 75% restent en USDC dans le wallet. Gating par date Paris
+  // (wasDailyAeroBatchDone), pas un intervalle glissant — ne se déclenche qu'une fois par jour, à
+  // heure fixe.
   if (hasLP) {
     const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
     if (parisHour === 6 && !(await wasDailyAeroBatchDone(2).catch(() => false))) {
-      result.dailyAeroBatch = await dailyAeroDistribution(base);
+      result.dailyAeroBatch = await dailyAeroDistribution(base, price);
       await writeDailyAeroBatchDone(2).catch(() => {});
     }
   }
