@@ -34,6 +34,7 @@ export default function ProfilePage() {
   const [error2, setError2]       = useState(null);
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
+  const [aeroClockResetAt2, setAeroClockResetAt2] = useState(null);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -55,7 +56,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -150,7 +151,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} aeroWallet={i === 0 ? aeroWallet2 : null} aeroWalletUSD={i === 0 ? aeroWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} wethRatio={wethRatio2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} />)}
+            {pos2 && pos2.map((p, i) => <PositionCard key={p.tokenId} pos={p} showFeePercent showCollect poolNum={2} usdcWallet={i === 0 ? usdcWallet2 : null} wethWallet={i === 0 ? wethWallet2 : null} wethWalletUSD={i === 0 ? wethWalletUSD2 : null} ethWallet={i === 0 ? ethWallet2 : null} ethWalletUSD={i === 0 ? ethWalletUSD2 : null} aeroWallet={i === 0 ? aeroWallet2 : null} aeroWalletUSD={i === 0 ? aeroWalletUSD2 : null} edgeStreak={edgeStreak2} oorCount={oorCount2} oorLow={oorLow2} wethRatio={wethRatio2} openingDelta={delta2} openingTotal={openingTotal2} openingLp={openingLp2} aeroClockResetAt={aeroClockResetAt2} />)}
           </>
         );
       })()}
@@ -313,7 +314,7 @@ function Empty() {
   );
 }
 
-function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, aeroWallet = null, aeroWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, wethRatio = null, openingDelta = null, openingTotal = null, openingLp = null }) {
+function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, wethWallet, wethWalletUSD, ethWallet = null, ethWalletUSD = null, aeroWallet = null, aeroWalletUSD = null, edgeStreak = null, oorCount = 0, oorLow = false, wethRatio = null, openingDelta = null, openingTotal = null, openingLp = null, aeroClockResetAt = null }) {
   const aeroUSD         = pos.aeroRevenueUSD ? parseFloat(pos.aeroRevenueUSD) : 0;
   const adjustedPoolUSD = parseFloat(pos.totalPoolUSD ?? 0);
 
@@ -323,10 +324,17 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
     ? adjustedPoolUSD + aeroUSD + parseFloat(usdcWallet || 0) + parseFloat(wethWalletUSD || 0) - openingTotal
     : openingDelta;
 
-  const aeroPct     = showFeePercent && pos.openTimestamp && aeroUSD > 0.001
+  // Point de départ du %/mois et du "Ouvert depuis" : l'ouverture de position, SAUF si un retrait
+  // d'AERO sans fermeture (distribution 6h) est plus récent — dans ce cas l'AERO vient d'être vidé,
+  // le compteur doit repartir de ce retrait plutôt que de se diluer sur toute la vie de la position.
+  const aeroRefTimestamp = (aeroClockResetAt && aeroClockResetAt > pos.openTimestamp)
+    ? aeroClockResetAt
+    : pos.openTimestamp;
+
+  const aeroPct     = showFeePercent && aeroRefTimestamp && aeroUSD > 0.001
     ? (() => {
         const base  = (openingTotal ?? parseFloat(pos.totalPoolUSD)) || 1;
-        const hours = Math.max(1 / 60, (Date.now() - pos.openTimestamp) / 3_600_000);
+        const hours = Math.max(1 / 60, (Date.now() - aeroRefTimestamp) / 3_600_000);
         return ((aeroUSD / base) / hours * 24 * 30 * 100).toFixed(2);
       })()
     : null;
@@ -486,8 +494,8 @@ function PositionCard({ pos, showFeePercent, showCollect, poolNum, usdcWallet, w
         fontSize: "0.72rem", fontFamily: "monospace", color: "#6666aa",
       }}>
         <span>#{pos.tokenId}</span>
-        {pos.openTimestamp && (() => {
-          const totalMin = Math.floor((Date.now() - pos.openTimestamp) / 60_000);
+        {aeroRefTimestamp && (() => {
+          const totalMin = Math.floor((Date.now() - aeroRefTimestamp) / 60_000);
           const h = Math.floor(totalMin / 60);
           const m = totalMin % 60;
           return <span>Ouvert depuis {h}h {String(m).padStart(2, "0")}min</span>;

@@ -364,6 +364,11 @@ async function dailyAeroDistribution(base, price) {
   out.bank = bank;
   if (bank < 0.01) return { ...out, skipped: 'swap_failed' };
 
+  // Retrait d'AERO sans fermeture de position (16/10) : remet à 0 le point de départ utilisé pour
+  // calculer le %/mois affiché sur la page (voir profile/page.js, aeroClockResetAt) — sinon ce taux
+  // se dilue sur toute la durée de vie de la position alors que l'AERO vient d'être vidé.
+  await kv.set('p2_aero_clock_reset_at', Date.now(), { ex: 30 * 86400 }).catch(() => {});
+
   // Complément gas : seulement si le solde ETH natif actuel vaut moins de 5$, et seulement le
   // manquant (jamais plus que ce que le gain AERO permet).
   const MIN_ETH_USD = 5;

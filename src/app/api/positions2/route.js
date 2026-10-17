@@ -317,7 +317,8 @@ export async function GET() {
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
     const wethRatio    = computeWethRatio(cached.positions, cached.wethWalletUSD, cached.usdcWallet);
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio });
+    const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio, aeroClockResetAt });
   }
 
   try {
@@ -611,7 +612,10 @@ export async function GET() {
     const highZoneHits = await kv.bitcount('p2_high_zone_bits', 0, 1).catch(() => 0);
     const rule1K       = await readRule1K().catch(() => null);
     const wethRatio    = computeWethRatio(positions, wethWalletUSD, usdcWallet);
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio };
+    // Dernier retrait d'AERO sans fermeture (distribution 6h) — point de départ du %/mois affiché,
+    // au lieu de l'ouverture de position si ce retrait est plus récent (voir profile/page.js).
+    const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio, aeroClockResetAt };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json(data);
