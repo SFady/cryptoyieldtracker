@@ -461,7 +461,11 @@ async function getGateSnapshotDirect(lpState, rtConfig, rMin, rMax, price) {
   ]);
   const wethWalletUsd = wethWalletUsdRaw * price;
   const totalUsd      = wethPoolUsd + usdcPoolUsd + wethWalletUsd + usdcWalletUsd;
-  const wethRatio     = totalUsd > 0 ? (wethPoolUsd + wethWalletUsd) / totalUsd : null;
+  // Ratio pool SEUL (18/10) — le solde wallet inutilisé (ex. l'USDC gardé chaque jour par la
+  // distribution 6h) ne doit pas diluer ce ratio : sinon les Règles 2/3 ne se déclenchent plus une
+  // fois ce solde devenu significatif, alors que la LP elle-même est déjà à 100% hors range.
+  const poolUsd       = wethPoolUsd + usdcPoolUsd;
+  const wethRatio      = poolUsd > 0 ? wethPoolUsd / poolUsd : null;
 
   let openingLp = parseFloat((await kv.get('p2_opening_lp').catch(() => null)) ?? 0) || null;
   let revenueGate = null;
@@ -484,7 +488,9 @@ async function getGateSnapshotViaApi(base) {
     const wethWalletUsd = parseFloat(d.wethWalletUSD ?? 0);
     const usdcWalletUsd = parseFloat(d.usdcWallet ?? 0);
     const totalUsd      = wethPoolUsd + usdcPoolUsd + wethWalletUsd + usdcWalletUsd;
-    const wethRatio     = totalUsd > 0 ? (wethPoolUsd + wethWalletUsd) / totalUsd : null;
+    // Ratio pool seul (18/10) — voir getGateSnapshotDirect, même raison (repli API, même formule).
+    const poolUsd       = wethPoolUsd + usdcPoolUsd;
+    const wethRatio      = poolUsd > 0 ? wethPoolUsd / poolUsd : null;
 
     let revenueGate = null;
     if (d.openingLp != null) {
@@ -815,10 +821,12 @@ export async function botLoop({ base, price }) {
   result.centerPrice = centerPrice ? parseFloat(centerPrice.toFixed(2)) : null;
   result.poolNum     = ALGO_CONFIG.POOL_NUM;
 
-  // Règles 2 et 3 : déclenchées sur le ratio WETH de la position (pool + wallet), confirmées sur 5
-  // ticks consécutifs — même compteur/dots que l'ancien système (p2_oor_count/p2_oor_low, affichés
-  // sur la page pools), pour ne pas rebalancer sur un ratio qui ne fait que passer la frontière un
-  // instant. oorLow=true (dots rouges) = Règle 2 (trigger bas) ; oorLow=false (dots cyan) = Règle 3.
+  // Règles 2 et 3 : déclenchées sur le ratio WETH du POOL SEUL (18/10 — exclut les soldes wallet,
+  // qui diluaient le ratio au fil du temps à mesure que l'USDC gardé par la distribution 6h
+  // s'accumulait, empêchant ces règles de se redéclencher), confirmées sur 5 ticks consécutifs —
+  // même compteur/dots que l'ancien système (p2_oor_count/p2_oor_low, affichés sur la page pools),
+  // pour ne pas rebalancer sur un ratio qui ne fait que passer la frontière un instant. oorLow=true
+  // (dots rouges) = Règle 2 (trigger bas) ; oorLow=false (dots cyan) = Règle 3.
   if (hasLP) {
     const wethRatio = (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
