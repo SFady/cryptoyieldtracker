@@ -318,10 +318,7 @@ export async function GET() {
     const rule1K       = await readRule1K().catch(() => null);
     const wethRatio    = computeWethRatio(cached.positions, cached.wethWalletUSD, cached.usdcWallet);
     const aeroClockResetAt  = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
-    // Fallback sur l'ouverture de la position tant que p2_last_rebalance_at n'a pas encore été
-    // écrit par un premier autoStart() post-déploiement (19/10) — l'ouverture actuelle EST le
-    // dernier rebalance en date, donc c'est la même information, pas une approximation.
-    const lastRebalanceAt   = parseInt(await kv.get('p2_last_rebalance_at').catch(() => null)) || cached.positions?.[0]?.openTimestamp || null;
+    const lastRebalanceAt   = parseInt(await kv.get('p2_last_rebalance_at').catch(() => null)) || null;
     return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio, aeroClockResetAt, lastRebalanceAt });
   }
 
@@ -619,7 +616,7 @@ export async function GET() {
     // Dernier retrait d'AERO sans fermeture (distribution 6h) — point de départ du %/mois affiché,
     // au lieu de l'ouverture de position si ce retrait est plus récent (voir profile/page.js).
     const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
-    const lastRebalanceAt  = parseInt(await kv.get('p2_last_rebalance_at').catch(() => null)) || positions?.[0]?.openTimestamp || null;
+    const lastRebalanceAt  = parseInt(await kv.get('p2_last_rebalance_at').catch(() => null)) || null;
     const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, rule1K, wethRatio, aeroClockResetAt, lastRebalanceAt };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
