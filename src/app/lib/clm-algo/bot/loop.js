@@ -727,11 +727,6 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
   await kv.del(REDIS_KEYS.HEDGE_STATE);
   await kv.del(REDIS_KEYS.OOR_SINCE);
   await kv.set('p2_hedge_fees', 0, { ex: 30 * 86400 });
-  // Horodatage pour le cooldown 24h des Règles 2/3/5 (19/10) — autoStart() est le seul point commun
-  // à toutes les règles (voir commentaire ci-dessus), donc marquer le timestamp ici couvre toute
-  // réouverture, y compris la Règle 1 ; seule la LECTURE de ce timestamp (dans botLoop, avant de
-  // déclencher les Règles 2/3/5) gate quoi que ce soit — la Règle 1 n'est jamais gatée par lui.
-  await kv.set('p2_last_rebalance_at', Date.now(), { ex: 2 * 86400 });
 
   // 6. Total au démarrage (Redis + Neon)
   try {
@@ -836,18 +831,6 @@ export async function botLoop({ base, price }) {
     const wethRatio = (await getGateSnapshot(base, lpState, rtConfig, rMin, rMax, price))?.wethRatio ?? null;
     result.wethRatio = wethRatio;
 
-    // Cooldown (19/10) : aucune des Règles 2/3/5 ne referme une position tant que 24h ne se sont
-    // pas écoulées depuis le dernier rebalance (p2_last_rebalance_at, écrit dans autoStart — commun
-    // à toutes les règles). Simulation : sans cooldown, le bruit fait traverser les deux seuils
-    // 95%/5% dans les deux sens plusieurs fois par jour, chaque aller-retour réalisant une perte
-    // (IL) au lieu de la laisser se résorber — un simple délai minimum réduit cette perte bien plus
-    // que confirmer sur plus de ticks ou qu'élargir le range (testé, les deux aident peu ou pas).
-    // Ne gate QUE la fermeture d'une position existante, jamais la Règle 1 (ouverture à vide) : si
-    // le capital est dans le wallet sans position, il n'y a aucune raison d'attendre pour le redéployer.
-    const lastRebalanceAt = parseInt(await kv.get('p2_last_rebalance_at').catch(() => null)) || 0;
-    const cooledDown = Date.now() - lastRebalanceAt > 24 * 3600 * 1000;
-    result.cooledDown = cooledDown;
-
     const inLowZone  = wethRatio !== null && wethRatio >= 0.95;
     const inHighZone = wethRatio !== null && wethRatio <= 0.05;
 
@@ -858,8 +841,8 @@ export async function botLoop({ base, price }) {
       result.oorCount = newCount;
       result.isOORLow = inLowZone;
 
-      if (newCount < 5 || !cooledDown) {
-        result.action = newCount < 5 ? 'oor_waiting' : 'oor_waiting_cooldown';
+      if (newCount < 5) {
+        result.action = 'oor_waiting';
         await logBotTick(kv, result);
         return result;
       }
@@ -869,16 +852,14 @@ export async function botLoop({ base, price }) {
 
       if (inLowZone) {
         // Règle 2 : trigger bas (position quasi entièrement en WETH) — collecte AERO (25%
-        // envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h × 2
-        // (19/10, doublée avec l'arrivée du cooldown — un peu moins de fees par $ mais réduit le
-        // risque de ressortir du range pendant la fenêtre de 24h). Plancher 1.5% (04/10) : évite
-        // une range trop étroite si le percentile24h est anormalement bas, qui ferait ressortir la
-        // position presque aussitôt, en boucle.
+        // envoyé/75% gardé), ferme et rouvre à 75% WETH (swap forcé), largeur = percentile24h × 1.25.
+        // Plancher 1.5% (04/10) : évite une range trop étroite si le percentile24h est anormalement
+        // bas, qui ferait ressortir la position presque aussitôt, en boucle.
         const pctData2 = await getPercentileRange();
         const p24h2    = pctData2 && pctData2.cnt >= 10 && pctData2.p05 > 0
           ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
           : null;
-        const width2 = p24h2 !== null ? Math.max(p24h2 * 2, 1.5) : 1.5;
+        const width2 = p24h2 !== null ? Math.max(p24h2 * 1.25, 1.5) : 1.5;
         await writeRule1K(1);
         result.rule1K          = 1;
         result.action          = 'low_trigger';
@@ -890,13 +871,12 @@ export async function botLoop({ base, price }) {
       }
 
       // Règle 3 : trigger haut (position quasi entièrement en USDC) — collecte AERO (40%
-      // envoyé/60% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h × 1.6
-      // (19/10, même raison que la Règle 2 ci-dessus).
+      // envoyé/60% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut.
       const pctData3 = await getPercentileRange();
       const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
-      const width3 = p24h3 !== null ? Math.max(p24h3 * 1.6, 1.5) : 1.5;
+      const width3 = p24h3 !== null ? Math.max(p24h3, 1.5) : 1.5;
       await writeRule1K(1);
       result.rule1K          = 1;
       result.action          = 'high_trigger';
@@ -914,9 +894,8 @@ export async function botLoop({ base, price }) {
     // tombé à au moins 1pt sous la largeur actuelle) → resserre directement à range_percentile, SANS
     // swap (garde les proportions WETH/USDC actuelles de la position). Vérifiée à chaque tick, pas de
     // confirmation sur plusieurs ticks (le percentile24h est déjà une moyenne glissante sur 24h, donc
-    // peu sujet au bruit instantané, contrairement au prix/ratio) — mais soumise au même cooldown 24h
-    // que les Règles 2/3 (19/10). Plancher 1,5% comme les autres règles.
-    if (cooledDown && !isNaN(rMin) && !isNaN(rMax)) {
+    // peu sujet au bruit instantané, contrairement au prix/ratio). Plancher 1,5% comme les autres règles.
+    if (!isNaN(rMin) && !isNaN(rMax)) {
       const rangePctActuel5 = (rMax - rMin) / rMin * 100;
       const pctData5        = await getPercentileRange();
       const p24h5           = pctData5 && pctData5.cnt >= 10 && pctData5.p05 > 0

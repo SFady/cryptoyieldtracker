@@ -35,7 +35,6 @@ export default function ProfilePage() {
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
   const [aeroClockResetAt2, setAeroClockResetAt2] = useState(null);
-  const [lastRebalanceAt2, setLastRebalanceAt2] = useState(null);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -57,7 +56,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setLastRebalanceAt2(d.lastRebalanceAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -108,29 +107,6 @@ export default function ProfilePage() {
                   K : {rule1K2}
                 </span>
               )}
-              {lastRebalanceAt2 && (() => {
-                const COOLDOWN_MS = 24 * 3600 * 1000;
-                const elapsedMs   = Date.now() - lastRebalanceAt2;
-                const remainingMs = COOLDOWN_MS - elapsedMs;
-                const fmtDur = (ms) => {
-                  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-                  return `${h}h${String(m).padStart(2, "0")}`;
-                };
-                const done = remainingMs <= 0;
-                return (
-                  <span style={{
-                    fontSize: "0.65rem", fontFamily: "monospace",
-                    padding: "2px 8px", borderRadius: 4,
-                    background: done ? "rgba(34,197,94,0.08)" : "rgba(240,180,41,0.08)",
-                    border: `1px solid ${done ? "rgba(34,197,94,0.25)" : "rgba(240,180,41,0.4)"}`,
-                    color: done ? "#86efac" : "#f0b429",
-                  }}>
-                    {done
-                      ? `✓ Cooldown écoulé (depuis ${fmtDur(elapsedMs)})`
-                      : `⏳ Cooldown : depuis ${fmtDur(elapsedMs)} — reste ${fmtDur(remainingMs)}`}
-                  </span>
-                );
-              })()}
               {lastCronAt2 && (
                 <span style={{
                   fontSize: "0.65rem", fontFamily: "monospace",
