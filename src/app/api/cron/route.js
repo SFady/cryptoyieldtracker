@@ -49,6 +49,13 @@ async function handle(req) {
   if (!checkAuth(req)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const ranAt = new Date().toISOString();
 
+  // Coupe-circuit (20/10) : si activé (flag Redis posé via /api/admin-clear-stale {setPaused:true}),
+  // le cron ne fait STRICTEMENT rien — ni prix, ni bot, ni écriture Redis — tant qu'il n'est pas
+  // désactivé. Volontairement vérifié avant tout le reste, pour un arrêt réellement total.
+  try {
+    if (await kv.get('p2_bot_paused')) return Response.json({ ok: true, ranAt, paused: true, skipped: true });
+  } catch (_) {}
+
   // 1. Prix on-chain (sans Redis)
   let price = null;
   try { price = await getPoolWethPrice(); } catch (_) {}

@@ -16,6 +16,18 @@ export async function POST(req) {
   const poolNum = body.poolNum ?? 2;
   const reason  = body.reason ?? 'stuck_at_gauge';
 
+  // Coupe-circuit du bot (20/10) — pose/retire le flag lu tout en haut de /api/cron. true = arrêt
+  // total (plus aucun tick, bot ou pas), false = reprise normale.
+  if (body.setPaused != null) {
+    try {
+      if (body.setPaused) await kv.set('p2_bot_paused', 1, { ex: 30 * 86400 });
+      else await kv.del('p2_bot_paused');
+      return Response.json({ ok: true, paused: !!body.setPaused });
+    } catch (e) {
+      return Response.json({ error: e.message }, { status: 500 });
+    }
+  }
+
   // Correction ponctuelle du capital d'ouverture affiché (Redis uniquement) — n'exécute
   // pas la logique de nettoyage ci-dessous quand ce champ est fourni.
   if (body.setOpeningTotal != null) {
