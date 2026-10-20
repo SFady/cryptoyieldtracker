@@ -362,7 +362,17 @@ async function dailyAeroDistribution(base, price) {
   out.swap = await convertAeroToUsdc(aeroBalRaw);
   let bank = out.swap?.ok ? out.swap.usdcReceived : 0;
   out.bank = bank;
-  if (bank < 0.01) return { ...out, skipped: 'swap_failed' };
+  if (bank < 0.01) {
+    // Échec du swap (pas juste "rien à faire" — il y avait bien de l'AERO) : alerter, et laisser
+    // writeDailyAeroBatchDone NON écrit côté appelant pour que ça retente au tick suivant tant qu'on
+    // est encore dans l'heure 6h, au lieu de rester bloqué en AERO non distribué jusqu'au lendemain
+    // (bug du 20/10 : le swap avait échoué silencieusement et la journée était quand même marquée faite).
+    await sendErrorEmail(
+      '[CryptoYieldTracker] Distribution quotidienne AERO — échec du swap',
+      `aeroBalance: ${out.aeroBalance}\nswap: ${JSON.stringify(out.swap)}`,
+    );
+    return { ...out, skipped: 'swap_failed' };
+  }
 
   // Retrait d'AERO sans fermeture de position (16/10) : remet à 0 le point de départ utilisé pour
   // calculer le %/mois affiché sur la page (voir profile/page.js, aeroClockResetAt) — sinon ce taux
@@ -797,7 +807,11 @@ export async function botLoop({ base, price }) {
     const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
     if (parisHour === 6 && !(await wasDailyAeroBatchDone(2).catch(() => false))) {
       result.dailyAeroBatch = await dailyAeroDistribution(base, price);
-      await writeDailyAeroBatchDone(2).catch(() => {});
+      // Ne marque "fait" que si ça a vraiment réussi, ou s'il n'y avait rien à distribuer —
+      // sur un échec de swap (skipped: 'swap_failed'), on NE marque PAS, pour retenter au
+      // prochain tick tant qu'on est encore dans l'heure 6h (20/10, voir dailyAeroDistribution).
+      const batchOk = result.dailyAeroBatch?.ok || result.dailyAeroBatch?.skipped === 'insufficient';
+      if (batchOk) await writeDailyAeroBatchDone(2).catch(() => {});
     }
   }
 
