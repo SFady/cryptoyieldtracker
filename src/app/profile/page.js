@@ -35,6 +35,8 @@ export default function ProfilePage() {
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
   const [aeroClockResetAt2, setAeroClockResetAt2] = useState(null);
+  const [botPaused2, setBotPaused2] = useState(false);
+  const [pauseToggling2, setPauseToggling2] = useState(false);
 
   const [pos3, setPos3]           = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -56,7 +58,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setBotPaused2(d.botPaused ?? false); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -68,6 +70,20 @@ export default function ProfilePage() {
       .catch((e) => setError3(e.message))
       .finally(() => setLoading3(false));
   }, []);
+
+  function handleTogglePause() {
+    if (pauseToggling2) return;
+    const next = !botPaused2;
+    setPauseToggling2(true);
+    fetch("/api/admin-clear-stale", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ setPaused: next }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setBotPaused2(!!d.paused); })
+      .catch(() => {})
+      .finally(() => setPauseToggling2(false));
+  }
 
   return (
     <>
@@ -127,6 +143,20 @@ export default function ProfilePage() {
                   {pos2[0].isStaked ? "✓ Staké" : "⚠ Non-staké"}
                 </span>
               )}
+              <button
+                onClick={handleTogglePause}
+                disabled={pauseToggling2}
+                style={{
+                  fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 700,
+                  padding: "2px 10px", borderRadius: 4,
+                  cursor: pauseToggling2 ? "not-allowed" : "pointer",
+                  background: botPaused2 ? "rgba(201,112,112,0.12)" : "rgba(124,77,255,0.08)",
+                  border: `1px solid ${botPaused2 ? "rgba(201,112,112,0.4)" : "rgba(124,77,255,0.25)"}`,
+                  color: botPaused2 ? "#f08080" : "#a78bfa",
+                }}
+              >
+                {pauseToggling2 ? "…" : botPaused2 ? "⏸ Bot en pause — reprendre" : "⏸ Pauser le bot"}
+              </button>
             </div>
             {loading2 && <Spinner label="Découverte des positions…" />}
             {error2   && <ErrorBox msg={error2} />}
