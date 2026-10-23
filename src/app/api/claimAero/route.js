@@ -30,7 +30,7 @@ const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const VOTER      = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+const VOTER      = "0x382409fAd8503FbCDbB27a4211551FA03e884078"; // Voter du protocole fusionné Aero (23/10)
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -49,6 +49,8 @@ const ERC20_IFACE = new ethers.Interface([
 const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   "function getReward(uint256 tokenId)",
+  // Nouveau gauge (23/10) — remplace getReward, voir CLGauge.claimEmissions(address,address).
+  "function claimEmissions(address account, address recipient)",
 ]);
 
 const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
@@ -247,7 +249,7 @@ export async function POST(req) {
     // (constaté : un eth_call identique rejoué après coup réussit sans problème).
     let getRewardOk = true;
     try {
-      const data = GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]);
+      const data = GAUGE_IFACE.encodeFunctionData("claimEmissions", [wallet.address, wallet.address]);
       let gasLimit = 400000n;
       try {
         const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data });
@@ -257,7 +259,7 @@ export async function POST(req) {
       await waitForTx(tx);
     } catch (e) {
       getRewardOk = false;
-      console.log(`[claimAero getReward] ${e.message ?? e}`);
+      console.log(`[claimAero claimEmissions] ${e.message ?? e}`);
     }
 
     // 4. Swap AERO → USDC — montant reçu lu depuis les logs Transfer du reçu (fiable même si un

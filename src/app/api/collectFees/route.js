@@ -35,7 +35,7 @@ const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const WETH        = "0x4200000000000000000000000000000000000006";
 const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+const VOTER       = "0x382409fAd8503FbCDbB27a4211551FA03e884078"; // Voter du protocole fusionné Aero (23/10)
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -65,6 +65,8 @@ const NFPM_IFACE = new ethers.Interface([
 const GAUGE_IFACE = new ethers.Interface([
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
+  // Nouveau gauge (23/10) — remplace getReward, voir CLGauge.claimEmissions(address,address).
+  "function claimEmissions(address account, address recipient)",
   "function deposit(uint256 tokenId)",
   "function deposit(uint256 tokenId, uint256 tokenVeloPair)",
   "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
@@ -267,13 +269,14 @@ async function handleStep1(poolNum) {
     const usdcBefore = await readBal(USDC, wallet.address).catch(() => 0n);
     const wethBefore = await readBal(WETH, wallet.address).catch(() => 0n);
 
-    // Appel getReward inconditionnellement — si la position n'est pas stakée, la tx échoue et on log
+    // Appel claimEmissions inconditionnellement (23/10, remplace getReward) — si la position n'est
+    // pas stakée, la tx échoue et on log sans bloquer la suite.
     try {
-      const tx = await sendTx(wallet, { to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("getReward", [tokenId]) });
+      const tx = await sendTx(wallet, { to: gaugeAddr, data: GAUGE_IFACE.encodeFunctionData("claimEmissions", [wallet.address, wallet.address]) });
       await waitForTx(tx);
-      console.log(`[collectFees step1 getReward] OK`);
+      console.log(`[collectFees step1 claimEmissions] OK`);
     } catch (e) {
-      console.log(`[collectFees step1 getReward] ${e.message ?? e}`);
+      console.log(`[collectFees step1 claimEmissions] ${e.message ?? e}`);
     }
 
     const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);

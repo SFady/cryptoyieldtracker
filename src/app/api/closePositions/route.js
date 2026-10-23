@@ -44,7 +44,7 @@ const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const WETH        = "0x4200000000000000000000000000000000000006";
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
-const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+const VOTER       = "0x382409fAd8503FbCDbB27a4211551FA03e884078"; // Voter du protocole fusionné Aero (23/10)
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -76,6 +76,8 @@ const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   "function withdraw(uint256 tokenId)",
   "function getReward(uint256 tokenId)",
+  // Nouveau gauge (23/10) — remplace getReward, voir CLGauge.claimEmissions(address,address).
+  "function claimEmissions(address account, address recipient)",
 ]);
 
 const VOTER_IFACE = new ethers.Interface([
@@ -334,11 +336,11 @@ export async function POST(req) {
       for (const tokenId of stakedIds) {
         if (skipTokenIds.has(tokenId)) continue;
         if (targetTokenIds && !targetTokenIds.has(tokenId)) continue;
-        // Claim rewards AERO (silencieux)
+        // Claim rewards AERO (silencieux) — claimEmissions remplace getReward depuis le 23/10.
         try {
           const tx = await sendTx(wallet, {
             to: gaugeAddr,
-            data: GAUGE_IFACE.encodeFunctionData('getReward', [tokenId]),
+            data: GAUGE_IFACE.encodeFunctionData('claimEmissions', [wallet.address, wallet.address]),
           });
           await waitForTx(provider, tx);
         } catch (_) {}
@@ -371,7 +373,7 @@ export async function POST(req) {
             unstakedList.push(targetId.toString());
           } else {
             try {
-              const txR = await sendTx(wallet, { to: ownerAddr, data: GAUGE_IFACE.encodeFunctionData('getReward', [targetId]) });
+              const txR = await sendTx(wallet, { to: ownerAddr, data: GAUGE_IFACE.encodeFunctionData('claimEmissions', [wallet.address, wallet.address]) });
               await waitForTx(provider, txR);
             } catch (_) {}
             try {
@@ -414,11 +416,11 @@ export async function POST(req) {
               // NFT dans un contrat (gauge ou autre) → tenter le withdraw
               actualGauge = owner;
               try {
-                const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('getReward', [dbTokenId]) });
+                const txReward = await sendTx(wallet, { to: actualGauge, data: GAUGE_IFACE.encodeFunctionData('claimEmissions', [wallet.address, wallet.address]) });
                 await waitForTx(provider, txReward);
-                console.log(`[fallback] getReward OK actualGauge=${actualGauge}`);
+                console.log(`[fallback] claimEmissions OK actualGauge=${actualGauge}`);
               } catch (e) {
-                console.log(`[fallback] getReward error: ${e.message ?? e}`);
+                console.log(`[fallback] claimEmissions error: ${e.message ?? e}`);
               }
               try {
                 const withdrawData = GAUGE_IFACE.encodeFunctionData('withdraw', [dbTokenId]);

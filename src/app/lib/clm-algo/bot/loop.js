@@ -81,7 +81,12 @@ async function sendErrorEmail(subject, body) {
 // Coupe-circuit global : si false, botLoop() ne fait plus rien du tout — la position ouverte reste
 // telle quelle, en attente. Le code de chaque règle reste intact, prêt à repartir en repassant ce
 // flag à true.
-const BOT_ENABLED = true;
+// Désactivé (22/10) le temps de la migration Aerodrome → Aero (fusion AERO/VELO) : POOL_ADDRESS_2
+// pointe maintenant vers le nouveau pool, mais le router de swap du nouveau protocole n'est pas
+// encore connu — tout le code de swap (AERO/USDC, USDC/WETH) reste câblé sur l'ancien router. Ne
+// PAS repasser à true tant que ce router n'est pas confirmé, sous peine d'appeler le mauvais
+// contrat sur le nouveau pool.
+const BOT_ENABLED = false;
 
 // Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire,
 // pas de zone neutre. Utilisé uniquement par autoStart() pour le code "open_trend" affiché (colonne
@@ -154,13 +159,54 @@ async function getWalletEthNative(pinnedUrl = null) {
 // ── Valorisation directe de la position (Règle 4) sans passer par /api/positions2 ─────────
 // Mêmes adresses/formules que positions2 et claimAero, dupliquées ici pour que le bot puisse
 // calculer sa part WETH et ses revenus totaux à partir de Redis + RPC uniquement, sans toucher Neon.
-const VOTER      = '0x16613524e02ad97eDfeF371bC883F2F5d6C480A5';
+// VOTER (23/10) : nouveau Voter du protocole fusionné Aero — l'ancien ne connaît pas POOL_ADDRESS_2
+// (qui pointe désormais vers le nouveau pool) et ne retrouverait aucun gauge pour lui.
+const VOTER      = '0x382409fAd8503FbCDbB27a4211551FA03e884078';
 const AERO       = '0x940181a94A35A4569E4529A3CDfB74e38FD98631';
 const V2_ROUTER  = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43';
 const V2_FACTORY = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
 const VOTER_IFACE       = new ethers.Interface(['function gauges(address pool) view returns (address)']);
-const GAUGE_EARNED_IFACE = new ethers.Interface(['function earned(address account, uint256 tokenId) view returns (uint256)']);
+const GAUGE_EARNED_IFACE = new ethers.Interface(['function earned(address account) view returns (uint256)']);
 const V2_ROUTER_IFACE   = new ethers.Interface(['function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)']);
+
+// ── Migration Aerodrome → Aero (23/10) ───────────────────────────────────────────────────────
+// Nouveau protocole fusionné : un seul routeur ("Metarouter") gère swaps + LP + staking via une
+// seule fonction execute(commands, inputs, deadline), un octet de commande par entrée de `inputs`.
+// Format confirmé le 22/10 en décodant une vraie transaction de swap de l'utilisateur (voir mémoire
+// project_aero_migration.md) : struct SwapExactInParams = (address[] pools, address tokenIn,
+// (uint8 mode, uint256 value) amountIn, bool payerIsUser, uint256 minAmountOut, address recipient).
+// mode 0 = Amount (montant exact, celui qu'on utilise toujours ici).
+const METAROUTER          = '0x0fEf9e88A7b76BCDBF451780C6774FE32965Ee98';
+const NEW_AERO            = '0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee'; // nouveau token AERO (différent de l'ancien, confirmé 1:1 en valeur)
+const AERO_USDC_POOL_V2   = '0xF634058dC94e6BF8e828E27621320C423bC8B18E'; // AERO/USDC "Basic Volatile" (V2)
+const CMD_CL_SWAP_EXACT_IN = 0x00;
+const CMD_V2_SWAP_EXACT_IN = 0x08;
+const METAROUTER_IFACE = new ethers.Interface(['function execute(bytes commands, bytes[] inputs, uint256 deadline) payable']);
+const SWAP_EXACT_IN_PARAMS_TYPE = 'tuple(address[] pools, address tokenIn, tuple(uint8 mode, uint256 value) amountIn, bool payerIsUser, uint256 minAmountOut, address recipient)';
+
+/**
+ * Swap exact-in via le Metarouter du nouveau protocole Aero.
+ * commandByte : CMD_CL_SWAP_EXACT_IN (pool CL) ou CMD_V2_SWAP_EXACT_IN (pool V2 stable/volatile).
+ * pools : adresse(s) du/des pool(s) de la route, dans l'ordre (un seul saut dans tous nos usages).
+ * payerIsUser:true — les fonds partent directement du wallet (msgSender), pas d'un solde préalable
+ * dans le Metarouter lui-même (on n'utilise jamais sa logique de custody multi-commandes).
+ */
+async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw, minAmountOutRaw, wallet }) {
+  const params = {
+    pools,
+    tokenIn,
+    amountIn: { mode: 0, value: amountInRaw },
+    payerIsUser: true,
+    minAmountOut: minAmountOutRaw,
+    recipient: wallet.address,
+  };
+  const input0 = ethers.AbiCoder.defaultAbiCoder().encode([SWAP_EXACT_IN_PARAMS_TYPE], [params]);
+  const commands = ethers.hexlify(new Uint8Array([commandByte]));
+  const deadline = Math.floor(Date.now() / 1000) + 600;
+  const data = METAROUTER_IFACE.encodeFunctionData('execute', [commands, [input0], deadline]);
+  const tx = await wallet.sendTransaction({ to: METAROUTER, data });
+  return tx;
+}
 
 async function ethCall(to, data) {
   for (const url of RPC_URLS) {
@@ -184,14 +230,17 @@ async function getAeroUsdValue(tokenId) {
   const gaugeHex   = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData('gauges', [POOL_ADDRESS_2]));
   const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult('gauges', gaugeHex);
   if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress) return 0;
-  const earnedHex = await ethCall(gaugeAddr, GAUGE_EARNED_IFACE.encodeFunctionData('earned', [wallet.address, BigInt(tokenId)]));
+  // Nouveau gauge (23/10) : earned(account) sans tokenId — réclame/estime sur toutes les positions
+  // stakées du compte, il n'y en a qu'une seule ici de toute façon.
+  const earnedHex = await ethCall(gaugeAddr, GAUGE_EARNED_IFACE.encodeFunctionData('earned', [wallet.address]));
   const [earned]  = GAUGE_EARNED_IFACE.decodeFunctionResult('earned', earnedHex);
   const aeroAmt   = Number(earned) / 1e18;
   if (aeroAmt <= 0) return 0;
-  const routes    = [{ from: AERO, to: USDC_ADDRESS, stable: false, factory: V2_FACTORY }];
-  const amtsHex   = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData('getAmountsOut', [ethers.parseUnits('1', 18), routes]));
-  const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult('getAmountsOut', amtsHex);
-  const aeroPrice = parseFloat(ethers.formatUnits(amounts[1], 6));
+  // Prix du nouveau AERO via les réserves du pool AERO/USDC (23/10) — l'ancien V2_ROUTER ne connaît
+  // pas ce nouveau token.
+  const resHex    = await ethCall(AERO_USDC_POOL_V2, V2_GET_RESERVES_IFACE.encodeFunctionData('getReserves', []));
+  const [reserve0, reserve1] = V2_GET_RESERVES_IFACE.decodeFunctionResult('getReserves', resHex);
+  const aeroPrice = Number(reserve1) / 1e6 / (Number(reserve0) / 1e18);
   return aeroAmt * aeroPrice;
 }
 
@@ -228,11 +277,13 @@ function parseWethReceived(receipt, walletAddress) {
   }
   return total;
 }
+// Migré vers le Metarouter (23/10) : swap CL exact-in sur notre pool WETH/USDC confirmé
+// (POOL_ADDRESS_2, nouveau protocole Aero). Pas de minAmountOut précis ici — une cotation exacte
+// sur un pool CL demande la math sqrtPrice du slot0, pas disponible simplement ; acceptable sur ces
+// montants minces (top-up gas), comme l'ancien code tolérait déjà minOut=0 en repli silencieux.
 async function convertUsdcToEth(usdcAmount) {
   if (!usdcAmount || usdcAmount < 0.01) return { skipped: 'insufficient', usdcAmount };
   const amountIn = ethers.parseUnits(usdcAmount.toFixed(6), 6);
-  const routes = [{ from: USDC_ADDRESS, to: WETH_ADDRESS, stable: false, factory: V2_FACTORY }];
-  const deadline = Math.floor(Date.now() / 1000) + 600;
   for (const url of RPC_URLS) {
     try {
       const provider = new ethers.JsonRpcProvider(url);
@@ -240,20 +291,17 @@ async function convertUsdcToEth(usdcAmount) {
 
       const txApp = await wallet.sendTransaction({
         to: USDC_ADDRESS,
-        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [V2_ROUTER, ethers.MaxUint256]),
+        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
       });
       await txApp.wait();
 
-      let minOut = 0n;
-      try {
-        const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData('getAmountsOut', [amountIn, routes]));
-        const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult('getAmountsOut', outHex);
-        minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
-      } catch (_) {}
-
-      const txSwap = await wallet.sendTransaction({
-        to:   V2_ROUTER,
-        data: DAILY_SWAP_IFACE.encodeFunctionData('swapExactTokensForTokens', [amountIn, minOut, routes, wallet.address, deadline]),
+      const txSwap = await metarouterSwapExactIn({
+        commandByte: CMD_CL_SWAP_EXACT_IN,
+        pools: [POOL_ADDRESS_2],
+        tokenIn: USDC_ADDRESS,
+        amountInRaw: amountIn,
+        minAmountOutRaw: 0n,
+        wallet,
       });
       const swapReceipt = await txSwap.wait();
       const wethReceivedRaw = parseWethReceived(swapReceipt, wallet.address);
@@ -289,31 +337,41 @@ function parseUsdcReceivedFromAero(receipt, walletAddress) {
   }
   return total;
 }
+// Migré vers le Metarouter (23/10) : swap V2 exact-in sur le pool AERO/USDC "Basic Volatile" du
+// nouveau protocole Aero, avec le NOUVEAU token AERO (différent de l'ancien — voir constante
+// NEW_AERO). minOut calculé directement depuis les réserves du pool (x*y=k, pool V2 simple),
+// contrairement au CL où cette cotation demanderait la math sqrtPrice.
+const V2_GET_RESERVES_IFACE = new ethers.Interface(['function getReserves() view returns (uint256 _reserve0, uint256 _reserve1, uint256 _blockTimestampLast)']);
 async function convertAeroToUsdc(aeroAmountRaw) {
   if (!aeroAmountRaw || aeroAmountRaw <= 0n) return { skipped: 'insufficient' };
-  const routes = [{ from: AERO, to: USDC_ADDRESS, stable: false, factory: V2_FACTORY }];
-  const deadline = Math.floor(Date.now() / 1000) + 600;
   for (const url of RPC_URLS) {
     try {
       const provider = new ethers.JsonRpcProvider(url);
       const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
 
       const txApp = await wallet.sendTransaction({
-        to: AERO,
-        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [V2_ROUTER, ethers.MaxUint256]),
+        to: NEW_AERO,
+        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
       });
       await txApp.wait();
 
+      // AERO = token0, USDC = token1 sur ce pool (confirmé on-chain le 23/10).
       let minOut = 0n;
       try {
-        const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData('getAmountsOut', [aeroAmountRaw, routes]));
-        const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult('getAmountsOut', outHex);
-        minOut = amounts[amounts.length - 1] * 970n / 1000n; // 3% de slippage toléré
+        const resHex = await ethCall(AERO_USDC_POOL_V2, V2_GET_RESERVES_IFACE.encodeFunctionData('getReserves', []));
+        const [reserve0, reserve1] = V2_GET_RESERVES_IFACE.decodeFunctionResult('getReserves', resHex);
+        // Formule constant-product simplifiée, fee ~0,3% déjà couverte par la marge de slippage.
+        const amountOut = (aeroAmountRaw * reserve1) / (reserve0 + aeroAmountRaw);
+        minOut = amountOut * 970n / 1000n; // 3% de slippage toléré
       } catch (_) {}
 
-      const txSwap = await wallet.sendTransaction({
-        to:   V2_ROUTER,
-        data: DAILY_AERO_SWAP_IFACE.encodeFunctionData('swapExactTokensForTokens', [aeroAmountRaw, minOut, routes, wallet.address, deadline]),
+      const txSwap = await metarouterSwapExactIn({
+        commandByte: CMD_V2_SWAP_EXACT_IN,
+        pools: [AERO_USDC_POOL_V2],
+        tokenIn: NEW_AERO,
+        amountInRaw: aeroAmountRaw,
+        minAmountOutRaw: minOut,
+        wallet,
       });
       const swapReceipt = await txSwap.wait();
       const usdcReceivedRaw = parseUsdcReceivedFromAero(swapReceipt, wallet.address);
@@ -353,7 +411,7 @@ async function dailyAeroDistribution(base, price) {
   try {
     const privateKey = process.env.PRIVATE_KEY;
     const wallet      = new ethers.Wallet(privateKey.trim());
-    const balHex      = await ethCall(AERO, (new ethers.Interface(['function balanceOf(address) view returns (uint256)'])).encodeFunctionData('balanceOf', [wallet.address]));
+    const balHex      = await ethCall(NEW_AERO, (new ethers.Interface(['function balanceOf(address) view returns (uint256)'])).encodeFunctionData('balanceOf', [wallet.address]));
     [aeroBalRaw] = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], balHex);
   } catch (_) {}
   out.aeroBalance = parseFloat(ethers.formatUnits(aeroBalRaw, 18));
