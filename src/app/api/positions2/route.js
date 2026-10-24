@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
 import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, readRule1K } from "../../lib/cronKv";
-import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM } from "../../lib/config";
+import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM, GAUGE_ADDRESS_2 } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -138,22 +138,17 @@ async function discoverTokenIds(rpc, ethCall) {
   let   gaugeAddr = null;
   const stakedIds = [];
 
-  // 0. Positions stakées dans le gauge Aerodrome
+  // 0. Positions stakées dans le gauge — en dur (24/10), VOTER.gauges(pool) revert sur le nouveau
+  // Voter Aero.
   try {
-    const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL])).catch(() => null);
-    if (gaugeHex) {
-      const [addr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
-      if (addr && addr !== ethers.ZeroAddress) {
-        gaugeAddr = addr;
-        const stakedHex = await ethCall(addr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
-        if (stakedHex && stakedHex !== "0x") {
-          const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
-          for (const id of staked) {
-            const bigId = BigInt(id);
-            ids.add(bigId);
-            stakedIds.push(bigId);
-          }
-        }
+    gaugeAddr = GAUGE_ADDRESS_2;
+    const stakedHex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
+    if (stakedHex && stakedHex !== "0x") {
+      const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+      for (const id of staked) {
+        const bigId = BigInt(id);
+        ids.add(bigId);
+        stakedIds.push(bigId);
       }
     }
   } catch (_) {}
@@ -360,22 +355,16 @@ export async function GET() {
 
     let tokenIds, gaugeAddr, stakedIds;
     if (fastTokenId) {
-      // Position connue via DB → gauge scan minimal pour les rewards AERO uniquement
+      // Position connue via DB → gauge scan minimal pour les rewards AERO uniquement.
+      // Gauge en dur (24/10), VOTER.gauges(pool) revert sur le nouveau Voter Aero.
       tokenIds  = [fastTokenId];
-      gaugeAddr = null;
+      gaugeAddr = GAUGE_ADDRESS_2;
       stakedIds = [];
       try {
-        const gaugeHex = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData("gauges", [POOL])).catch(() => null);
-        if (gaugeHex) {
-          const [addr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeHex);
-          if (addr && addr !== ethers.ZeroAddress) {
-            gaugeAddr = addr;
-            const stakedHex = await ethCall(addr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
-            if (stakedHex && stakedHex !== "0x") {
-              const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
-              for (const id of staked) stakedIds.push(BigInt(id));
-            }
-          }
+        const stakedHex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("stakedValues", [WALLET])).catch(() => null);
+        if (stakedHex && stakedHex !== "0x") {
+          const [staked] = GAUGE_IFACE.decodeFunctionResult("stakedValues", stakedHex);
+          for (const id of staked) stakedIds.push(BigInt(id));
         }
       } catch (_) {}
     } else {
