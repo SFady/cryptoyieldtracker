@@ -81,12 +81,13 @@ async function sendErrorEmail(subject, body) {
 // Coupe-circuit global : si false, botLoop() ne fait plus rien du tout — la position ouverte reste
 // telle quelle, en attente. Le code de chaque règle reste intact, prêt à repartir en repassant ce
 // flag à true.
-// Désactivé (22/10) le temps de la migration Aerodrome → Aero (fusion AERO/VELO) : POOL_ADDRESS_2
-// pointe maintenant vers le nouveau pool, mais le router de swap du nouveau protocole n'est pas
-// encore connu — tout le code de swap (AERO/USDC, USDC/WETH) reste câblé sur l'ancien router. Ne
-// PAS repasser à true tant que ce router n'est pas confirmé, sous peine d'appeler le mauvais
-// contrat sur le nouveau pool.
-const BOT_ENABLED = false;
+// Réactivé (24/10) — migration Aerodrome → Aero (fusion AERO/VELO) terminée : createPosition,
+// collectFees, claimAero, closePositions, swap-weth-usdc et ce fichier utilisent tous maintenant le
+// nouveau NFPM/Voter/gauge/Metarouter du protocole fusionné. Les swaps ont été vérifiés par
+// simulation (eth_call) mais jamais exécutés en conditions réelles avant cette réactivation —
+// surveiller le premier tick qui ouvre une position (filet de sécurité : flag p2_bot_paused via
+// /api/admin-clear-stale si besoin d'arrêter vite).
+const BOT_ENABLED = true;
 
 // Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire,
 // pas de zone neutre. Utilisé uniquement par autoStart() pour le code "open_trend" affiché (colonne
