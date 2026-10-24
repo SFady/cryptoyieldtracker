@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { writeLpState, writeErrorState } from "../../lib/cronKv";
-import { getPoolAddress } from "../../lib/config";
+import { getPoolAddress, GAUGE_ADDRESS_2 } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 export const runtime     = "nodejs";
@@ -393,12 +393,8 @@ export async function POST(req) {
     if (tickLower >= tickUpper)
       return Response.json({ error: `Range invalide : tickLower(${tickLower}) >= tickUpper(${tickUpper}) — élargis la fourchette de prix` }, { status: 400 });
 
-    // 3. Adresse du gauge via Voter
-    const gaugeResult = await provider.call({
-      to: VOTER,
-      data: VOTER_IFACE.encodeFunctionData("gauges", [POOL]),
-    });
-    const [gaugeAddr] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], gaugeResult);
+    // 3. Adresse du gauge — en dur (24/10), VOTER.gauges(pool) revert sur le nouveau Voter Aero.
+    const gaugeAddr = GAUGE_ADDRESS_2;
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable pour ce pool" }, { status: 500 });
 

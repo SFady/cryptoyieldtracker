@@ -1,7 +1,7 @@
 ﻿import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { readLpState, writeLpState, writeErrorState } from "../../lib/cronKv";
-import { getPoolAddress } from "../../lib/config";
+import { getPoolAddress, GAUGE_ADDRESS_2 } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
 
 const sql = neon(process.env.DATABASE_URL);
@@ -306,8 +306,8 @@ export async function POST(req) {
     const wallet   = new ethers.Wallet(privateKey, provider);
     const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
-    // 1. Gauge + tickSpacing
-    const [gaugeAddr] = await view(VOTER, VOTER_IFACE, "gauges", [POOL]);
+    // 1. Gauge — en dur (24/10), VOTER.gauges(pool) revert sur le nouveau Voter Aero. + tickSpacing
+    const gaugeAddr = GAUGE_ADDRESS_2;
     if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress)
       return Response.json({ error: "Gauge introuvable" }, { status: 500 });
 

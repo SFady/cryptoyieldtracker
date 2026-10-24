@@ -6,6 +6,11 @@ export const POOL_ADDRESS_2 = process.env.POOL_ADDRESS_2 ?? "0x4A7af46bC8aBc0004
 // Nouveau NFPM du protocole fusionné (confirmé : nfpm.factory() pointe vers la factory ci-dessus).
 // Ancien NFPM Aerodrome legacy : 0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53.
 export const NFPM_ADDRESS   = "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
+// Gauge du pool WETH/USDC ci-dessus (confirmé : gauge.pool() == POOL_ADDRESS_2). En dur plutôt que
+// résolu dynamiquement via VOTER.gauges(pool) — cette fonction revert sur le nouveau Voter du
+// protocole fusionné (interface différente, jamais trouvé l'équivalent qui marche). Un seul pool/
+// gauge géré ici, pas besoin de résolution dynamique.
+export const GAUGE_ADDRESS_2 = "0x46a9dCa72D78366571bE583aa69C1DC16E6889fB";
 export function getPoolAddress(poolNum) {
   return poolNum === 2 ? POOL_ADDRESS_2 : POOL_ADDRESS;
 }

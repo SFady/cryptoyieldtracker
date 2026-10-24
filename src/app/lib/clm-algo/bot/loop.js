@@ -3,7 +3,7 @@ import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
 import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, writeRule1K, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
-import { NFPM_ADDRESS, POOL_ADDRESS_2 } from '../../config.js';
+import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
 // Les routes internes (closePositions, createPosition, collectFees, claimAero, swap-weth-usdc)
@@ -228,8 +228,8 @@ async function getAeroUsdValue(tokenId) {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey || !tokenId) return 0;
   const wallet = new ethers.Wallet(privateKey.trim());
-  const gaugeHex   = await ethCall(VOTER, VOTER_IFACE.encodeFunctionData('gauges', [POOL_ADDRESS_2]));
-  const [gaugeAddr] = VOTER_IFACE.decodeFunctionResult('gauges', gaugeHex);
+  // Gauge en dur (24/10) — VOTER.gauges(pool) revert sur le nouveau Voter Aero.
+  const gaugeAddr = GAUGE_ADDRESS_2;
   if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress) return 0;
   // Nouveau gauge (23/10) : earned(account) sans tokenId — réclame/estime sur toutes les positions
   // stakées du compte, il n'y en a qu'une seule ici de toute façon.
