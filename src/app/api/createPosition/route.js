@@ -40,16 +40,23 @@ async function sendErrorEmail(subject, body) {
   } catch (_) {}
 }
 
-const NFPM        = "0x827922686190790b37229fd06084350E74485b72";
-const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // Aerodrome Slipstream v2 (nouvelle factory)
-const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef"; // factory des pools CL v2
-const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // Aerodrome Slipstream SwapRouter (Initial Deployment, même que NFPM)
-const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
-const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
+// Migration Aerodrome → Aero (24/10) : NFPM/FACTORY_NEW ci-dessous sont les anciens (Aerodrome
+// legacy) — conservés en commentaire pour mémoire, plus utilisés. Un seul NFPM maintenant, le
+// nouveau du protocole fusionné (confirmé : nfpm.factory() pointe vers la factory de POOL_ADDRESS_2).
+const NFPM_ADDRESS = "0x4857Db576eE0e45F10525EC59527BFD10bEec60B";
+// const NFPM        = "0x827922686190790b37229fd06084350E74485b72"; // ancien (Aerodrome Initial)
+// const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // ancien (Aerodrome Gauges V3)
+// const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef"; // ancienne factory CL
+const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // Aerodrome Slipstream SwapRouter (Initial Deployment, même que NFPM) — non utilisé dans ce fichier
+const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"; // ancien — plus utilisé dans ce fichier depuis la migration Aero (24/10), gardé pour mémoire
+const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"; // idem
 const WETH        = "0x4200000000000000000000000000000000000006";
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
-const VOTER       = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631"; // ancien AERO — plus le token de reward, gardé pour mémoire
+const NEW_AERO    = "0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee"; // nouveau AERO (protocole fusionné)
+const AERO_USDC_POOL_V2 = "0xF634058dC94e6BF8e828E27621320C423bC8B18E"; // AERO/USDC "Basic Volatile" (V2)
+const VOTER       = "0x382409fAd8503FbCDbB27a4211551FA03e884078"; // Voter du protocole fusionné Aero (24/10)
+const METAROUTER  = "0x0fEf9e88A7b76BCDBF451780C6774FE32965Ee98";
 
 function optimalWethFraction(price, minPrice, maxPrice) {
   if (price <= minPrice) return 1;
@@ -183,6 +190,28 @@ const SWAP_ROUTER_IFACE = new ethers.Interface([
   "function exactInputSingle((address tokenIn, address tokenOut, int24 tickSpacing, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut)",
 ]);
 
+// Migration Aero (24/10) : swap WETH⇄USDC sur notre pool CL via le Metarouter — remplace les appels
+// l'ancien V2_ROUTER pour tout ce qui concerne WETH/USDC et AERO/USDC. Même structure SwapExactInParams
+// confirmée le 22/10 en décodant une vraie transaction (voir loop.js / project_aero_migration.md).
+const METAROUTER_IFACE = new ethers.Interface(["function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"]);
+const SWAP_EXACT_IN_PARAMS_TYPE = "tuple(address[] pools, address tokenIn, tuple(uint8 mode, uint256 value) amountIn, bool payerIsUser, uint256 minAmountOut, address recipient)";
+const CMD_CL_SWAP_EXACT_IN = 0x00;
+const CMD_V2_SWAP_EXACT_IN = 0x08;
+async function metarouterSwapExactIn({ pool, tokenIn, amountInRaw, minAmountOutRaw, wallet, commandByte = CMD_CL_SWAP_EXACT_IN }) {
+  const params = {
+    pools: [pool], tokenIn,
+    amountIn: { mode: 0, value: amountInRaw },
+    payerIsUser: true,
+    minAmountOut: minAmountOutRaw,
+    recipient: wallet.address,
+  };
+  const input0 = ethers.AbiCoder.defaultAbiCoder().encode([SWAP_EXACT_IN_PARAMS_TYPE], [params]);
+  const data = METAROUTER_IFACE.encodeFunctionData("execute", [
+    ethers.hexlify(new Uint8Array([commandByte])), [input0], Math.floor(Date.now() / 1000) + 600,
+  ]);
+  return sendTx(wallet, { to: METAROUTER, data });
+}
+
 const V2_ROUTER_IFACE = new ethers.Interface([
   "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
 ]);
@@ -276,13 +305,9 @@ export async function POST(req) {
     const wallet   = new ethers.Wallet(privateKey, provider);
     const POOL     = getPoolAddress(poolNum ?? 2);
 
-    // Sélectionner le bon NFPM selon la factory du pool (v1 vs v2 Aerodrome Slipstream)
-    let nfpm = NFPM;
-    try {
-      const factHex = await provider.call({ to: POOL, data: "0xc45a0155" });
-      const [poolFactory] = ethers.AbiCoder.defaultAbiCoder().decode(["address"], factHex);
-      if (poolFactory.toLowerCase() === FACTORY_NEW) nfpm = NFPM_NEW;
-    } catch (_) {}
+    // Un seul NFPM depuis la migration Aero (24/10) — plus besoin de sélection dynamique entre
+    // deux générations Aerodrome, il n'y en a plus qu'une.
+    const nfpm = NFPM_ADDRESS;
 
     // 1. tickSpacing + prix réel du pool (slot0)
     const tsRaw = await provider.call({ to: POOL, data: "0xd0c93a7c" });
@@ -387,7 +412,7 @@ export async function POST(req) {
             try {
               const res  = await fetch(url, {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: AERO, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) }, "latest"] }),
+                body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: NEW_AERO, data: ERC20_IFACE.encodeFunctionData("balanceOf", [wallet.address]) }, "latest"] }),
                 signal: AbortSignal.timeout(6000),
               });
               const json = await res.json();
@@ -398,12 +423,12 @@ export async function POST(req) {
           return 0n;
         })();
         if (aeroBalRaw >= ethers.parseUnits("0.01", 18)) {
-          const txAppAero = await sendTx(wallet, { to: AERO, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]) });
+          const txAppAero = await sendTx(wallet, { to: NEW_AERO, data: ERC20_IFACE.encodeFunctionData("approve", [METAROUTER, ethers.MaxUint256]) });
           await waitForTx(provider, txAppAero);
-          const swapAero = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-            aeroBalRaw, 0n, [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }], wallet.address, Math.floor(Date.now() / 1000) + 600,
-          ]);
-          const txAero = await sendTx(wallet, { to: V2_ROUTER, data: swapAero });
+          const txAero = await metarouterSwapExactIn({
+            pool: AERO_USDC_POOL_V2, tokenIn: NEW_AERO, amountInRaw: aeroBalRaw, minAmountOutRaw: 0n,
+            wallet, commandByte: CMD_V2_SWAP_EXACT_IN,
+          });
           await waitForTx(provider, txAero);
           await new Promise(r => setTimeout(r, 2000));
         }
@@ -466,30 +491,25 @@ export async function POST(req) {
         )
       : 0n;
 
-    // 5. Approve token entrant → V2_ROUTER selon le sens du swap
+    // 5. Approve token entrant → Metarouter selon le sens du swap
     if (usdcToSwap > 0n) {
       try {
-        await ensureAllowance(wallet, provider, USDC, V2_ROUTER, usdcToSwap);
+        await ensureAllowance(wallet, provider, USDC, METAROUTER, usdcToSwap);
       } catch (e) { throw new Error(`[étape 5 – approve USDC→Router] ${e.shortMessage ?? e.message}`); }
     }
     if (wethToSell > 0n) {
       try {
-        await ensureAllowance(wallet, provider, WETH, V2_ROUTER, wethToSell);
+        await ensureAllowance(wallet, provider, WETH, METAROUTER, wethToSell);
       } catch (e) { throw new Error(`[étape 5b – approve WETH→Router] ${e.shortMessage ?? e.message}`); }
     }
 
-    // 6. Swap via V2 router (factory-agnostique, compatible toutes versions de pool)
+    // 6. Swap via le Metarouter (pool CL WETH/USDC du nouveau protocole Aero)
     let txSwapHash = null;
     if (usdcToSwap > 0n) {
       for (const slipPct of [990n, 980n, 970n]) {
         const minOut = usdcToSwap * (10n ** 12n) / BigInt(Math.round(poolPrice)) * slipPct / 1000n;
-        const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-          usdcToSwap, minOut,
-          [{ from: USDC, to: WETH, stable: false, factory: V2_FACTORY }],
-          wallet.address, freshDeadline(),
-        ]);
         try {
-          const txSwap = await sendTx(wallet, { to: V2_ROUTER, data });
+          const txSwap = await metarouterSwapExactIn({ pool: POOL, tokenIn: USDC, amountInRaw: usdcToSwap, minAmountOutRaw: minOut, wallet });
           txSwapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 4000));
@@ -499,13 +519,8 @@ export async function POST(req) {
     } else if (wethToSell > 0n) {
       for (const slipPct of [990n, 980n, 970n]) {
         const minOut = wethToSell * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * slipPct / 1000n;
-        const data = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-          wethToSell, minOut,
-          [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
-          wallet.address, freshDeadline(),
-        ]);
         try {
-          const txSwap = await sendTx(wallet, { to: V2_ROUTER, data });
+          const txSwap = await metarouterSwapExactIn({ pool: POOL, tokenIn: WETH, amountInRaw: wethToSell, minAmountOutRaw: minOut, wallet });
           txSwapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 4000));
@@ -557,14 +572,9 @@ export async function POST(req) {
         );
         if (usdcNeeded > ethers.parseUnits("1", 6)) {
           try {
-            await ensureAllowance(wallet, provider, USDC, V2_ROUTER, usdcNeeded);
+            await ensureAllowance(wallet, provider, USDC, METAROUTER, usdcNeeded);
             const minOut2 = usdcNeeded * (10n ** 12n) / BigInt(Math.round(poolPrice)) * 970n / 1000n;
-            const cd2 = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-              usdcNeeded, minOut2,
-              [{ from: USDC, to: WETH, stable: false, factory: V2_FACTORY }],
-              wallet.address, freshDeadline(),
-            ]);
-            const tx2 = await sendTx(wallet, { to: V2_ROUTER, data: cd2 });
+            const tx2 = await metarouterSwapExactIn({ pool: POOL, tokenIn: USDC, amountInRaw: usdcNeeded, minAmountOutRaw: minOut2, wallet });
             await waitForTx(provider, tx2);
             await new Promise(r => setTimeout(r, 2000));
             didCorrect = true;
@@ -580,14 +590,9 @@ export async function POST(req) {
         );
         if (wethNeeded > ethers.parseUnits("0.0003", 18)) {
           try {
-            await ensureAllowance(wallet, provider, WETH, V2_ROUTER, wethNeeded);
+            await ensureAllowance(wallet, provider, WETH, METAROUTER, wethNeeded);
             const minOut2 = wethNeeded * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n;
-            const cd2 = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-              wethNeeded, minOut2,
-              [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
-              wallet.address, freshDeadline(),
-            ]);
-            const tx2 = await sendTx(wallet, { to: V2_ROUTER, data: cd2 });
+            const tx2 = await metarouterSwapExactIn({ pool: POOL, tokenIn: WETH, amountInRaw: wethNeeded, minAmountOutRaw: minOut2, wallet });
             await waitForTx(provider, tx2);
             await new Promise(r => setTimeout(r, 2000));
             didCorrect = true;
@@ -720,16 +725,9 @@ export async function POST(req) {
     try {
       const wethRem = await readBal(WETH);
       if (wethRem > 0n) {
-        await ensureAllowance(wallet, provider, WETH, V2_ROUTER, wethRem);
+        await ensureAllowance(wallet, provider, WETH, METAROUTER, wethRem);
         const minSweep = wethRem * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * 970n / 1000n;
-        const txSweep = await sendTx(wallet, {
-          to: V2_ROUTER,
-          data: V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-            wethRem, minSweep,
-            [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
-            wallet.address, freshDeadline(),
-          ]),
-        });
+        const txSweep = await metarouterSwapExactIn({ pool: POOL, tokenIn: WETH, amountInRaw: wethRem, minAmountOutRaw: minSweep, wallet });
         await waitForTx(provider, txSweep);
       }
     } catch (e) {

@@ -5,11 +5,14 @@ import { isAuthorized, unauthorizedResponse } from '../../lib/apiAuth';
 export const runtime     = 'nodejs';
 export const maxDuration = 60;
 
-const V2_ROUTER    = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43'; // Aerodrome V2 router — même route éprouvée que createPosition.js
-const V2_FACTORY   = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
 const WETH         = '0x4200000000000000000000000000000000000006';
 const USDC         = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const MIN_WETH     = 0.0001; // ~$0.25 — en dessous c'est de la poussière
+// Migration Aero (24/10) : swap via le Metarouter sur notre pool CL, remplace l'ancien V2_ROUTER.
+const METAROUTER   = '0x0fEf9e88A7b76BCDBF451780C6774FE32965Ee98';
+const CMD_CL_SWAP_EXACT_IN = 0x00;
+const METAROUTER_IFACE = new ethers.Interface(['function execute(bytes commands, bytes[] inputs, uint256 deadline) payable']);
+const SWAP_EXACT_IN_PARAMS_TYPE = 'tuple(address[] pools, address tokenIn, tuple(uint8 mode, uint256 value) amountIn, bool payerIsUser, uint256 minAmountOut, address recipient)';
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -22,10 +25,6 @@ const RPC_URLS = [
 const ERC20_IFACE = new ethers.Interface([
   'function balanceOf(address) view returns (uint256)',
   'function approve(address, uint256) returns (bool)',
-]);
-
-const V2_ROUTER_IFACE = new ethers.Interface([
-  'function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)',
 ]);
 
 function freshDeadline() { return BigInt(Math.floor(Date.now() / 1000) + 120); }
@@ -70,23 +69,29 @@ export async function POST(req) {
       return Response.json({ error: `Prix pool invalide (${poolPrice})` }, { status: 500 });
     }
 
-    // Approve V2_ROUTER
+    // Approve Metarouter
     try {
-      const txApp = await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData('approve', [V2_ROUTER, ethers.MaxUint256]) });
+      const txApp = await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]) });
       await txApp.wait();
     } catch (_) {}
 
-    // Swap WETH → USDC via le routeur V2 — même route éprouvée que createPosition.js (jamais échoué en prod)
+    // Swap WETH → USDC via le Metarouter (pool CL WETH/USDC du nouveau protocole Aero)
     let swapHash = null;
     for (const slipPct of [970n, 950n, 900n]) {
       const minOut = wethBal * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * slipPct / 1000n;
       try {
-        const data = V2_ROUTER_IFACE.encodeFunctionData('swapExactTokensForTokens', [
-          wethBal, minOut,
-          [{ from: WETH, to: USDC, stable: false, factory: V2_FACTORY }],
-          wallet.address, freshDeadline(),
+        const params = {
+          pools: [POOL], tokenIn: WETH,
+          amountIn: { mode: 0, value: wethBal },
+          payerIsUser: true,
+          minAmountOut: minOut,
+          recipient: wallet.address,
+        };
+        const input0 = ethers.AbiCoder.defaultAbiCoder().encode([SWAP_EXACT_IN_PARAMS_TYPE], [params]);
+        const data = METAROUTER_IFACE.encodeFunctionData('execute', [
+          ethers.hexlify(new Uint8Array([CMD_CL_SWAP_EXACT_IN])), [input0], freshDeadline(),
         ]);
-        const tx = await wallet.sendTransaction({ to: V2_ROUTER, data, gasLimit: 300000n });
+        const tx = await wallet.sendTransaction({ to: METAROUTER, data, gasLimit: 300000n });
         await tx.wait();
         swapHash = tx.hash;
         break;
