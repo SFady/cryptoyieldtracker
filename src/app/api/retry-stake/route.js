@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { kv } from '@vercel/kv';
 import { neon } from '@neondatabase/serverless';
 import { writeLpState } from '../../lib/cronKv';
-import { getPoolAddress } from '../../lib/config';
+import { getPoolAddress, NFPM_ADDRESS, GAUGE_ADDRESS_2 } from '../../lib/config';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 120;
@@ -12,9 +12,6 @@ export const maxDuration = 120;
 // création). N'utilise QUE les fonctions officielles du gauge (approve + deposit) —
 // jamais de transfert direct. Si le wallet n'est pas propriétaire du NFT, on refuse.
 
-const NFPM_NEW    = '0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53';
-const NFPM_OLD    = '0x827922686190790b37229fd06084350E74485b72';
-const VOTER       = '0x16613524e02ad97eDfeF371bC883F2F5d6C480A5';
 const WETH        = '0x4200000000000000000000000000000000000006';
 const USDC        = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const DECIMAL_ADJUSTMENT = 6 - 18;
@@ -33,7 +30,6 @@ const NFPM_IFACE = new ethers.Interface([
   'function approve(address to, uint256 tokenId)',
   'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)',
 ]);
-const VOTER_IFACE = new ethers.Interface(['function gauges(address pool) view returns (address)']);
 const GAUGE_IFACE = new ethers.Interface([
   'function deposit(uint256 tokenId)',
   'function deposit(uint256 tokenId, uint256 tokenVeloPair)',
@@ -85,15 +81,7 @@ export async function POST(req) {
   if (!provider) return Response.json({ error: 'RPC indisponible' }, { status: 503 });
 
   const wallet = new ethers.Wallet(privateKey.trim(), provider);
-
-  // Le NFT peut être sur l'ancien ou le nouveau NFPM selon l'historique du pool
-  let nfpm = NFPM_NEW;
-  try {
-    const owner = await provider.call({ to: NFPM_NEW, data: NFPM_IFACE.encodeFunctionData('ownerOf', [tokenId]) });
-    if (!owner || owner === '0x') throw new Error('empty');
-  } catch (_) {
-    nfpm = NFPM_OLD;
-  }
+  const nfpm = NFPM_ADDRESS;
 
   try {
     // 1. Vérifier que le wallet possède bien ce NFT
@@ -109,13 +97,12 @@ export async function POST(req) {
     const rangeMin = tickToPrice(Number(pos.tickLower));
     const rangeMax = tickToPrice(Number(pos.tickUpper));
 
-    // 3. Trouver le gauge du pool
-    const poolAddr   = getPoolAddress(poolNum);
-    const gaugeHex   = await provider.call({ to: VOTER, data: VOTER_IFACE.encodeFunctionData('gauges', [poolAddr]) });
-    const [gaugeAddr] = ethers.AbiCoder.defaultAbiCoder().decode(['address'], gaugeHex);
-    if (!gaugeAddr || gaugeAddr === ethers.ZeroAddress) {
-      return Response.json({ error: 'Gauge introuvable pour ce pool' }, { status: 500 });
+    // 3. Gauge du pool — VOTER.gauges() revert sur le nouveau Voter, adresse figée en dur (cf. config.js)
+    if (poolNum !== 2) {
+      return Response.json({ error: 'retry-stake ne supporte que poolNum=2 (gauge pool3 non configuré)' }, { status: 400 });
     }
+    const gaugeAddr = GAUGE_ADDRESS_2;
+    const poolAddr  = getPoolAddress(poolNum);
 
     // 3b. Calculer la valeur réelle de la position (prix courant du pool + liquidité)
     //     pour que le capital d'ouverture affiché reflète la réalité, pas une ancienne position.
@@ -194,10 +181,15 @@ export async function POST(req) {
     //    (y compris le capital d'ouverture, pour que l'affichage ne reste pas bloqué sur l'ancienne position)
     try {
       const sql = neon(process.env.DATABASE_URL);
-      await sql`
-        INSERT INTO lp_events (action1, action2, token_id, pool_num, range_min, range_max, total_at_open, created_at)
-        VALUES ('CREATE_OK', NULL, ${String(tokenId)}, ${poolNum}, ${rangeMin}, ${rangeMax}, ${openingTotal}, NOW())
+      const existing = await sql`
+        SELECT 1 FROM lp_events WHERE token_id = ${String(tokenId)} AND COALESCE(pool_num, 2) = ${poolNum} AND action1 = 'CREATE_OK'
       `;
+      if (existing.length === 0) {
+        await sql`
+          INSERT INTO lp_events (action1, action2, token_id, pool_num, range_min, range_max, total_at_open, created_at)
+          VALUES ('CREATE_OK', NULL, ${String(tokenId)}, ${poolNum}, ${rangeMin}, ${rangeMax}, ${openingTotal}, NOW())
+        `;
+      }
     } catch (_) {}
     await writeLpState(poolNum, {
       action1: 'CREATE_OK', action2: null, token_id: String(tokenId),
