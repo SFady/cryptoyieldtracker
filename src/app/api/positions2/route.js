@@ -10,29 +10,35 @@ export const maxDuration = 30;
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
 const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
-const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5";
+const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5"; // ancien, plus utilisé (gauge résolu en dur via GAUGE_ADDRESS_2)
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
-const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
-const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
+const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631"; // ancien AERO — plus le token de reward, gardé pour mémoire
+const NEW_AERO   = "0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee"; // nouveau AERO (protocole fusionné)
+const AERO_USDC_POOL_V2 = "0xF634058dC94e6BF8e828E27621320C423bC8B18E"; // AERO/USDC "Basic Volatile" (V2)
+const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"; // ancien, plus utilisé
+const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"; // idem
 
 const VOTER_IFACE = new ethers.Interface([
   "function gauges(address pool) view returns (address)",
 ]);
 const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
-  "function earned(address account, uint256 tokenId) view returns (uint256)",
+  // Nouveau gauge (24/10) : earned(account, uint256[] tokenIds) remplace l'ancienne signature
+  // earned(account, uint256 tokenId) — même usage par position, juste un tableau à un élément.
+  "function earned(address account, uint256[] tokenIds) view returns (uint256)",
 ]);
-const V2_ROUTER_IFACE = new ethers.Interface([
-  "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
+const V2_GET_RESERVES_IFACE = new ethers.Interface([
+  "function getReserves() view returns (uint256 _reserve0, uint256 _reserve1, uint256 _blockTimestampLast)",
 ]);
 
+// Prix du nouveau AERO via les réserves du pool AERO/USDC V2 (24/10) — remplace l'ancien
+// getAmountsOut sur l'ancien AERO/ancien router, qui ne reflète plus le bon token.
 async function getAeroPrice(ethCall) {
   try {
-    const routes  = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
-    const amtsHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [ethers.parseUnits("1", 18), routes]));
-    const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", amtsHex);
-    return parseFloat(ethers.formatUnits(amounts[1], 6));
+    const resHex = await ethCall(AERO_USDC_POOL_V2, V2_GET_RESERVES_IFACE.encodeFunctionData("getReserves", []));
+    const [reserve0, reserve1] = V2_GET_RESERVES_IFACE.decodeFunctionResult("getReserves", resHex);
+    // AERO = token0, USDC = token1 sur ce pool (confirmé on-chain).
+    return Number(reserve1) / 1e6 / (Number(reserve0) / 1e18);
   } catch (_) { return 0; }
 }
 
@@ -406,7 +412,7 @@ export async function GET() {
       // AERO résiduel (non claim, non position) laissé dans le wallet
       let aeroWallet = "0.000000", aeroWalletUSD = "0.00";
       try {
-        const hex = await ethCall(AERO, "0x70a08231" + walletPad);
+        const hex = await ethCall(NEW_AERO, "0x70a08231" + walletPad);
         const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
         const aeroAmt = Number(ethers.formatUnits(raw, 18));
         aeroWallet = aeroAmt.toFixed(6);
@@ -428,7 +434,7 @@ export async function GET() {
       const aeroPrice = await getAeroPrice(ethCall);
       await Promise.allSettled(stakedIds.map(async (tokenId) => {
         try {
-          const hex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("earned", [WALLET, tokenId]));
+          const hex = await ethCall(gaugeAddr, GAUGE_IFACE.encodeFunctionData("earned", [WALLET, [tokenId]]));
           const [earned] = GAUGE_IFACE.decodeFunctionResult("earned", hex);
           const aeroAmt = Number(earned) / 1e18;
           aeroUsdById[tokenId.toString()] = aeroAmt * aeroPrice;
@@ -536,7 +542,7 @@ export async function GET() {
     let aeroWallet = "0.000000";
     let aeroWalletUSD = "0.00";
     try {
-      const hex = await ethCall(AERO, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
+      const hex = await ethCall(NEW_AERO, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
       const [raw] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], hex);
       const aeroAmt = Number(ethers.formatUnits(raw, 18));
       aeroWallet = aeroAmt.toFixed(6);
