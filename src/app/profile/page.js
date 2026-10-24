@@ -29,7 +29,6 @@ export default function ProfilePage() {
   const [oorCount2, setOorCount2]     = useState(0);
   const [oorLow2, setOorLow2]         = useState(false);
   const [wethRatio2, setWethRatio2] = useState(null);
-  const [rule1K2, setRule1K2] = useState(null);
   const [loading2, setLoading2]   = useState(true);
   const [error2, setError2]       = useState(null);
   const [openingTotal2, setOpeningTotal2] = useState(null);
@@ -56,7 +55,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setRule1K2(d.rule1K ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -96,15 +95,6 @@ export default function ProfilePage() {
                   background: "rgba(124,77,255,0.08)", border: "1px solid rgba(124,77,255,0.25)", color: "#a78bfa",
                 }}>
                   Range percentile 24h : {percentileRange2}%
-                </span>
-              )}
-              {rule1K2 !== null && (
-                <span style={{
-                  fontSize: "0.65rem", fontFamily: "monospace",
-                  padding: "2px 8px", borderRadius: 4,
-                  background: "rgba(240,180,41,0.08)", border: "1px solid rgba(240,180,41,0.25)", color: "#f0b429",
-                }}>
-                  K : {rule1K2}
                 </span>
               )}
               {lastCronAt2 && (

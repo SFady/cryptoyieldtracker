@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, writeRule1K, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -72,9 +72,7 @@ async function sendErrorEmail(subject, body) {
 //   calcul de capital (USDC + WETH uniquement) tant qu'il n'a pas été swappé.
 //   Supprimé dans cette refonte : les triggers de prix stockés (low/high trigger, p2_live_range),
 //   le paramètre K dynamique (doublement/division/coupe-circuit), la Règle 1d (changement de
-//   tendance), le claim matinal 7h Paris. K reste persisté (p2_rule1_k, Redis + repli table
-//   bot_config) et affiché sur la page pools, mais chaque règle le remet simplement à 1 — il ne
-//   pilote plus aucune formule.
+//   tendance), le claim matinal 7h Paris.
 //   Réouvertures (Règles 1/2/3) : spread check (1,5% sur 20 derniers prix) avant de rouvrir — si le
 //   marché est trop agité, la réouverture est sautée, la Règle 1 la reprendra au tick suivant.
 
@@ -933,8 +931,6 @@ export async function botLoop({ base, price }) {
           ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
           : null;
         const width2 = p24h2 !== null ? Math.max(p24h2 * 1.25, 1.5) : 1.5;
-        await writeRule1K(1);
-        result.rule1K          = 1;
         result.action          = 'low_trigger';
         result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
         result.newRangePct     = parseFloat(width2.toFixed(2));
@@ -950,8 +946,6 @@ export async function botLoop({ base, price }) {
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
       const width3 = p24h3 !== null ? Math.max(p24h3, 1.5) : 1.5;
-      await writeRule1K(1);
-      result.rule1K          = 1;
       result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
@@ -980,8 +974,6 @@ export async function botLoop({ base, price }) {
       // shrink → 1,51% → re-déclenche → shrink → 1,51% → ... (11/10).
       if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1) {
         const width5 = Math.max(p24h5, 1.5);
-        await writeRule1K(1);
-        result.rule1K          = 1;
         result.action          = 'width_shrink_rebalance';
         result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
         result.percentileRange = parseFloat(p24h5.toFixed(2));
@@ -1069,11 +1061,6 @@ export async function botLoop({ base, price }) {
         await kv.del('p2_pending_reopen').catch(() => {});
       }
     } else {
-      // K (p2_rule1_k, Redis + repli table bot_config) : réinitialisé à 1 — pure information
-      // affichée sur la page pools, ne pilote plus aucune formule depuis la refonte du 05/10.
-      await writeRule1K(1);
-      result.rule1K = 1;
-
       // Garder les proportions WETH/USDC déjà présentes dans le wallet (aucune LP à fermer ici,
       // donc lues directement, pas via keepCurrentRatio de runCollect) — plafonnées à 70/30 (05/10) :
       // un ratio trop loin de 50/50 force le centre du range (étroit, percentile24h) à se placer
