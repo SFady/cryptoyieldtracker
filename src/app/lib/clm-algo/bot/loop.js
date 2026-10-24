@@ -162,7 +162,7 @@ async function getWalletEthNative(pinnedUrl = null) {
 // calculer sa part WETH et ses revenus totaux à partir de Redis + RPC uniquement, sans toucher Neon.
 // VOTER (23/10) : nouveau Voter du protocole fusionné Aero — l'ancien ne connaît pas POOL_ADDRESS_2
 // (qui pointe désormais vers le nouveau pool) et ne retrouverait aucun gauge pour lui.
-const VOTER      = '0x382409fAd8503FbCDbB27a4211551FA03e884078';
+const VOTER      = '0x382409fad8503FbCdbB27A4211551fa03e884078';
 const AERO       = '0x940181a94A35A4569E4529A3CDfB74e38FD98631';
 const V2_ROUTER  = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43';
 const V2_FACTORY = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';

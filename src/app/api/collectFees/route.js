@@ -35,7 +35,7 @@ const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const WETH        = "0x4200000000000000000000000000000000000006";
 const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const VOTER       = "0x382409fAd8503FbCDbB27a4211551FA03e884078"; // Voter du protocole fusionné Aero (23/10)
+const VOTER       = "0x382409fad8503FbCdbB27A4211551fa03e884078"; // Voter du protocole fusionné Aero (23/10)
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,

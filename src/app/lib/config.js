@@ -5,7 +5,7 @@ export const POOL_ADDRESS   = process.env.POOL_ADDRESS   ?? "0xb2cc224c1c9fee385
 export const POOL_ADDRESS_2 = process.env.POOL_ADDRESS_2 ?? "0x4A7af46bC8aBc00048c6c7920a1488DAF568366c";
 // Nouveau NFPM du protocole fusionné (confirmé : nfpm.factory() pointe vers la factory ci-dessus).
 // Ancien NFPM Aerodrome legacy : 0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53.
-export const NFPM_ADDRESS   = "0x4857Db576eE0e45F10525EC59527BFD10bEec60B";
+export const NFPM_ADDRESS   = "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
 export function getPoolAddress(poolNum) {
   return poolNum === 2 ? POOL_ADDRESS_2 : POOL_ADDRESS;
 }

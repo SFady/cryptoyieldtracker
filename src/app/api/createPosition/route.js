@@ -43,7 +43,7 @@ async function sendErrorEmail(subject, body) {
 // Migration Aerodrome → Aero (24/10) : NFPM/FACTORY_NEW ci-dessous sont les anciens (Aerodrome
 // legacy) — conservés en commentaire pour mémoire, plus utilisés. Un seul NFPM maintenant, le
 // nouveau du protocole fusionné (confirmé : nfpm.factory() pointe vers la factory de POOL_ADDRESS_2).
-const NFPM_ADDRESS = "0x4857Db576eE0e45F10525EC59527BFD10bEec60B";
+const NFPM_ADDRESS = "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
 // const NFPM        = "0x827922686190790b37229fd06084350E74485b72"; // ancien (Aerodrome Initial)
 // const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // ancien (Aerodrome Gauges V3)
 // const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef"; // ancienne factory CL
@@ -55,7 +55,7 @@ const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631"; // ancien AERO — plus le token de reward, gardé pour mémoire
 const NEW_AERO    = "0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee"; // nouveau AERO (protocole fusionné)
 const AERO_USDC_POOL_V2 = "0xF634058dC94e6BF8e828E27621320C423bC8B18E"; // AERO/USDC "Basic Volatile" (V2)
-const VOTER       = "0x382409fAd8503FbCDbB27a4211551FA03e884078"; // Voter du protocole fusionné Aero (24/10)
+const VOTER       = "0x382409fad8503FbCdbB27A4211551fa03e884078"; // Voter du protocole fusionné Aero (24/10)
 const METAROUTER  = "0x0fEf9e88A7b76BCDBF451780C6774FE32965Ee98";
 
 function optimalWethFraction(price, minPrice, maxPrice) {
