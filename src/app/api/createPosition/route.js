@@ -501,7 +501,9 @@ export async function POST(req) {
 
     // 6. Swap via le Metarouter (pool CL WETH/USDC du nouveau protocole Aero)
     let txSwapHash = null;
+    let swapCorrectionWarning = null;
     if (usdcToSwap > 0n) {
+      let lastErr = null;
       for (const slipPct of [990n, 980n, 970n]) {
         const minOut = usdcToSwap * (10n ** 12n) / BigInt(Math.round(poolPrice)) * slipPct / 1000n;
         try {
@@ -509,10 +511,17 @@ export async function POST(req) {
           txSwapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 4000));
+          lastErr = null;
           break;
-        } catch (_) {}
+        } catch (e) { lastErr = e.shortMessage ?? e.message; }
       }
+      // Echec des 3 tentatives (ex: price impact, RPC transitoire) — le mint utilisera les soldes
+      // réels (non corrigés) juste après, donnant une position plus petite que prévu plutôt que de
+      // bloquer la réouverture. On garde une trace explicite au lieu d'avaler l'erreur en silence
+      // (incident du 24/10 : position de $18 au lieu de $109, capital restant inutilisé en wallet).
+      if (lastErr) swapCorrectionWarning = `swap correctif USDC→WETH échoué (3 tentatives) : ${lastErr}`;
     } else if (wethToSell > 0n) {
+      let lastErr = null;
       for (const slipPct of [990n, 980n, 970n]) {
         const minOut = wethToSell * BigInt(Math.round(poolPrice * 1e6)) / (10n ** 18n) * slipPct / 1000n;
         try {
@@ -520,9 +529,11 @@ export async function POST(req) {
           txSwapHash = txSwap.hash;
           await waitForTx(provider, txSwap);
           await new Promise(r => setTimeout(r, 4000));
+          lastErr = null;
           break;
-        } catch (_) {}
+        } catch (e) { lastErr = e.shortMessage ?? e.message; }
       }
+      if (lastErr) swapCorrectionWarning = `swap correctif WETH→USDC échoué (3 tentatives) : ${lastErr}`;
     }
 
     // 7. Soldes réels après swap
@@ -834,6 +845,7 @@ export async function POST(req) {
       ...(sweepWarning   ? { sweepWarning }              : {}),
       ...(simWarning     ? { simWarning }                : {}),
       ...(gaugeWarning   ? { gaugeWarning }              : {}),
+      ...(swapCorrectionWarning ? { swapCorrectionWarning } : {}),
     };
 
     try {
@@ -852,6 +864,7 @@ export async function POST(req) {
         type:           caseNum ?? null,
         weth_price:     parseFloat(poolPrice.toFixed(2)),
         weth_placed_hl: weth_placed_hl ?? null,
+        error_msg:      swapCorrectionWarning ?? null,
       });
       await writeLpState(poolNum ?? 2, {
         action1:        "CREATE_OK",
