@@ -536,6 +536,16 @@ export async function POST(req) {
       if (lastErr) swapCorrectionWarning = `swap correctif WETH→USDC échoué (3 tentatives) : ${lastErr}`;
     }
 
+    // 6b. Swap correctif raté → on refuse d'ouvrir plutôt que de miner avec le solde non corrigé.
+    // Sans ça, le mint n'utilise que le peu de l'autre token déjà en wallet et laisse l'essentiel
+    // du capital visé non déployé dans une position ridiculement petite (incidents du 24/10 : $18
+    // puis $0.38 au lieu de ~$107). Le capital reste intact dans le wallet (aucune position ouverte,
+    // rien n'est perdu) et le tick suivant retentera de zéro — utile puisque ces échecs ont été
+    // transitoires à chaque fois observé jusqu'ici (réessai immédiat en simulation toujours passé).
+    if (swapCorrectionWarning) {
+      throw new Error(`[étape 6b – swap correctif] ${swapCorrectionWarning} — ouverture annulée, capital resté en wallet`);
+    }
+
     // 7. Soldes réels après swap
     let wethBalance, usdcBalance;
     try {
