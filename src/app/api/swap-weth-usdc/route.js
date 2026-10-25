@@ -27,7 +27,8 @@ const ERC20_IFACE = new ethers.Interface([
   'function approve(address, uint256) returns (bool)',
 ]);
 
-function freshDeadline() { return BigInt(Math.floor(Date.now() / 1000) + 120); }
+// Deadline ≥ ~50min requis par le Metarouter (confirmé par dichotomie le 25/10), pas 120s.
+function freshDeadline() { return BigInt(Math.floor(Date.now() / 1000) + 3600); }
 
 export async function POST(req) {
   if (!isAuthorized(req)) return unauthorizedResponse();

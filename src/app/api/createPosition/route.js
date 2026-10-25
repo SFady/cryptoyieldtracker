@@ -206,8 +206,10 @@ async function metarouterSwapExactIn({ pool, tokenIn, amountInRaw, minAmountOutR
     recipient: wallet.address,
   };
   const input0 = ethers.AbiCoder.defaultAbiCoder().encode([SWAP_EXACT_IN_PARAMS_TYPE], [params]);
+  // Deadline ≥ ~50min requis par le Metarouter (confirmé par dichotomie le 25/10), pas les 10min
+  // qu'on utilisait — voir même correctif dans loop.js.
   const data = METAROUTER_IFACE.encodeFunctionData("execute", [
-    ethers.hexlify(new Uint8Array([commandByte])), [input0], Math.floor(Date.now() / 1000) + 600,
+    ethers.hexlify(new Uint8Array([commandByte])), [input0], Math.floor(Date.now() / 1000) + 3600,
   ]);
   return sendTx(wallet, { to: METAROUTER, data });
 }

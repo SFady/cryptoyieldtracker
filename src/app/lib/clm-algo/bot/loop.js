@@ -201,7 +201,11 @@ async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw,
   };
   const input0 = ethers.AbiCoder.defaultAbiCoder().encode([SWAP_EXACT_IN_PARAMS_TYPE], [params]);
   const commands = ethers.hexlify(new Uint8Array([commandByte]));
-  const deadline = Math.floor(Date.now() / 1000) + 600;
+  // Le Metarouter exige un deadline très supérieur à ce qu'on imaginerait pour un swap simple —
+  // confirmé par dichotomie le 25/10 sur une tx réelle (Expired() en dessous de ~50min, même pour
+  // un swap same-chain) : 600s (10 min) était systématiquement insuffisant, cause probable des
+  // échecs "transitoires" du 24-25/10 (positions à $18/$0.38, distribution AERO manquée).
+  const deadline = Math.floor(Date.now() / 1000) + 3600;
   const data = METAROUTER_IFACE.encodeFunctionData('execute', [commands, [input0], deadline]);
   const tx = await wallet.sendTransaction({ to: METAROUTER, data });
   return tx;
