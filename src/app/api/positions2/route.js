@@ -10,17 +10,10 @@ export const maxDuration = 30;
 // Aerodrome CL — wallet 0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6
 const WALLET      = "0xac383af8f62a73a6b156ffa86eb2820bd6a3a2f6";
 const walletShort = WALLET.slice(0, 6) + "…" + WALLET.slice(-3);
-const VOTER  = "0x16613524e02ad97eDfeF371bC883F2F5d6C480A5"; // ancien, plus utilisé (gauge résolu en dur via GAUGE_ADDRESS_2)
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631"; // ancien AERO — plus le token de reward, gardé pour mémoire
 const NEW_AERO   = "0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee"; // nouveau AERO (protocole fusionné)
 const AERO_USDC_POOL_V2 = "0xF634058dC94e6BF8e828E27621320C423bC8B18E"; // AERO/USDC "Basic Volatile" (V2)
-const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"; // ancien, plus utilisé
-const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"; // idem
 
-const VOTER_IFACE = new ethers.Interface([
-  "function gauges(address pool) view returns (address)",
-]);
 const GAUGE_IFACE = new ethers.Interface([
   "function stakedValues(address depositor) view returns (uint256[])",
   // Nouveau gauge (24/10) : earned(account, uint256[] tokenIds) remplace l'ancienne signature

@@ -158,15 +158,7 @@ async function getWalletEthNative(pinnedUrl = null) {
 // ── Valorisation directe de la position (Règle 4) sans passer par /api/positions2 ─────────
 // Mêmes adresses/formules que positions2 et claimAero, dupliquées ici pour que le bot puisse
 // calculer sa part WETH et ses revenus totaux à partir de Redis + RPC uniquement, sans toucher Neon.
-// VOTER (23/10) : nouveau Voter du protocole fusionné Aero — l'ancien ne connaît pas POOL_ADDRESS_2
-// (qui pointe désormais vers le nouveau pool) et ne retrouverait aucun gauge pour lui.
-const VOTER      = '0x382409fad8503FbCdbB27A4211551fa03e884078';
-const AERO       = '0x940181a94A35A4569E4529A3CDfB74e38FD98631';
-const V2_ROUTER  = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43';
-const V2_FACTORY = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
-const VOTER_IFACE       = new ethers.Interface(['function gauges(address pool) view returns (address)']);
 const GAUGE_EARNED_IFACE = new ethers.Interface(['function earned(address account) view returns (uint256)']);
-const V2_ROUTER_IFACE   = new ethers.Interface(['function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)']);
 
 // ── Migration Aerodrome → Aero (23/10) ───────────────────────────────────────────────────────
 // Nouveau protocole fusionné : un seul routeur ("Metarouter") gère swaps + LP + staking via une
@@ -626,10 +618,17 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
     // distribution quotidienne de 6h (Règle 4) — pas à chaque collecte.
     for (const step of [1, 2]) {
       try {
+        // step2 a besoin de wethBefore (solde WETH juste avant le claim du gauge, renvoyé par
+        // step1) pour ne vendre QUE les fees réellement collectées — sans ça, wethBefore vaut 0
+        // côté serveur et step2 traite TOUT le solde WETH du wallet comme des "fees" à vendre,
+        // y compris un dépôt manuel qui traînerait là au même moment (incident du 25/10 : ~$190
+        // de WETH déposé vendus à un prix ridicule sur l'ancien routeur, jamais migré pour cette
+        // étape précise).
+        const body = step === 2 ? { step, poolNum: 2, noTransfer: true, swapAero: false, wethBefore: out.step1?.wethBefore } : { step, poolNum: 2, noTransfer: true, swapAero: false };
         const r = await fetch(`${base}/api/collectFees`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body:    JSON.stringify({ step, poolNum: 2, noTransfer: true, swapAero: false }),
+          body:    JSON.stringify(body),
           signal:  AbortSignal.timeout(120000),
         });
         out[`step${step}`] = await r.json();

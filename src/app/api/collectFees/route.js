@@ -27,15 +27,9 @@ export const maxDuration = 300;
 
 const sql = neon(process.env.DATABASE_URL);
 
-const NFPM_OLD    = "0x827922686190790b37229fd06084350E74485b72";
-const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53";
-const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5";
-const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
-const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
 const WETH        = "0x4200000000000000000000000000000000000006";
-const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
+const AERO        = "0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee"; // nouveau AERO (protocole fusionné, 21/10) — lecture solde uniquement, plus swappé
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const VOTER       = "0x382409fad8503FbCdbB27A4211551fa03e884078"; // Voter du protocole fusionné Aero (23/10)
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -70,19 +64,6 @@ const GAUGE_IFACE = new ethers.Interface([
   "function deposit(uint256 tokenId)",
   "function deposit(uint256 tokenId, uint256 tokenVeloPair)",
   "function stakedContains(address depositor, uint256 tokenId) view returns (bool)",
-]);
-
-const VOTER_IFACE = new ethers.Interface([
-  "function gauges(address pool) view returns (address)",
-]);
-
-const SWAP_ROUTER_IFACE = new ethers.Interface([
-  "function exactInputSingle((address tokenIn, address tokenOut, int24 tickSpacing, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut)",
-]);
-
-const V2_ROUTER_IFACE = new ethers.Interface([
-  "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
-  "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
 ]);
 
 async function pickRpc() {
@@ -303,114 +284,29 @@ async function handleStep2(poolNum, body) {
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: "PRIVATE_KEY manquant" }, { status: 500 });
-    const POOL = getPoolAddress(poolNum);
-
-    const wethBefore = BigInt(body.wethBefore ?? "0");
-    // Par défaut swap l'AERO réclamé en USDC immédiatement (comportement historique, gardé pour le
-    // bouton "Collecter" manuel). Le bot (runCollect) passe swapAero:false (14/10) — l'AERO doit
-    // rester en AERO dans le wallet, converti en USDC uniquement par la distribution quotidienne de
-    // 6h (Règle 4), pas à chaque collecte.
-    const swapAero = body.swapAero !== false;
 
     const rpcUrl   = RPC_URLS[0]; // Alchemy en priorité — tx.wait() fiable ~4s
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
-    const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
+    // Vente des fees WETH et swap AERO→USDC désactivés (25/10) — tous deux ciblaient l'ancien
+    // routeur/ancien AERO, devenus illiquides après la fusion Aero (21/10), jamais migrés vers le
+    // Metarouter. Incident confirmé : wethBefore mal transmis par l'appelant (loop.js, corrigé à
+    // part) a fait traiter un dépôt WETH entier comme des "fees", vendu ~0.0832 WETH ($194) pour
+    // 3.41 USDC sur ce routeur illiquide (~$190 perdus, irrécupérable). Le WETH collecté reste donc
+    // WETH, l'AERO reste AERO — récupérés normalement à la prochaine réouverture / distribution
+    // quotidienne de 6h (Règle 4), au lieu d'un swap par événement sur une route non fiable.
     let swapWethHash = null;
     let swapWethError = null;
-    try {
-      const wethAfter = await readBal(WETH, wallet.address).catch(() => 0n);
-      const wethFees  = wethAfter > wethBefore ? wethAfter - wethBefore : 0n;
-      if (wethFees > 0n) {
-        let tickSpacing = 100;
-        try {
-          const tsRaw = await ethCall(POOL, "0xd0c93a7c");
-          const ts = Number(ethers.toBigInt(tsRaw));
-          if (ts > 0) tickSpacing = ts;
-        } catch (_) {}
-
-        try {
-          const h = await ethCall(WETH, ERC20_IFACE.encodeFunctionData("allowance", [wallet.address, SWAP_ROUTER]));
-          const [current] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], h);
-          if (current < wethFees) {
-            await waitForTx(await sendTx(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData("approve", [SWAP_ROUTER, ethers.MaxUint256]) }));
-          }
-        } catch (_) {}
-
-        let wethPriceInUsdc6 = 0n;
-        try {
-          const s0Hex = await ethCall(POOL, "0x3850c7bd");
-          const hex = s0Hex.startsWith("0x") ? s0Hex.slice(2) : s0Hex;
-          const sqrtPriceX96 = BigInt("0x" + hex.slice(0, 64));
-          const sqrtPf = Number(sqrtPriceX96) / 2**96;
-          wethPriceInUsdc6 = BigInt(Math.round(sqrtPf * sqrtPf * 1e18));
-        } catch (_) {}
-
-        let swapGas = 300000n;
-        let swapOk = false;
-        for (const pct of [990n, 980n, 970n, 0n]) {
-          try {
-            const minOut = (wethPriceInUsdc6 > 0n && pct > 0n) ? wethFees * wethPriceInUsdc6 / (10n ** 18n) * pct / 1000n : 0n;
-            const swapData = SWAP_ROUTER_IFACE.encodeFunctionData("exactInputSingle", [{
-              tokenIn: WETH, tokenOut: USDC, tickSpacing,
-              recipient: wallet.address, deadline: freshDeadline(),
-              amountIn: wethFees, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n,
-            }]);
-            try { swapGas = (await provider.estimateGas({ to: SWAP_ROUTER, from: wallet.address, data: swapData })) * 3n / 2n; }
-            catch (_) { if (pct > 0n) continue; }
-            const txSwap = await sendTx(wallet, { to: SWAP_ROUTER, data: swapData, gasLimit: swapGas });
-            swapWethHash = txSwap.hash;
-            await waitForTx(txSwap);
-            swapOk = true;
-            break;
-          } catch (e) { swapWethError = e.message ?? String(e); }
-        }
-        if (!swapOk) console.log(`[collectFees step2 swapWeth] échec — ${swapWethError}`);
-      }
-    } catch (e) { swapWethError = e.message ?? String(e); }
 
     let aeroSwapHash = null;
     let aeroUsdcReceived = 0n;
     let aeroBalance = "0";
     let aeroSwapError = null;
     try {
-      const aeroBal  = await readBal(AERO, wallet.address);
+      const aeroBal = await readBal(AERO, wallet.address);
       aeroBalance = ethers.formatUnits(aeroBal, 18);
-      const MIN_AERO = ethers.parseUnits("0.01", 18);
-      if (swapAero && aeroBal >= MIN_AERO) {
-        await waitForTx(await sendTx(wallet, {
-          to: AERO, data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
-        }));
-        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
-        let expectedUsdcOut = 0n;
-        try {
-          const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [aeroBal, routes]));
-          const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
-          expectedUsdcOut = amounts[amounts.length - 1];
-        } catch (_) {}
-        let aeroSwapGas = 300000n;
-        for (const pct of [990n, 980n, 970n, 0n]) {
-          try {
-            const minOut = pct > 0n ? expectedUsdcOut * pct / 1000n : 0n;
-            const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-              aeroBal, minOut, routes, wallet.address, freshDeadline(),
-            ]);
-            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; }
-            catch (_) { if (pct > 0n) continue; }
-            const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
-            aeroSwapHash = txSwap.hash;
-            const receipt = await waitForTx(txSwap);
-            // Montant réel reçu, lu depuis les logs Transfer du receipt — fiable même si un
-            // avant/après solde inter-requêtes serait désynchronisé par un RPC load-balancé.
-            aeroUsdcReceived = parseUsdcReceived(receipt, wallet.address);
-            aeroSwapError = null;
-            break;
-          } catch (e) { aeroSwapError = e.message ?? String(e); }
-        }
-      }
-    } catch (e) { aeroSwapError = e.message ?? String(e); }
-    if (aeroSwapError) console.log(`[collectFees step2 aeroSwap] échec — bal=${aeroBalance} — ${aeroSwapError}`);
+    } catch (_) {}
 
     return Response.json({
       ok: true, swapWethHash, aeroSwapHash,

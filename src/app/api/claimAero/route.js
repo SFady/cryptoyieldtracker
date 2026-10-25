@@ -26,11 +26,7 @@ async function sendErrorEmail(subject, body) {
   } catch (_) {}
 }
 
-const V2_ROUTER  = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
-const V2_FACTORY = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
-const AERO       = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const USDC       = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const VOTER      = "0x382409fad8503FbCdbB27A4211551fa03e884078"; // Voter du protocole fusionné Aero (23/10)
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -66,14 +62,6 @@ function parseUsdcReceived(receipt, walletAddress) {
   }
   return total;
 }
-
-const VOTER_IFACE = new ethers.Interface([
-  "function gauges(address pool) view returns (address)",
-]);
-
-const V2_ROUTER_IFACE = new ethers.Interface([
-  "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
-]);
 
 async function pickRpc() {
   return new Promise((resolve) => {
@@ -194,16 +182,10 @@ export async function POST(req) {
   // le wallet du bot) — 1 par défaut (comportement historique du bouton manuel), 0.25 pour le
   // claim matinal automatique 7h.
   const sendFraction = Math.min(1, Math.max(0, parseFloat(body.sendFraction ?? 1)));
-  // swapAero : si false, le claim (getReward) a bien lieu mais l'AERO reste en AERO dans le wallet
-  // — pas de swap, pas d'envoi (sendFraction n'a alors aucun effet). Utilisé par le bot (14/10,
-  // Règles 2/3/5 via collectFees/closePositions, et le claim de la Règle 4 à 6h) : l'AERO n'est
-  // converti en USDC qu'une fois par jour par dailyAeroDistribution, pas à chaque claim.
-  const swapAero = body.swapAero !== false;
   let rawTokenId = null;
   try {
     const privateKey = poolNum === 3 ? process.env.PRIVATE_KEY_3 : process.env.PRIVATE_KEY;
     if (!privateKey) return Response.json({ error: `PRIVATE_KEY${poolNum === 3 ? "_3" : ""} manquant` }, { status: 500 });
-    const POOL = getPoolAddress(poolNum);
 
     // 1. Récupérer le tokenId depuis la DB
     const rows = await sql`
@@ -220,7 +202,6 @@ export async function POST(req) {
     const rpcUrl   = await pickRpc();
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet   = new ethers.Wallet(privateKey, provider);
-    const freshDeadline = () => Math.floor(Date.now() / 1000) + 600;
 
     // 2. Gauge address
     // Gauge en dur (24/10) — VOTER.gauges(pool) revert sur le nouveau Voter Aero.
@@ -262,33 +243,13 @@ export async function POST(req) {
       console.log(`[claimAero claimEmissions] ${e.message ?? e}`);
     }
 
-    // 4. Swap AERO → USDC — montant reçu lu depuis les logs Transfer du reçu (fiable même si un
-    // delta de solde avant/après atterrirait sur des RPC pas au même niveau de sync, cf. incident
-    // du 05/10 dans closePositions/route.js où ce calcul par delta a fait échouer silencieusement
-    // l'envoi externe alors que le swap avait réussi).
+    // 4. Swap AERO → USDC désactivé (25/10) — ciblait l'ancien AERO/ancien routeur, devenus
+    // illiquides après la fusion (21/10), jamais migré, SANS protection de slippage (minOut=0n en
+    // dur). Même famille de bug que l'incident confirmé du 25/10 dans collectFees.js (~$190 perdus
+    // sur un swap équivalent). L'AERO réclamé reste en AERO ; seule la distribution quotidienne de
+    // 6h (Règle 4, via le Metarouter) le convertit désormais.
     let aeroSwapHash = null;
     let swapUsdcReceivedRaw = 0n;
-    try {
-      const aeroBal = await readBal(AERO, wallet.address);
-      const MIN_AERO = ethers.parseUnits("0.01", 18);
-      if (swapAero && aeroBal >= MIN_AERO) {
-        const txApp = await sendTx(wallet, {
-          to: AERO,
-          data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
-        });
-        await waitForTx(txApp);
-        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
-        const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-          aeroBal, 0n, routes, wallet.address, freshDeadline(),
-        ]);
-        let aeroSwapGas = 300000n;
-        try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
-        const txSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
-        aeroSwapHash = txSwap.hash;
-        const swapReceipt = await waitForTx(txSwap);
-        swapUsdcReceivedRaw = parseUsdcReceived(swapReceipt, wallet.address);
-      }
-    } catch (_) {}
 
     // 5. Envoyer une fraction du montant reçu vers DESTINATION_WALLET, garder le reste dans le wallet
     let transferHash  = null;

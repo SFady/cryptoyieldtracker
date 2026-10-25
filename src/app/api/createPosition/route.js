@@ -47,12 +47,8 @@ const NFPM_ADDRESS = "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
 // const NFPM        = "0x827922686190790b37229fd06084350E74485b72"; // ancien (Aerodrome Initial)
 // const NFPM_NEW    = "0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53"; // ancien (Aerodrome Gauges V3)
 // const FACTORY_NEW = "0xf8f2eb4940cfe7d13603dddd87f123820fc061ef"; // ancienne factory CL
-const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // Aerodrome Slipstream SwapRouter (Initial Deployment, même que NFPM) — non utilisé dans ce fichier
-const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"; // ancien — plus utilisé dans ce fichier depuis la migration Aero (24/10), gardé pour mémoire
-const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"; // idem
 const WETH        = "0x4200000000000000000000000000000000000006";
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631"; // ancien AERO — plus le token de reward, gardé pour mémoire
 const NEW_AERO    = "0x3f5bf3edac59d650d8fdf9657a71f2f904a3a4ee"; // nouveau AERO (protocole fusionné)
 const AERO_USDC_POOL_V2 = "0xF634058dC94e6BF8e828E27621320C423bC8B18E"; // AERO/USDC "Basic Volatile" (V2)
 const VOTER       = "0x382409fad8503FbCdbB27A4211551fa03e884078"; // Voter du protocole fusionné Aero (24/10)
@@ -186,10 +182,6 @@ async function ensureAllowance(wallet, provider, token, spender, amount) {
   return tx.hash;
 }
 
-const SWAP_ROUTER_IFACE = new ethers.Interface([
-  "function exactInputSingle((address tokenIn, address tokenOut, int24 tickSpacing, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut)",
-]);
-
 // Migration Aero (24/10) : swap WETH⇄USDC sur notre pool CL via le Metarouter — remplace les appels
 // l'ancien V2_ROUTER pour tout ce qui concerne WETH/USDC et AERO/USDC. Même structure SwapExactInParams
 // confirmée le 22/10 en décodant une vraie transaction (voir loop.js / project_aero_migration.md).
@@ -213,10 +205,6 @@ async function metarouterSwapExactIn({ pool, tokenIn, amountInRaw, minAmountOutR
   ]);
   return sendTx(wallet, { to: METAROUTER, data });
 }
-
-const V2_ROUTER_IFACE = new ethers.Interface([
-  "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
-]);
 
 const NFPM_IFACE = new ethers.Interface([
   "function mint((address token0, address token1, int24 tickSpacing, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline, uint160 sqrtPriceX96) params) returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)",

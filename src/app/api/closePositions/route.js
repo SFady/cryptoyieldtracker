@@ -35,12 +35,8 @@ async function sendErrorEmail(subject, body) {
 export const runtime     = "nodejs";
 export const maxDuration = 300;
 
-const SWAP_ROUTER = "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5"; // ancien — plus utilisé (keepWeth toujours true côté bot, voir swapWethToStable)
-const V2_ROUTER   = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"; // idem
-const V2_FACTORY  = "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"; // idem
 const WETH        = "0x4200000000000000000000000000000000000006";
 const USDC        = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const AERO        = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 
 const RPC_URLS = [
   process.env.ALCHEMY_RPC_URL,
@@ -74,15 +70,6 @@ const GAUGE_IFACE = new ethers.Interface([
   "function getReward(uint256 tokenId)",
   // Nouveau gauge (23/10) — remplace getReward, voir CLGauge.claimEmissions(address,address).
   "function claimEmissions(address account, address recipient)",
-]);
-
-const SWAP_ROUTER_IFACE = new ethers.Interface([
-  "function exactInputSingle((address tokenIn, address tokenOut, int24 tickSpacing, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut)",
-]);
-
-const V2_ROUTER_IFACE = new ethers.Interface([
-  "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, (address from, address to, bool stable, address factory)[] routes, address to, uint256 deadline) returns (uint256[] amounts)",
-  "function getAmountsOut(uint256 amountIn, (address from, address to, bool stable, address factory)[] routes) view returns (uint256[] amounts)",
 ]);
 
 // Montant USDC reçu par le wallet, lu directement depuis les logs Transfer du reçu — fiable même si
@@ -259,10 +246,6 @@ export async function POST(req) {
   const feesUsdc         = body.feesUsdc ?? null;
   const aeroSplitFraction = body.aeroSplitFraction ?? null;
   const aeroSourceOverride = body.aeroSourceOverride ?? null;
-  // Par défaut swap le résidu AERO en USDC (comportement historique, gardé pour les fermetures
-  // manuelles/test). Le bot (loop.js closeLP) passe swapAero:false (14/10) — l'AERO doit rester en
-  // AERO dans le wallet jusqu'à la distribution quotidienne de 6h (Règle 4).
-  const swapAero           = body.swapAero !== false;
   const keepWeth           = body.keepWeth === true;
   const sellWethFees       = body.sellWethFees === true;
   const halfFees           = body.halfFees === true;
@@ -619,10 +602,10 @@ export async function POST(req) {
       : totalFeesUsdc1;
     console.log(`[fees] totalFeesUsdc1=${totalFeesUsdc1} actualUsdcFeesFromLP=${actualUsdcFeesFromLP} principalUsdc1Acc=${principalUsdc1Acc}`);
     // Helper : swap WETH → stablecoin — NON migré vers le Metarouter (24/10, voir fix NFPM).
-    // SWAP_ROUTER/V2_ROUTER/V2_FACTORY ci-dessus visent l'ancien protocole Aerodrome et ne sont plus
-    // valides. Jamais appelé par le bot automatique (loop.js passe toujours keepWeth:true), donc pas
-    // bloquant aujourd'hui — mais on refuse bruyamment plutôt que de swapper silencieusement via des
-    // routers obsolètes si jamais invoqué manuellement (sellWethFees/keepWeth:false).
+    // Visait l'ancien routeur Aerodrome, retiré du fichier (25/10, plus aucune route actuelle ne
+    // l'utilise). Jamais appelé par le bot automatique (loop.js passe toujours keepWeth:true), donc
+    // pas bloquant aujourd'hui — mais on refuse bruyamment plutôt que de swapper silencieusement via
+    // un routeur obsolète si jamais invoqué manuellement (sellWethFees/keepWeth:false).
     const swapWethToStable = async () => {
       throw new Error("swapWethToStable non migré vers le nouveau protocole Aero — à migrer vers Metarouter avant tout appel avec keepWeth:false ou sellWethFees");
     };
@@ -668,54 +651,13 @@ export async function POST(req) {
       Number(ethers.formatUnits(principalUsdc1Acc, 6))
     ).toFixed(2);
 
-    // 4a. Swap AERO → USDC (non-bloquant) — seulement si swapAero (défaut true, bot passe false :
-    // l'AERO doit rester en AERO dans le wallet jusqu'à la distribution quotidienne de 6h)
+    // 4a. Swap AERO → USDC désactivé (25/10) — ciblait l'ancien AERO/ancien routeur V2, devenus
+    // illiquides après la fusion (21/10), jamais migré vers le Metarouter. Même famille de bug que
+    // l'incident confirmé du 25/10 dans collectFees.js (~$190 perdus sur un swap équivalent).
+    // L'AERO résiduel reste en AERO ; seule la distribution quotidienne de 6h (Règle 4) le convertit.
     let aeroSwapHash = null;
     let aeroSwapUsdcReceived = 0;
     let aeroResidualError = null;
-    try {
-      const aeroBal = await readBal(AERO, wallet.address);
-      const MIN_AERO = ethers.parseUnits("0.01", 18);
-
-      if (swapAero && aeroBal >= MIN_AERO) {
-        const txApp = await sendTx(wallet, {
-          to: AERO,
-          data: ERC20_IFACE.encodeFunctionData("approve", [V2_ROUTER, ethers.MaxUint256]),
-        });
-        await waitForTx(provider, txApp);
-
-        const routes = [{ from: AERO, to: USDC, stable: false, factory: V2_FACTORY }];
-        let expectedAeroOut = 0n;
-        try {
-          const outHex = await ethCall(V2_ROUTER, V2_ROUTER_IFACE.encodeFunctionData("getAmountsOut", [aeroBal, routes]));
-          const [amounts] = V2_ROUTER_IFACE.decodeFunctionResult("getAmountsOut", outHex);
-          expectedAeroOut = amounts[amounts.length - 1];
-        } catch (_) {}
-        let aeroSwapGas = 300000n;
-        let aeroSwapReceipt = null;
-        for (const pct of [990n, 980n, 970n]) {
-          try {
-            const minOut = expectedAeroOut * pct / 1000n;
-            const swapData = V2_ROUTER_IFACE.encodeFunctionData("swapExactTokensForTokens", [
-              aeroBal, minOut, routes, wallet.address, freshDeadline(),
-            ]);
-            try { const est = await provider.estimateGas({ to: V2_ROUTER, from: wallet.address, data: swapData }); aeroSwapGas = est * 3n / 2n; } catch (_) {}
-            const txAeroSwap = await sendTx(wallet, { to: V2_ROUTER, data: swapData, gasLimit: aeroSwapGas });
-            aeroSwapHash = txAeroSwap.hash;
-            aeroSwapReceipt = await waitForTx(provider, txAeroSwap);
-            aeroResidualError = null;
-            break;
-          } catch (e) { aeroResidualError = e.message ?? String(e); }
-        }
-        if (!aeroSwapHash && aeroResidualError) {
-          console.log(`[closePositions aeroSwap résiduel] échec — bal=${ethers.formatUnits(aeroBal, 18)} — ${aeroResidualError}`);
-        }
-        if (aeroSwapHash) {
-          const aeroSwapUsdcReceivedRaw = parseUsdcReceived(aeroSwapReceipt, wallet.address, stablecoin);
-          aeroSwapUsdcReceived = parseFloat(ethers.formatUnits(aeroSwapUsdcReceivedRaw, 6));
-        }
-      }
-    } catch (e) { aeroResidualError = e.message ?? String(e); }
 
     // Trace systématique en base (même en succès) — sinon un échec de ce split résiduel
     // (le point le plus silencieux du flux AERO) ne laisse aucune trace analysable après coup.
