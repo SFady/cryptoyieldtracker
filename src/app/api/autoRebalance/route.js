@@ -129,19 +129,16 @@ async function handleRequest(forceCase, poolNum = 2, overrideTokenId = null, noT
   if (forceCase === 6) return handleCase6(poolNum);
 }
 
+// Désactivées (25/10) — route legacy jamais migrée vers le nouveau protocole Aero (VOTER/NFPM
+// encore ceux d'avant la fusion du 21/10), déjà marquée instable/désactivée pour pool3 dans
+// cron/route.js. Plus de risque de perte à laisser une route non auditée pouvoir encore
+// envoyer des transactions réelles, même si elle échouerait probablement au lookup gauge.
 export async function GET(req) {
-  if (!isAuthorized(req)) return unauthorizedResponse();
-  const p = new URL(req.url).searchParams;
-  const forceCase   = parseInt(p.get("case")    ?? "0");
-  const poolNum     = parseInt(p.get("poolNum") ?? "2");
-  const noTransfer  = p.get("noTransfer") === "true";
-  return handleRequest(forceCase, poolNum, null, noTransfer);
+  return Response.json({ error: "Route désactivée — non migrée vers le nouveau protocole Aero" }, { status: 410 });
 }
 
 export async function POST(req) {
-  if (!isAuthorized(req)) return unauthorizedResponse();
-  const { forceCase, poolNum, overrideTokenId } = await req.json().catch(() => ({}));
-  return handleRequest(forceCase, poolNum ?? 2, overrideTokenId ?? null);
+  return Response.json({ error: "Route désactivée — non migrée vers le nouveau protocole Aero" }, { status: 410 });
 }
 
 async function handleCase1(poolNum = 2) {
