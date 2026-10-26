@@ -903,10 +903,13 @@ export async function POST(req) {
 
     // Échec du swap correctif (étape 6b) : transitoire la plupart du temps (le tick suivant
     // retente de zéro automatiquement, capital resté en wallet — voir le fix du 24/10). Pour ne
-    // pas spammer un email à chaque tentative individuelle, on ne notifie qu'à partir de 3 échecs
-    // CONSÉCUTIFS de ce type précis (compteur Redis, remis à 0 dès qu'une ouverture réussit) — les
-    // tentatives, elles, continuent à chaque tick sans attendre ce seuil, uniquement l'email est
-    // retardé (25/10, demande explicite de l'utilisateur après plusieurs alertes rapprochées).
+    // pas spammer un email à chaque tentative individuelle, on ne notifie qu'UNE SEULE FOIS, au
+    // 3e échec CONSÉCUTIF de ce type précis (compteur Redis, remis à 0 dès qu'une ouverture
+    // réussit) — les tentatives, elles, continuent à chaque tick sans attendre ce seuil, uniquement
+    // l'email est retardé (25/10, demande explicite de l'utilisateur). Bug corrigé le 26/10 :
+    // `count >= 3` notifiait à CHAQUE échec à partir du 3e (spam toute une nuit si la mauvaise
+    // passe durait) au lieu d'une seule fois — `=== 3` ne notifie qu'au moment où le seuil est
+    // franchi, puis reste silencieux jusqu'au prochain succès qui remet le compteur à 0.
     const isSwapCorrectifFail = msg.startsWith("[étape 6b");
     let shouldEmail = !caseNum;
     if (isSwapCorrectifFail) {
@@ -916,7 +919,7 @@ export async function POST(req) {
         count = ((await kv.get(key)) || 0) + 1;
         await kv.set(key, count, { ex: 86400 });
       } catch (_) {}
-      shouldEmail = shouldEmail && count >= 3;
+      shouldEmail = shouldEmail && count === 3;
     }
     // Ne pas envoyer d'email si appelé depuis autoRebalance (qui envoie le sien avec le prix ETH)
     if (shouldEmail) await sendErrorEmail("[CryptoYieldTracker] Erreur — createPosition", `Cas : ?\nErreur : ${msg}`);
