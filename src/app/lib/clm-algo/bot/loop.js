@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getPriceAverage14d, getPriceAverage24h, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 
@@ -86,14 +86,6 @@ async function sendErrorEmail(subject, body) {
 // surveiller le premier tick qui ouvre une position (filet de sécurité : flag p2_bot_paused via
 // /api/admin-clear-stale si besoin d'arrêter vite).
 const BOT_ENABLED = true;
-
-// Lettre de tendance vs une moyenne mobile : H (haussier, prix ≥ MM) ou B (baissier, prix < MM) — binaire,
-// pas de zone neutre. Utilisé uniquement par autoStart() pour le code "open_trend" affiché (colonne
-// Tendance de la page Résultats) — pas par une règle de décision.
-function trendLetter(price, avg) {
-  if (!price || avg == null) return 'B';
-  return price >= avg ? 'H' : 'B';
-}
 
 const USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
@@ -864,15 +856,9 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
     result.openingTotal = openingTotal;
     result.openingLp    = openingLp;
 
-    // Tendance MM14j × MM24h au moment de l'ouverture (ex: "HB", "HH", "BH", "BB")
-    const [openAvg14d, openAvg24h] = await Promise.all([getPriceAverage14d(), getPriceAverage24h()]);
-    const openTrend = `${trendLetter(price, openAvg14d)}${trendLetter(price, openAvg24h)}`;
-    await kv.set('p2_open_trend', openTrend, { ex: 30 * 86400 });
-    result.openTrend = openTrend;
-
     if (process.env.DATABASE_URL && pool.tokenId) {
       const sql = neon(process.env.DATABASE_URL);
-      await sql`UPDATE lp_events SET total_at_open = ${openingTotal}, open_trend = ${openTrend} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
+      await sql`UPDATE lp_events SET total_at_open = ${openingTotal} WHERE token_id = ${pool.tokenId} AND COALESCE(pool_num, 2) = 2`;
     }
   } catch (_) {}
 
