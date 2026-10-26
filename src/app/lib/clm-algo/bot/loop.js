@@ -182,6 +182,32 @@ const SWAP_EXACT_IN_PARAMS_TYPE = 'tuple(address[] pools, address tokenIn, tuple
  * payerIsUser:true — les fonds partent directement du wallet (msgSender), pas d'un solde préalable
  * dans le Metarouter lui-même (on n'utilise jamais sa logique de custody multi-commandes).
  */
+// Envoi avec hausse de gas en cas de conflit de nonce — convertUsdcToEth/convertAeroToUsdc
+// utilisaient wallet.sendTransaction() brut (pas le sendTx() à gestion de nonce des autres routes),
+// ce qui a produit "already known" puis "replacement transaction underpriced" le 26/10 (deux RPC
+// différents dans la boucle de retry pas encore synchronisés sur le même nonce en attente).
+async function sendTxResilient(wallet, params) {
+  let p = { ...params };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await wallet.sendTransaction(p);
+    } catch (e) {
+      const msg = ((e.shortMessage ?? '') + ' ' + (e.message ?? '')).toLowerCase();
+      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced|already known|nonce too low|nonce has already been used/i.test(msg)) {
+        const feeData = await wallet.provider.getFeeData();
+        p = {
+          ...p,
+          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 150n / 100n,
+          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 150n / 100n,
+        };
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw, minAmountOutRaw, wallet }) {
   const params = {
     pools,
@@ -199,8 +225,7 @@ async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw,
   // échecs "transitoires" du 24-25/10 (positions à $18/$0.38, distribution AERO manquée).
   const deadline = Math.floor(Date.now() / 1000) + 3600;
   const data = METAROUTER_IFACE.encodeFunctionData('execute', [commands, [input0], deadline]);
-  const tx = await wallet.sendTransaction({ to: METAROUTER, data });
-  return tx;
+  return sendTxResilient(wallet, { to: METAROUTER, data });
 }
 
 async function ethCall(to, data) {
@@ -291,7 +316,7 @@ async function convertUsdcToEth(usdcAmount) {
       const ERC20_ALLOWANCE_IFACE = new ethers.Interface(['function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)']);
       const currentAllowance = await new ethers.Contract(USDC_ADDRESS, ERC20_ALLOWANCE_IFACE, provider).allowance(wallet.address, METAROUTER);
       if (currentAllowance < amountIn) {
-        const txApp = await wallet.sendTransaction({
+        const txApp = await sendTxResilient(wallet, {
           to: USDC_ADDRESS,
           data: ERC20_ALLOWANCE_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
         });
@@ -310,7 +335,7 @@ async function convertUsdcToEth(usdcAmount) {
       const wethReceivedRaw = parseWethReceived(swapReceipt, wallet.address);
       if (wethReceivedRaw <= 0n) return { error: 'no_weth_received', usdcAmount };
 
-      const txUnwrap = await wallet.sendTransaction({
+      const txUnwrap = await sendTxResilient(wallet, {
         to:   WETH_ADDRESS,
         data: DAILY_WETH_IFACE.encodeFunctionData('withdraw', [wethReceivedRaw]),
       });
@@ -356,7 +381,7 @@ async function convertAeroToUsdc(aeroAmountRaw) {
       const ERC20_ALLOWANCE_IFACE = new ethers.Interface(['function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)']);
       const currentAllowance = await new ethers.Contract(NEW_AERO, ERC20_ALLOWANCE_IFACE, provider).allowance(wallet.address, METAROUTER);
       if (currentAllowance < aeroAmountRaw) {
-        const txApp = await wallet.sendTransaction({
+        const txApp = await sendTxResilient(wallet, {
           to: NEW_AERO,
           data: ERC20_ALLOWANCE_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
         });
@@ -477,7 +502,7 @@ async function dailyAeroDistribution(base, price) {
         try {
           const provider = new ethers.JsonRpcProvider(url);
           const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
-          const tx       = await wallet.sendTransaction({
+          const tx       = await sendTxResilient(wallet, {
             to:   USDC_ADDRESS,
             data: (new ethers.Interface(['function transfer(address,uint256) returns (bool)'])).encodeFunctionData('transfer', [dest, amount]),
           });
