@@ -323,16 +323,31 @@ async function convertUsdcToEth(usdcAmount) {
         await txApp.wait();
       }
 
-      const txSwap = await metarouterSwapExactIn({
-        commandByte: CMD_CL_SWAP_EXACT_IN,
-        pools: [POOL_ADDRESS_2],
-        tokenIn: USDC_ADDRESS,
-        amountInRaw: amountIn,
-        minAmountOutRaw: 0n,
-        wallet,
-      });
-      const swapReceipt = await txSwap.wait();
-      const wethReceivedRaw = parseWethReceived(swapReceipt, wallet.address);
+      // 3 tentatives sur un revert on-chain (congestion/MEV transitoire, même schéma observé toute
+      // la semaine sur les autres swaps Metarouter) avant de passer au RPC suivant — minOut reste à
+      // 0n (montant trop mince pour justifier la math sqrtPrice d'une cotation précise, cf. note
+      // ci-dessus), ce n'est pas un problème de slippage mais de timing d'inclusion (26/10).
+      let txSwap, swapReceipt, wethReceivedRaw = 0n, lastSwapErr = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          txSwap = await metarouterSwapExactIn({
+            commandByte: CMD_CL_SWAP_EXACT_IN,
+            pools: [POOL_ADDRESS_2],
+            tokenIn: USDC_ADDRESS,
+            amountInRaw: amountIn,
+            minAmountOutRaw: 0n,
+            wallet,
+          });
+          swapReceipt = await txSwap.wait();
+          wethReceivedRaw = parseWethReceived(swapReceipt, wallet.address);
+          lastSwapErr = null;
+          break;
+        } catch (e) {
+          lastSwapErr = e;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      if (lastSwapErr) throw lastSwapErr;
       if (wethReceivedRaw <= 0n) return { error: 'no_weth_received', usdcAmount };
 
       const txUnwrap = await sendTxResilient(wallet, {
