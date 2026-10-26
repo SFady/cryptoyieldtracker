@@ -284,11 +284,19 @@ async function convertUsdcToEth(usdcAmount) {
       const provider = new ethers.JsonRpcProvider(url);
       const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
 
-      const txApp = await wallet.sendTransaction({
-        to: USDC_ADDRESS,
-        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
-      });
-      await txApp.wait();
+      // N'approuver que si nécessaire — approuver à chaque appel (même déjà illimité depuis la
+      // toute première fois) causait un "already known" quand cette boucle multi-RPC retentait un
+      // appel précédent : la tx d'approve déjà en mempool se faisait renvoyer à l'identique avec le
+      // même nonce (25/10, incident sur la distribution AERO quotidienne).
+      const ERC20_ALLOWANCE_IFACE = new ethers.Interface(['function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)']);
+      const currentAllowance = await new ethers.Contract(USDC_ADDRESS, ERC20_ALLOWANCE_IFACE, provider).allowance(wallet.address, METAROUTER);
+      if (currentAllowance < amountIn) {
+        const txApp = await wallet.sendTransaction({
+          to: USDC_ADDRESS,
+          data: ERC20_ALLOWANCE_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
+        });
+        await txApp.wait();
+      }
 
       const txSwap = await metarouterSwapExactIn({
         commandByte: CMD_CL_SWAP_EXACT_IN,
@@ -344,11 +352,16 @@ async function convertAeroToUsdc(aeroAmountRaw) {
       const provider = new ethers.JsonRpcProvider(url);
       const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
 
-      const txApp = await wallet.sendTransaction({
-        to: NEW_AERO,
-        data: (new ethers.Interface(['function approve(address,uint256) returns (bool)'])).encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
-      });
-      await txApp.wait();
+      // N'approuver que si nécessaire — voir même correctif dans convertUsdcToEth (25/10).
+      const ERC20_ALLOWANCE_IFACE = new ethers.Interface(['function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)']);
+      const currentAllowance = await new ethers.Contract(NEW_AERO, ERC20_ALLOWANCE_IFACE, provider).allowance(wallet.address, METAROUTER);
+      if (currentAllowance < aeroAmountRaw) {
+        const txApp = await wallet.sendTransaction({
+          to: NEW_AERO,
+          data: ERC20_ALLOWANCE_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]),
+        });
+        await txApp.wait();
+      }
 
       // AERO = token0, USDC = token1 sur ce pool (confirmé on-chain le 23/10).
       let minOut = 0n;
