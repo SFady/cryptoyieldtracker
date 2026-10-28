@@ -11,6 +11,21 @@ export const NFPM_ADDRESS   = "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
 // protocole fusionné (interface différente, jamais trouvé l'équivalent qui marche). Un seul pool/
 // gauge géré ici, pas besoin de résolution dynamique.
 export const GAUGE_ADDRESS_2 = "0x46a9dCa72D78366571bE583aa69C1DC16E6889fB";
+
+// Pool3 (25/10) : dormante, jamais activée (cron pas câblé, pas de PRIVATE_KEY_3 configurée dans ce
+// repo) — adresses paramétrables via variables d'env pour préparer le terrain sans rien lancer.
+// Repli sur celles de la pool2 par défaut, pour que getPoolAddress(3)/getGaugeAddress(3) renvoient
+// toujours une adresse valide tant qu'aucune vraie pool3 n'est configurée (plutôt que de se rabattre
+// silencieusement sur POOL_ADDRESS, la pool 1 legacy, sans rapport).
+export const POOL_ADDRESS_3  = process.env.POOL_ADDRESS_3  ?? POOL_ADDRESS_2;
+export const GAUGE_ADDRESS_3 = process.env.GAUGE_ADDRESS_3 ?? GAUGE_ADDRESS_2;
+
 export function getPoolAddress(poolNum) {
-  return poolNum === 2 ? POOL_ADDRESS_2 : POOL_ADDRESS;
+  if (poolNum === 3) return POOL_ADDRESS_3;
+  if (poolNum === 2) return POOL_ADDRESS_2;
+  return POOL_ADDRESS;
+}
+
+export function getGaugeAddress(poolNum) {
+  return poolNum === 3 ? GAUGE_ADDRESS_3 : GAUGE_ADDRESS_2;
 }
