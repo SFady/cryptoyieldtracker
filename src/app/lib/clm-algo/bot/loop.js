@@ -986,11 +986,11 @@ export async function botLoop({ base, price }) {
         const p24h2    = pctData2 && pctData2.cnt >= 10 && pctData2.p05 > 0
           ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
           : null;
-        // Multiplicateur x2, plancher 1.5% supprimé (28/10) — les ranges trop serrées (1.5-2%)
+        // Multiplicateur x1.5, plancher 1.5% supprimé (28/10) — les ranges trop serrées (1.5-2%)
         // déclenchaient trop de rebalances pour les fees/AERO réellement collectés (mesuré : 5
         // cycles/24h pour $0 de fees, coût mécanique > revenu). Un range plus large réduit la
         // fréquence des triggers plus vite que le coût par cycle n'augmente (voir mémoire).
-        const width2 = p24h2 !== null ? p24h2 * 2 : 1.5;
+        const width2 = p24h2 !== null ? p24h2 * 1.5 : 1.5;
         result.action          = 'low_trigger';
         result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
         result.newRangePct     = parseFloat(width2.toFixed(2));
@@ -1005,8 +1005,8 @@ export async function botLoop({ base, price }) {
       const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
-      // Multiplicateur x2, plancher 1.5% supprimé (28/10) — voir même note que Règle 2.
-      const width3 = p24h3 !== null ? p24h3 * 2 : 1.5;
+      // Multiplicateur x1.5, plancher 1.5% supprimé (28/10) — voir même note que Règle 2.
+      const width3 = p24h3 !== null ? p24h3 * 1.5 : 1.5;
       result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
@@ -1142,8 +1142,8 @@ export async function botLoop({ base, price }) {
       const p24h1    = pctData1 && pctData1.cnt >= 10 && pctData1.p05 > 0
         ? (pctData1.p95 - pctData1.p05) / pctData1.p05 * 100
         : null;
-      // Multiplicateur x2, plancher 1.5% supprimé (28/10) — voir même note que Règle 2.
-      const width1   = p24h1 !== null ? p24h1 * 2 : 1.5;
+      // Multiplicateur x1.5, plancher 1.5% supprimé (28/10) — voir même note que Règle 2.
+      const width1   = p24h1 !== null ? p24h1 * 1.5 : 1.5;
       result.autoStart = await autoStart({ base, price, targetRatio: keptRatio1, explicitRangePct: width1 });
       if (!result.autoStart.skipped && !result.autoStart.error) {
         await saveRangeAndLowTrigger(result, price);
