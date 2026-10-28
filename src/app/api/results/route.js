@@ -9,7 +9,7 @@ export async function GET() {
     let rows;
     try {
       rows = await sql`
-        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, range_min, range_max, range_pct, created_at, closed_at
+        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, weth, range_min, range_max, range_pct, created_at, closed_at
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
           AND COALESCE(pool_num, 2) = 2
@@ -21,7 +21,7 @@ export async function GET() {
     } catch (_) {
       // close_reason/fees_usdc pas encore migrées en prod
       rows = await sql`
-        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, NULL AS close_reason, NULL AS fees_usdc, range_min, range_max, range_pct, created_at, closed_at
+        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, NULL AS close_reason, NULL AS fees_usdc, weth, range_min, range_max, range_pct, created_at, closed_at
         FROM lp_events
         WHERE action1 = 'CREATE_OK'
           AND COALESCE(pool_num, 2) = 2
@@ -97,6 +97,7 @@ export async function GET() {
         aeroUsdc: (r.fees_usdc !== null || claimTotal > 0) ? parseFloat(aeroUsdc.toFixed(6)) : null,
         delta,
         closeReason: r.close_reason,
+        wethAtOpen: r.weth !== null ? parseFloat(r.weth) : null,
         rangeMin: r.range_min !== null ? parseFloat(r.range_min) : null,
         rangeMax: r.range_max !== null ? parseFloat(r.range_max) : null,
         rangePct: r.range_pct !== null ? parseFloat(r.range_pct) : null,

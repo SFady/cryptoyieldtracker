@@ -76,6 +76,7 @@ export default function ResultsPage() {
                   <th style={{ padding: "8px 10px" }}>Raison</th>
                   <th style={{ padding: "8px 10px" }}>Range</th>
                   <th style={{ padding: "8px 10px" }}>Avant</th>
+                  <th style={{ padding: "8px 10px" }}>WETH ouv.</th>
                   <th style={{ padding: "8px 10px" }}>Après</th>
                   <th style={{ padding: "8px 10px" }}>Fees</th>
                   <th style={{ padding: "8px 10px" }}>Gain</th>
@@ -105,6 +106,7 @@ export default function ResultsPage() {
                         : "—"}
                     </td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#6699ff" }}>{r.wethAtOpen !== null ? `$${r.wethAtOpen.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", fontWeight: 700, whiteSpace: "nowrap", color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
