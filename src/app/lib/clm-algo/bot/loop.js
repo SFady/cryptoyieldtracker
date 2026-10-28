@@ -405,16 +405,30 @@ async function convertAeroToUsdc(aeroAmountRaw) {
         minOut = amountOut * 970n / 1000n; // 3% de slippage toléré
       } catch (_) {}
 
-      const txSwap = await metarouterSwapExactIn({
-        commandByte: CMD_V2_SWAP_EXACT_IN,
-        pools: [AERO_USDC_POOL_V2],
-        tokenIn: NEW_AERO,
-        amountInRaw: aeroAmountRaw,
-        minAmountOutRaw: minOut,
-        wallet,
-      });
-      const swapReceipt = await txSwap.wait();
-      const usdcReceivedRaw = parseUsdcReceivedFromAero(swapReceipt, wallet.address);
+      // 3 tentatives sur revert on-chain avant de passer au RPC suivant — même correctif que
+      // convertUsdcToEth (26/10), appliqué ici après un nouvel échec le 28/10 (oubli lors du
+      // premier fix, qui n'avait couvert que le complément gas, pas ce swap principal).
+      let txSwap, swapReceipt, usdcReceivedRaw = 0n, lastSwapErr = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          txSwap = await metarouterSwapExactIn({
+            commandByte: CMD_V2_SWAP_EXACT_IN,
+            pools: [AERO_USDC_POOL_V2],
+            tokenIn: NEW_AERO,
+            amountInRaw: aeroAmountRaw,
+            minAmountOutRaw: minOut,
+            wallet,
+          });
+          swapReceipt = await txSwap.wait();
+          usdcReceivedRaw = parseUsdcReceivedFromAero(swapReceipt, wallet.address);
+          lastSwapErr = null;
+          break;
+        } catch (e) {
+          lastSwapErr = e;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      if (lastSwapErr) throw lastSwapErr;
       if (usdcReceivedRaw <= 0n) return { error: 'no_usdc_received' };
 
       return { ok: true, usdcReceived: parseFloat(ethers.formatUnits(usdcReceivedRaw, 6)), swapHash: txSwap.hash };
