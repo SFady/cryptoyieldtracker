@@ -5,12 +5,17 @@ export const POOL_ADDRESS   = process.env.POOL_ADDRESS   ?? "0xb2cc224c1c9fee385
 export const POOL_ADDRESS_2 = process.env.POOL_ADDRESS_2 ?? "0x4A7af46bC8aBc00048c6c7920a1488DAF568366c";
 // Nouveau NFPM du protocole fusionné (confirmé : nfpm.factory() pointe vers la factory ci-dessus).
 // Ancien NFPM Aerodrome legacy : 0xe1f8cd9ac4e4a65f54f38a5cdafca44f6dd68b53.
-export const NFPM_ADDRESS   = "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
+// Paramétrable (28/10, même repli que POOL_ADDRESS_2 ci-dessus) : tant que la variable d'env n'est
+// pas posée sur Vercel, cette ligne renvoie exactement la même adresse qu'avant — aucun changement
+// de comportement pour la pool2 en prod.
+export const NFPM_ADDRESS   = process.env.NFPM_ADDRESS   ?? "0x4857DB576eE0e45F10525eC59527BfD10beeC60b";
 // Gauge du pool WETH/USDC ci-dessus (confirmé : gauge.pool() == POOL_ADDRESS_2). En dur plutôt que
 // résolu dynamiquement via VOTER.gauges(pool) — cette fonction revert sur le nouveau Voter du
 // protocole fusionné (interface différente, jamais trouvé l'équivalent qui marche). Un seul pool/
 // gauge géré ici, pas besoin de résolution dynamique.
-export const GAUGE_ADDRESS_2 = "0x46a9dCa72D78366571bE583aa69C1DC16E6889fB";
+// Paramétrable (28/10), même repli sans danger que ci-dessus : valeur par défaut identique à celle
+// déjà en dur tant que GAUGE_ADDRESS_2 n'est pas défini dans l'environnement Vercel.
+export const GAUGE_ADDRESS_2 = process.env.GAUGE_ADDRESS_2 ?? "0x46a9dCa72D78366571bE583aa69C1DC16E6889fB";
 
 // Pool3 (25/10) : dormante, jamais activée (cron pas câblé, pas de PRIVATE_KEY_3 configurée dans ce
 // repo) — adresses paramétrables via variables d'env pour préparer le terrain sans rien lancer.
