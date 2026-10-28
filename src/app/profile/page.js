@@ -254,17 +254,6 @@ function SectionHeader({ label, wallet, positions, mt, includeAero, extraUSD = 0
           {wallet}
         </span>
       )}
-      {openingTotal !== null && (
-        <span style={{
-          fontSize: "0.65rem", fontFamily: "monospace", fontWeight: 600,
-          padding: "3px 8px", borderRadius: 5,
-          color: "#6666aa",
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.08)",
-        }}>
-          Ouverture ${openingTotal.toFixed(2)}
-        </span>
-      )}
       {total && (
         <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
           <span className="perf-badge perf-badge--pos">
