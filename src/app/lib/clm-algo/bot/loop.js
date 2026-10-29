@@ -300,9 +300,33 @@ function parseWethReceived(receipt, walletAddress) {
 // (POOL_ADDRESS_2, nouveau protocole Aero). Pas de minAmountOut précis ici — une cotation exacte
 // sur un pool CL demande la math sqrtPrice du slot0, pas disponible simplement ; acceptable sur ces
 // montants minces (top-up gas), comme l'ancien code tolérait déjà minOut=0 en repli silencieux.
+// Revert on-chain (receipt status 0) : la tx a échoué sans déplacer de fonds, un nouvel essai est sûr.
+const isOnchainRevert = (e) => e?.code === 'CALL_EXCEPTION' && !!e?.receipt;
+
+// Attend la confirmation d'une tx DÉJÀ envoyée, en lecture seule sur les autres RPC si le premier
+// ne répond pas — ne la renvoie jamais. Incident du 29/10 : une erreur de lecture juste après un
+// swap+unwrap réussis faisait tout refaire sur le RPC suivant (complément gas fait 2 fois).
+async function confirmSentTx(tx) {
+  try { return await tx.wait(); }
+  catch (e) {
+    if (isOnchainRevert(e)) throw e;
+    for (const url of RPC_URLS) {
+      try {
+        const r = await new ethers.JsonRpcProvider(url).waitForTransaction(tx.hash, 1, 60000);
+        if (r?.status === 1) return r;
+        if (r?.status === 0) throw Object.assign(new Error(`tx ${tx.hash} revert on-chain`), { code: 'CALL_EXCEPTION', receipt: r });
+      } catch (e2) { if (isOnchainRevert(e2)) throw e2; }
+    }
+    throw Object.assign(new Error(`tx ${tx.hash} envoyée mais confirmation introuvable — pas de renvoi`), { code: 'UNCONFIRMED' });
+  }
+}
+
 async function convertUsdcToEth(usdcAmount) {
   if (!usdcAmount || usdcAmount < 0.01) return { skipped: 'insufficient', usdcAmount };
   const amountIn = ethers.parseUnits(usdcAmount.toFixed(6), 6);
+  // Passe à true dès qu'un swap est parti sans revert : à partir de là, plus jamais de nouvel essai
+  // sur un autre RPC (il referait le swap).
+  let committed = false;
   for (const url of RPC_URLS) {
     try {
       const provider = new ethers.JsonRpcProvider(url);
@@ -337,14 +361,23 @@ async function convertUsdcToEth(usdcAmount) {
             minAmountOutRaw: 0n,
             wallet,
           });
-          swapReceipt = await txSwap.wait();
-          wethReceivedRaw = parseWethReceived(swapReceipt, wallet.address);
-          lastSwapErr = null;
-          break;
         } catch (e) {
           lastSwapErr = e;
           if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+          continue;
         }
+        try {
+          swapReceipt = await confirmSentTx(txSwap);
+        } catch (e) {
+          if (!isOnchainRevert(e)) { committed = true; throw e; }
+          lastSwapErr = e;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        committed = true;
+        wethReceivedRaw = parseWethReceived(swapReceipt, wallet.address);
+        lastSwapErr = null;
+        break;
       }
       if (lastSwapErr) throw lastSwapErr;
       if (wethReceivedRaw <= 0n) return { error: 'no_weth_received', usdcAmount };
@@ -353,11 +386,11 @@ async function convertUsdcToEth(usdcAmount) {
         to:   WETH_ADDRESS,
         data: DAILY_WETH_IFACE.encodeFunctionData('withdraw', [wethReceivedRaw]),
       });
-      await txUnwrap.wait();
+      await confirmSentTx(txUnwrap);
 
       return { ok: true, usdcSpent: usdcAmount, ethReceived: parseFloat(ethers.formatUnits(wethReceivedRaw, 18)), swapHash: txSwap.hash, unwrapHash: txUnwrap.hash };
     } catch (e) {
-      if (url === RPC_URLS[RPC_URLS.length - 1]) return { error: e.message ?? String(e), usdcAmount };
+      if (committed || url === RPC_URLS[RPC_URLS.length - 1]) return { error: e.message ?? String(e), usdcAmount, committed };
     }
   }
   return { error: 'all_rpcs_failed', usdcAmount };
@@ -386,6 +419,8 @@ function parseUsdcReceivedFromAero(receipt, walletAddress) {
 const V2_GET_RESERVES_IFACE = new ethers.Interface(['function getReserves() view returns (uint256 _reserve0, uint256 _reserve1, uint256 _blockTimestampLast)']);
 async function convertAeroToUsdc(aeroAmountRaw) {
   if (!aeroAmountRaw || aeroAmountRaw <= 0n) return { skipped: 'insufficient' };
+  // Même garde que convertUsdcToEth : un swap parti sans revert n'est jamais refait sur un autre RPC.
+  let committed = false;
   for (const url of RPC_URLS) {
     try {
       const provider = new ethers.JsonRpcProvider(url);
@@ -430,21 +465,30 @@ async function convertAeroToUsdc(aeroAmountRaw) {
             minAmountOutRaw: minOut,
             wallet,
           });
-          swapReceipt = await txSwap.wait();
-          usdcReceivedRaw = parseUsdcReceivedFromAero(swapReceipt, wallet.address);
-          lastSwapErr = null;
-          break;
         } catch (e) {
           lastSwapErr = e;
           if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+          continue;
         }
+        try {
+          swapReceipt = await confirmSentTx(txSwap);
+        } catch (e) {
+          if (!isOnchainRevert(e)) { committed = true; throw e; }
+          lastSwapErr = e;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        committed = true;
+        usdcReceivedRaw = parseUsdcReceivedFromAero(swapReceipt, wallet.address);
+        lastSwapErr = null;
+        break;
       }
       if (lastSwapErr) throw lastSwapErr;
       if (usdcReceivedRaw <= 0n) return { error: 'no_usdc_received' };
 
       return { ok: true, usdcReceived: parseFloat(ethers.formatUnits(usdcReceivedRaw, 6)), swapHash: txSwap.hash };
     } catch (e) {
-      if (url === RPC_URLS[RPC_URLS.length - 1]) return { error: e.message ?? String(e) };
+      if (committed || url === RPC_URLS[RPC_URLS.length - 1]) return { error: e.message ?? String(e), committed };
     }
   }
   return { error: 'all_rpcs_failed' };
@@ -514,7 +558,8 @@ async function dailyAeroDistribution(base, price) {
       out.gasComplement = complement;
       if (complement > 0.01) {
         out.ethTopUp = await convertUsdcToEth(complement);
-        if (out.ethTopUp?.ok) bank = parseFloat((bank - complement).toFixed(6));
+        // committed : le swap est parti (seul l'unwrap ou sa confirmation a échoué) — l'USDC est déjà dépensé.
+        if (out.ethTopUp?.ok || out.ethTopUp?.committed) bank = parseFloat((bank - complement).toFixed(6));
       }
     }
   } catch (e) { out.gasComplementError = e.message ?? String(e); }
@@ -531,17 +576,24 @@ async function dailyAeroDistribution(base, price) {
       let txHash = null;
       const amount = ethers.parseUnits(String(toExternal), 6);
       for (const url of RPC_URLS) {
+        let tx;
         try {
           const provider = new ethers.JsonRpcProvider(url);
           const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
-          const tx       = await sendTxResilient(wallet, {
+          tx = await sendTxResilient(wallet, {
             to:   USDC_ADDRESS,
             data: (new ethers.Interface(['function transfer(address,uint256) returns (bool)'])).encodeFunctionData('transfer', [dest, amount]),
           });
-          await tx.wait();
+        } catch (_) { continue; } // rien n'est parti : essai sûr sur le RPC suivant
+        // Virement parti : on attend sa confirmation sans jamais le renvoyer (sinon virement en double).
+        try {
+          await confirmSentTx(tx);
           txHash = tx.hash;
-          break;
-        } catch (_) {}
+        } catch (e) {
+          if (isOnchainRevert(e)) continue; // revert on-chain : aucun USDC envoyé, nouvel essai sûr
+          out.externalError = `transfer_unconfirmed:${tx.hash}`;
+        }
+        break;
       }
       if (txHash) {
         out.externalTxHash = txHash;
@@ -550,7 +602,7 @@ async function dailyAeroDistribution(base, price) {
           await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
                       VALUES (${toExternal}, ${'daily_6am_25pct'}, ${txHash}, ${2})`;
         } catch (_) {}
-      } else {
+      } else if (!out.externalError) {
         out.externalError = 'transfer_failed';
       }
     }
