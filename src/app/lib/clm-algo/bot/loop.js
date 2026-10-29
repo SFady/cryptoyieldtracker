@@ -217,6 +217,11 @@ async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw,
   // échecs "transitoires" du 24-25/10 (positions à $18/$0.38, distribution AERO manquée).
   const deadline = Math.floor(Date.now() / 1000) + 3600;
   const data = METAROUTER_IFACE.encodeFunctionData('execute', [commands, [input0], deadline]);
+  // Simulation (eth_call, gratuite) avant d'envoyer la vraie transaction — incident du 29/10 :
+  // la distribution AERO a enchaîné une dizaine d'échecs on-chain réels (gas payé à chaque fois)
+  // avant qu'une tolérance de slippage plus large ne passe. Un revert détecté ici coûte 0 gas,
+  // contrairement à un revert on-chain.
+  await wallet.provider.call({ to: METAROUTER, from: wallet.address, data });
   return sendTxResilient(wallet, { to: METAROUTER, data });
 }
 
@@ -396,21 +401,25 @@ async function convertAeroToUsdc(aeroAmountRaw) {
       }
 
       // AERO = token0, USDC = token1 sur ce pool (confirmé on-chain le 23/10).
-      let minOut = 0n;
-      try {
-        const resHex = await ethCall(AERO_USDC_POOL_V2, V2_GET_RESERVES_IFACE.encodeFunctionData('getReserves', []));
-        const [reserve0, reserve1] = V2_GET_RESERVES_IFACE.decodeFunctionResult('getReserves', resHex);
-        // Formule constant-product simplifiée, fee ~0,3% déjà couverte par la marge de slippage.
-        const amountOut = (aeroAmountRaw * reserve1) / (reserve0 + aeroAmountRaw);
-        minOut = amountOut * 970n / 1000n; // 3% de slippage toléré
-      } catch (_) {}
-
-      // 3 tentatives sur revert on-chain avant de passer au RPC suivant — même correctif que
-      // convertUsdcToEth (26/10), appliqué ici après un nouvel échec le 28/10 (oubli lors du
-      // premier fix, qui n'avait couvert que le complément gas, pas ce swap principal).
-      let txSwap, swapReceipt, usdcReceivedRaw = 0n, lastSwapErr = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
+      const quoteMinOut = async (tolerance1000) => {
         try {
+          const resHex = await ethCall(AERO_USDC_POOL_V2, V2_GET_RESERVES_IFACE.encodeFunctionData('getReserves', []));
+          const [reserve0, reserve1] = V2_GET_RESERVES_IFACE.decodeFunctionResult('getReserves', resHex);
+          // Formule constant-product simplifiée, fee ~0,3% déjà couverte par la marge de slippage.
+          const amountOut = (aeroAmountRaw * reserve1) / (reserve0 + aeroAmountRaw);
+          return amountOut * tolerance1000 / 1000n;
+        } catch (_) { return 0n; }
+      };
+
+      // 3 tentatives, tolérance de slippage croissante (3% / 5% / 8%) — incident du 29/10 : 3%
+      // fixe sur les 3 essais faisait échouer systématiquement une dizaine de tentatives d'affilée
+      // (pool pourtant très liquide, ~30M$ — le prix bougeait visiblement plus que 3% entre la
+      // lecture des réserves et l'inclusion on-chain). Réserves aussi relues à chaque tentative
+      // (plus l'ancien minOut figé calculé une seule fois avant la boucle), pas juste la tolérance.
+      let txSwap, swapReceipt, usdcReceivedRaw = 0n, lastSwapErr = null;
+      for (const [attempt, tolerance] of [970n, 950n, 920n].entries()) {
+        try {
+          const minOut = await quoteMinOut(tolerance);
           txSwap = await metarouterSwapExactIn({
             commandByte: CMD_V2_SWAP_EXACT_IN,
             pools: [AERO_USDC_POOL_V2],
