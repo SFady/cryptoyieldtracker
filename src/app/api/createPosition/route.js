@@ -204,7 +204,11 @@ async function metarouterSwapExactIn({ pool, tokenIn, amountInRaw, minAmountOutR
   const data = METAROUTER_IFACE.encodeFunctionData("execute", [
     ethers.hexlify(new Uint8Array([commandByte])), [input0], Math.floor(Date.now() / 1000) + 3600,
   ]);
-  return sendTx(wallet, { to: METAROUTER, data });
+  // Gas limit = estimation ×2 (29/10) : avec l'estimation exacte, le module anti-MEV du pool CL
+  // revertait en "IG" (gas insuffisant) — cause des échecs répétés du swap correctif. Voir même
+  // correctif dans loop.js. L'estimation sert aussi de simulation gratuite avant l'envoi.
+  const est = await wallet.provider.estimateGas({ to: METAROUTER, from: wallet.address, data });
+  return sendTx(wallet, { to: METAROUTER, data, gasLimit: est * 2n });
 }
 
 const NFPM_IFACE = new ethers.Interface([

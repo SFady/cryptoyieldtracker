@@ -92,7 +92,11 @@ export async function POST(req) {
         const data = METAROUTER_IFACE.encodeFunctionData('execute', [
           ethers.hexlify(new Uint8Array([CMD_CL_SWAP_EXACT_IN])), [input0], freshDeadline(),
         ]);
-        const tx = await wallet.sendTransaction({ to: METAROUTER, data, gasLimit: 300000n });
+        // Gas limit = estimation ×2 (29/10) : le 300000 fixe est sous le besoin réel d'un swap sur
+        // le pool CL (~510k) → revert "IG" systématique. Voir metarouterSwapExactIn dans loop.js.
+        // L'estimation sert aussi de simulation gratuite avant l'envoi.
+        const est = await provider.estimateGas({ to: METAROUTER, from: wallet.address, data });
+        const tx = await wallet.sendTransaction({ to: METAROUTER, data, gasLimit: est * 2n });
         await tx.wait();
         swapHash = tx.hash;
         break;

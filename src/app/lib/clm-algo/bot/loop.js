@@ -217,12 +217,14 @@ async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw,
   // échecs "transitoires" du 24-25/10 (positions à $18/$0.38, distribution AERO manquée).
   const deadline = Math.floor(Date.now() / 1000) + 3600;
   const data = METAROUTER_IFACE.encodeFunctionData('execute', [commands, [input0], deadline]);
-  // Simulation (eth_call, gratuite) avant d'envoyer la vraie transaction — incident du 29/10 :
-  // la distribution AERO a enchaîné une dizaine d'échecs on-chain réels (gas payé à chaque fois)
-  // avant qu'une tolérance de slippage plus large ne passe. Un revert détecté ici coûte 0 gas,
-  // contrairement à un revert on-chain.
-  await wallet.provider.call({ to: METAROUTER, from: wallet.address, data });
-  return sendTxResilient(wallet, { to: METAROUTER, data });
+  // Gas limit = estimation ×2 (29/10). Envoyer l'estimation exacte (défaut ethers) faisait reverter
+  // les swaps Aero de façon répétée : les modules anti-MEV des pools consomment un peu plus de gas
+  // à l'exécution réelle qu'à l'estimation (pool V2 AERO/USDC : 0xe28a638c ; pool CL : "IG").
+  // Vérifié en rejouant les tx échouées au même état : gas 390k → revert, 1,5M → OK. La marge ne
+  // coûte rien (seul le gas consommé est payé). L'estimation sert aussi de simulation gratuite :
+  // un revert détecté ici ne coûte pas de gas.
+  const est = await wallet.provider.estimateGas({ to: METAROUTER, from: wallet.address, data });
+  return sendTxResilient(wallet, { to: METAROUTER, data, gasLimit: est * 2n });
 }
 
 async function ethCall(to, data) {
