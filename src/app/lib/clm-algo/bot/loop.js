@@ -930,6 +930,24 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
   return result;
 }
 
+// Cycle court (29/10) : analyse de 215 cycles — un cycle de moins de ~4h ne rembourse pas son coût
+// de rééquilibrage (swap + gas + perte à la sortie), même avec l'AERO. Si la position qui se ferme
+// a vécu moins de MIN_CYCLE_HOURS, la suivante est ouverte 2x plus large (plancher 1,5% appliqué
+// avant le doublement) ; la Règle 5 (resserrage) attend aussi cet âge pour ne pas défaire le x2.
+const MIN_CYCLE_HOURS = 4;
+
+function positionAgeHours(lpState) {
+  const t = lpState?.created_at ? new Date(lpState.created_at).getTime() : NaN;
+  return Number.isFinite(t) ? (Date.now() - t) / 3.6e6 : null;
+}
+
+// Largeur de réouverture d'un rééquilibrage : percentile (plancher 1,5%), x2 si cycle trop court.
+function rebalanceWidth(p24h, lpState) {
+  const base = Math.max(p24h, 1.5);
+  const age  = positionAgeHours(lpState);
+  return age !== null && age < MIN_CYCLE_HOURS ? base * 2 : base;
+}
+
 /**
  * Point d'entrée principal, appelé depuis cron/route.js.
  */
@@ -1037,7 +1055,7 @@ export async function botLoop({ base, price }) {
         const p24h2    = pctData2 && pctData2.cnt >= 10 && pctData2.p05 > 0
           ? (pctData2.p95 - pctData2.p05) / pctData2.p05 * 100
           : null;
-        const width2 = Math.max(p24h2, 1.5);
+        const width2 = rebalanceWidth(p24h2, lpState);
         result.action          = 'low_trigger';
         result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
         result.newRangePct     = parseFloat(width2.toFixed(2));
@@ -1052,7 +1070,7 @@ export async function botLoop({ base, price }) {
       const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
-      const width3 = Math.max(p24h3, 1.5);
+      const width3 = rebalanceWidth(p24h3, lpState);
       result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
@@ -1079,7 +1097,8 @@ export async function botLoop({ base, price }) {
       // plancher n'atterrit jamais exactement à 1,50% (arrondi aux ticks du pool — observé à 1,51%
       // dans les faits), donc un seuil strict à 1,5% ne protégeait pas contre la boucle inutile
       // shrink → 1,51% → re-déclenche → shrink → 1,51% → ... (11/10).
-      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1) {
+      const age5 = positionAgeHours(lpState);
+      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1 && (age5 === null || age5 >= MIN_CYCLE_HOURS)) {
         const width5 = Math.max(p24h5, 1.5);
         result.action          = 'width_shrink_rebalance';
         result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
