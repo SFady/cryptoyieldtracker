@@ -3,6 +3,7 @@ import { neon }   from "@neondatabase/serverless";
 import { readLpState, writeLpState, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress, getGaugeAddress, NFPM_ADDRESS } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
+import { safeSend } from "../../lib/safeSend";
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -130,51 +131,9 @@ async function waitForTx(_provider, tx) {
   }
 }
 
-async function sendTx(wallet, params) {
-  // Nonce suivi en mémoire sur l'instance wallet (une par requête POST), pour TOUTE la durée de
-  // l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents. Avant ce fix,
-  // chaque appel sendTx recalculait son nonce via getTransactionCount(pending), ce qui pouvait faire
-  // collisionner deux appels séquentiels si le RPC n'avait pas encore propagé le précédent (incident
-  // du 02/10 : burn du NFT vide sans await waitForTx, suivi immédiatement par l'approve AERO qui a
-  // récupéré le même nonce "pending" encore non à jour — rejeté "nonce too low").
-  if (wallet._nextNonce == null) {
-    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-  }
-  let nonce = params.nonce ?? wallet._nextNonce;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const tx = await wallet.sendTransaction({ ...params, nonce });
-      wallet._nextNonce = nonce + 1;
-      return tx;
-    } catch (e) {
-      const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
-      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
-        const feeData = await wallet.provider.getFeeData();
-        params = {
-          ...params,
-          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
-          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
-        };
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
-        // Ici le réseau confirme explicitement que le nonce suivi est périmé (ex. une tx envoyée
-        // hors de ce compteur, ou vraiment ratée côté notre suivi) : seul cas où on resynchronise
-        // depuis le RPC.
-        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-        wallet._nextNonce = nonce;
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
-      throw e;
-    }
-  }
-}
+// Garanti sans doublon (29/10) : nonce suivi en mémoire sur l'instance wallet, tx signée donc
+// retrouvable par son hash, cas ambigu → erreur AMBIGUOUS_SEND sans renvoi. Voir lib/safeSend.js.
+const sendTx = safeSend;
 
 async function pickRpc() {
   return new Promise((resolve) => {

@@ -4,6 +4,7 @@ import { kv }     from "@vercel/kv";
 import { writeLpState, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress, getGaugeAddress } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
+import { safeSend, isAmbiguousSend } from "../../lib/safeSend";
 
 export const runtime     = "nodejs";
 export const maxDuration = 300;
@@ -101,38 +102,9 @@ const ERC20_IFACE = new ethers.Interface([
 // Nonce suivi en mémoire sur l'instance wallet (une par requête), pour toute la durée de
 // l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents (évite une course
 // de propagation entre deux appels sendTx, cf. incident du 02/10 dans closePositions).
-async function sendTx(wallet, params) {
-  if (wallet._nextNonce == null) {
-    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-  }
-  let nonce = params.nonce ?? wallet._nextNonce;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const tx = await wallet.sendTransaction({ ...params, nonce });
-      wallet._nextNonce = nonce + 1;
-      return tx;
-    } catch (e) {
-      const msg = e.message ?? e.shortMessage ?? "";
-      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
-        const feeData = await wallet.provider.getFeeData();
-        params = {
-          ...params,
-          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
-          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
-        };
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-      if (attempt < 2 && /nonce too low|nonce has already been used|transaction already imported/i.test(msg)) {
-        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-        wallet._nextNonce = nonce;
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-      throw e;
-    }
-  }
-}
+// Garanti sans doublon (29/10) : voir lib/safeSend.js. L'ancienne version recalculait le nonce sur
+// "nonce too low" et renvoyait, ce qui pouvait dupliquer une tx déjà passée.
+const sendTx = safeSend;
 
 // tx.wait() échoue souvent sur Base RPCs même quand la tx réussit → fallback par polling
 async function waitForTx(provider, tx) {
@@ -508,7 +480,11 @@ export async function POST(req) {
           await new Promise(r => setTimeout(r, 4000));
           lastErr = null;
           break;
-        } catch (e) { lastErr = e.shortMessage ?? e.message; }
+        } catch (e) {
+          lastErr = e.shortMessage ?? e.message;
+          // Envoi ou confirmation incertains : le swap est peut-être passé, jamais de palier suivant.
+          if (isAmbiguousSend(e) || /timeout confirmation/.test(e.message ?? "")) break;
+        }
       }
       // Echec des 3 tentatives (ex: price impact, RPC transitoire) — le mint utilisera les soldes
       // réels (non corrigés) juste après, donnant une position plus petite que prévu plutôt que de
@@ -526,7 +502,10 @@ export async function POST(req) {
           await new Promise(r => setTimeout(r, 4000));
           lastErr = null;
           break;
-        } catch (e) { lastErr = e.shortMessage ?? e.message; }
+        } catch (e) {
+          lastErr = e.shortMessage ?? e.message;
+          if (isAmbiguousSend(e) || /timeout confirmation/.test(e.message ?? "")) break;
+        }
       }
       if (lastErr) swapCorrectionWarning = `swap correctif WETH→USDC échoué (3 tentatives) : ${lastErr}`;
     }
@@ -756,7 +735,7 @@ export async function POST(req) {
     } catch (e) {
       const msg11a = e.shortMessage ?? e.message ?? "";
       // "nonce already used" ou "could not coalesce" = tx probablement déjà on-chain → on continue
-      if (!msg11a.includes("nonce") && !msg11a.includes("could not coalesce")) throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${msg11a}`);
+      if (!isAmbiguousSend(e) && !msg11a.includes("nonce") && !msg11a.includes("could not coalesce")) throw new Error(`[étape 11a – approve tokenId=${tokenId}] ${msg11a}`);
     }
 
     try {

@@ -3,6 +3,7 @@ import { neon }   from "@neondatabase/serverless";
 import { writeCollectedToday, writeCollectErr, writeErrorState } from "../../lib/cronKv";
 import { getPoolAddress, getGaugeAddress } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
+import { safeSend } from "../../lib/safeSend";
 
 async function sendErrorEmail(subject, body) {
   const key = process.env.RESEND_API_KEY;
@@ -145,42 +146,8 @@ async function waitForTx(tx) {
 // aucun retry ni gestion de nonce — d'où le "replacement transaction underpriced" sur l'approve
 // AERO (06/10) : deux envois concurrents avec le même nonce "pending" stale, le second pas assez
 // cher pour remplacer le premier.
-async function sendTx(wallet, params) {
-  if (wallet._nextNonce == null) {
-    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-  }
-  let nonce = params.nonce ?? wallet._nextNonce;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const tx = await wallet.sendTransaction({ ...params, nonce });
-      wallet._nextNonce = nonce + 1;
-      return tx;
-    } catch (e) {
-      const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
-      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
-        const feeData = await wallet.provider.getFeeData();
-        params = {
-          ...params,
-          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
-          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
-        };
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
-        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-        wallet._nextNonce = nonce;
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
-      throw e;
-    }
-  }
-}
+// Garanti sans doublon (29/10) : voir lib/safeSend.js.
+const sendTx = safeSend;
 
 const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
 function parseUsdcReceived(receipt, walletAddress) {

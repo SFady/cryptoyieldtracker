@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { getPoolAddress } from '../../lib/config';
 import { isAuthorized, unauthorizedResponse } from '../../lib/apiAuth';
+import { safeSend, isAmbiguousSend } from '../../lib/safeSend';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 60;
@@ -72,7 +73,7 @@ export async function POST(req) {
 
     // Approve Metarouter
     try {
-      const txApp = await wallet.sendTransaction({ to: WETH, data: ERC20_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]) });
+      const txApp = await safeSend(wallet, { to: WETH, data: ERC20_IFACE.encodeFunctionData('approve', [METAROUTER, ethers.MaxUint256]) });
       await txApp.wait();
     } catch (_) {}
 
@@ -96,11 +97,16 @@ export async function POST(req) {
         // le pool CL (~510k) → revert "IG" systématique. Voir metarouterSwapExactIn dans loop.js.
         // L'estimation sert aussi de simulation gratuite avant l'envoi.
         const est = await provider.estimateGas({ to: METAROUTER, from: wallet.address, data });
-        const tx = await wallet.sendTransaction({ to: METAROUTER, data, gasLimit: est * 2n });
+        const tx = await safeSend(wallet, { to: METAROUTER, data, gasLimit: est * 2n });
         await tx.wait();
         swapHash = tx.hash;
         break;
-      } catch (_) {}
+      } catch (e) {
+        // Palier suivant seulement si le swap a clairement échoué sans rien déplacer (revert
+        // on-chain, ou estimation de gas qui revert avant envoi). Envoi/confirmation incertains :
+        // le swap est peut-être passé, on s'arrête plutôt que d'en refaire un second.
+        if (isAmbiguousSend(e) || e?.code !== 'CALL_EXCEPTION') break;
+      }
     }
 
     if (!swapHash) return Response.json({ error: 'Swap WETH→USDC échoué' }, { status: 500 });

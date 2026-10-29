@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { kv } from '@vercel/kv';
 import { neon } from '@neondatabase/serverless';
 import { writeLpState } from '../../lib/cronKv';
+import { safeSend, isAmbiguousSend } from '../../lib/safeSend';
 import { getPoolAddress, NFPM_ADDRESS, GAUGE_ADDRESS_2 } from '../../lib/config';
 
 export const runtime     = 'nodejs';
@@ -139,7 +140,7 @@ export async function POST(req) {
     } catch (_) {}
 
     // 4. Approve NFPM -> gauge
-    const txApprove = await wallet.sendTransaction({
+    const txApprove = await safeSend(wallet, {
       to: nfpm, data: NFPM_IFACE.encodeFunctionData('approve', [gaugeAddr, tokenId]),
     });
     await waitForTx(provider, txApprove);
@@ -154,10 +155,14 @@ export async function POST(req) {
         const est = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data });
         gasLimit = est * 3n / 2n;
       } catch (_) {}
-      const tx = await wallet.sendTransaction({ to: gaugeAddr, data, gasLimit });
+      const tx = await safeSend(wallet, { to: gaugeAddr, data, gasLimit });
       await waitForTx(provider, tx);
       depositHash = tx.hash;
     } catch (e1) {
+      // Dépôt peut-être déjà passé (envoi ou confirmation incertains) : pas de 2e méthode.
+      if (isAmbiguousSend(e1) || /timeout confirmation/.test(e1?.message ?? '')) {
+        return Response.json({ error: `deposit() incertain, vérifier on-chain avant tout nouvel essai : ${e1.shortMessage ?? e1.message}` }, { status: 500 });
+      }
       try {
         const data2 = GAUGE_IFACE.encodeFunctionData('deposit(uint256,uint256)', [tokenId, 0n]);
         let gasLimit2 = 500000n;
@@ -165,7 +170,7 @@ export async function POST(req) {
           const est2 = await provider.estimateGas({ to: gaugeAddr, from: wallet.address, data: data2 });
           gasLimit2 = est2 * 3n / 2n;
         } catch (_) {}
-        const tx2 = await wallet.sendTransaction({ to: gaugeAddr, data: data2, gasLimit: gasLimit2 });
+        const tx2 = await safeSend(wallet, { to: gaugeAddr, data: data2, gasLimit: gasLimit2 });
         await waitForTx(provider, tx2);
         depositHash = tx2.hash;
       } catch (e2) {

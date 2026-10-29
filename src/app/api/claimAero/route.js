@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { getPoolAddress, getGaugeAddress } from "../../lib/config";
 import { isAuthorized, unauthorizedResponse } from "../../lib/apiAuth";
+import { safeSend } from "../../lib/safeSend";
 
 export const runtime     = "nodejs";
 export const maxDuration = 120;
@@ -137,42 +138,8 @@ async function waitForTx(tx) {
 // l'exécution — jamais rerequêté au RPC entre deux envois séquentiels différents (même correctif
 // que closePositions/createPosition/close-lp-quick/collectFees — évite le "replacement transaction
 // underpriced" d'un appel wallet.sendTransaction() direct sans gestion de nonce).
-async function sendTx(wallet, params) {
-  if (wallet._nextNonce == null) {
-    wallet._nextNonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-  }
-  let nonce = params.nonce ?? wallet._nextNonce;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const tx = await wallet.sendTransaction({ ...params, nonce });
-      wallet._nextNonce = nonce + 1;
-      return tx;
-    } catch (e) {
-      const msg = ((e.shortMessage ?? "") + " " + (e.message ?? "")).toLowerCase();
-      if (attempt < 2 && /replacement fee too low|replacement transaction underpriced/i.test(msg)) {
-        const feeData = await wallet.provider.getFeeData();
-        params = {
-          ...params,
-          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
-          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
-        };
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-      if (attempt < 2 && /nonce too low|nonce has already been used|nonce already|transaction already imported/i.test(msg)) {
-        nonce = await wallet.provider.getTransactionCount(wallet.address, "pending");
-        wallet._nextNonce = nonce;
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-      if (attempt < 2 && /server response [45]\d\d|network error|econnreset|etimedout|socket hang|429|rate limit|compute units/i.test(msg)) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
-      throw e;
-    }
-  }
-}
+// Garanti sans doublon (29/10) : voir lib/safeSend.js.
+const sendTx = safeSend;
 
 export async function POST(req) {
   if (!isAuthorized(req)) return unauthorizedResponse();

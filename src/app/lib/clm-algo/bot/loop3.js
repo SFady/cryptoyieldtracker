@@ -3,6 +3,7 @@ import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { readLpState, writeLpState, readP3Range, writeP3Range, getPercentileRange, writePriceAnchor7d, readPriceAnchor7d, getLastNPrices } from '../../cronKv.js';
 import { logBotTick }       from './metrics3.js';
+import { safeSend, isAmbiguousSend } from '../../safeSend.js';
 
 // Mêmes routes internes protégées que loop.js (05/10) — voir lib/apiAuth.js.
 function authHeaders() {
@@ -90,17 +91,25 @@ async function tryDailyTransfer(feesCollectedUsdc = 0) {
     let txHash = null;
     const amount = ethers.parseUnits(String(toSend), 6);
     for (const url of RPC_URLS) {
+      let tx;
       try {
         const provider = new ethers.JsonRpcProvider(url);
         const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY_3.trim(), provider);
-        const tx       = await wallet.sendTransaction({
+        tx = await safeSend(wallet, {
           to:   USDC_ADDRESS,
           data: ERC20_IFACE.encodeFunctionData('transfer', [dest, amount]),
         });
-        await tx.wait();
-        txHash = tx.hash;
-        break;
-      } catch (_) {}
+      } catch (e) {
+        if (isAmbiguousSend(e)) return { error: 'transfer_ambiguous', bank, hashes: e.hashes };
+        continue; // rien n'est parti : essai sûr sur le RPC suivant
+      }
+      // Virement parti : jamais renvoyé, même si la confirmation est introuvable (évite un doublon).
+      try { await tx.wait(); txHash = tx.hash; }
+      catch (e) {
+        if (e?.code === 'CALL_EXCEPTION' && e?.receipt) continue; // revert on-chain, aucun fonds déplacé
+        return { error: 'transfer_unconfirmed', bank, hash: tx.hash };
+      }
+      break;
     }
     if (!txHash) return { error: 'transfer_failed', bank };
 
