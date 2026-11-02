@@ -72,11 +72,19 @@ export async function safeSend(wallet, params) {
 
       if (FEE_RE.test(msg)) {
         // Même nonce, frais plus élevés : remplace la tx en attente, ne s'ajoute pas.
+        // La hausse part de la tentative PRÉCÉDENTE (+30 % mini), pas seulement du frais réseau :
+        // sinon chaque retry resigne la même tx et ne dépasse jamais la tx en attente (30/10).
         const feeData = await provider.getFeeData();
+        const prev    = ethers.Transaction.from(signed);
+        const bump    = (net, old, dflt) => {
+          const a = (net ?? dflt) * 125n / 100n;
+          const b = (old ?? 0n) * 130n / 100n + 1n;
+          return a > b ? a : b;
+        };
         p = {
           ...p,
-          maxFeePerGas:         (feeData.maxFeePerGas         ?? 2000000000n) * 125n / 100n,
-          maxPriorityFeePerGas: (feeData.maxPriorityFeePerGas ?? 1000000n)   * 125n / 100n,
+          maxFeePerGas:         bump(feeData.maxFeePerGas,         prev.maxFeePerGas,         2000000000n),
+          maxPriorityFeePerGas: bump(feeData.maxPriorityFeePerGas, prev.maxPriorityFeePerGas, 1000000n),
         };
         delete p.gasPrice;
         signed = null;
