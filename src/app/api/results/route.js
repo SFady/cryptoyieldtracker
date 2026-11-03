@@ -85,7 +85,12 @@ export async function GET() {
       const claimTotal = aeroClaimByToken[r.token_id] ?? 0;
       const aeroUsdc    = (r.fees_usdc !== null ? parseFloat(r.fees_usdc) : 0) + claimTotal;
 
-      const delta = (before !== null && after !== null) ? parseFloat((after - before).toFixed(2)) : null;
+      // 29/10 : l'AERO n'est pas dans usdc_on_close (il reste en AERO dans le wallet jusqu'à la
+      // distribution de 6h, qui en envoie 25% au wallet externe). On compte les 75% gardés dans le
+      // wallet, affichés dans la colonne Fees et ajoutés au gain. (Léger doublon avec le résidu AERO
+      // vendu à la fermeture, déjà dans "after" : quelques centimes.)
+      const aeroKept = parseFloat((aeroUsdc * 0.75).toFixed(6));
+      const delta = (before !== null && after !== null) ? parseFloat((after - before + aeroKept).toFixed(2)) : null;
       return {
         id:         r.id,
         tokenId:    r.token_id,
@@ -94,7 +99,7 @@ export async function GET() {
         closedDate: r.closed_at ? new Date(r.closed_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }) : null,
         before,
         after,
-        aeroUsdc: (r.fees_usdc !== null || claimTotal > 0) ? parseFloat(aeroUsdc.toFixed(6)) : null,
+        aeroUsdc: (r.fees_usdc !== null || claimTotal > 0) ? aeroKept : null,
         delta,
         closeReason: r.close_reason,
         wethPriceAtOpen: r.weth_price !== null ? parseFloat(r.weth_price) : null,
