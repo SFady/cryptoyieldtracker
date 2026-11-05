@@ -828,8 +828,10 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
       out.reopenSkippedSpread = true;
       // Mémorise les paramètres de la réouverture voulue : la Règle 1 (aucune position) les
       // reprendra au tick suivant au lieu d'ouvrir en gardant les proportions du wallet.
+      // highExit/since : après une sortie haute, l'attente est plafonnée (MAX_HIGH_EXIT_WAIT_MIN).
       await kv.set('p2_pending_reopen', {
         targetRatio: effectiveTargetRatio, rangeMultiplier, explicitRangePct,
+        highExit: closeReason === 'high_trigger', since: Date.now(),
       }, { ex: 24 * 3600 }).catch(() => {});
       return out;
     }
@@ -1193,7 +1195,14 @@ export async function botLoop({ base, price }) {
       }
     } catch (_) {}
 
-    // Spread check : marché trop agité → attendre
+    // Réouverture retardée par le spread check (Règles 2/3) : lue ici car elle sert aussi au plafond.
+    const pending = await kv.get('p2_pending_reopen').catch(() => null);
+
+    // Spread check : marché trop agité → attendre. Sauf après une sortie haute (montée, 04/11) :
+    // l'attente est plafonnée à MAX_HIGH_EXIT_WAIT_MIN minutes, puis on rouvre malgré l'agitation
+    // pour ne pas rater la hausse. Sortie basse : attente inchangée.
+    const MAX_HIGH_EXIT_WAIT_MIN = 10;
+    const highWaitExpired = !!pending?.highExit && (Date.now() - (pending.since ?? 0)) >= MAX_HIGH_EXIT_WAIT_MIN * 60000;
     const recentPrices = await getLastNPrices(20);
     if (recentPrices.length >= 10) {
       const minP   = Math.min(...recentPrices);
@@ -1201,18 +1210,18 @@ export async function botLoop({ base, price }) {
       const mid    = (minP + maxP) / 2;
       const spread = (maxP - minP) / mid * 100;
       result.spread = parseFloat(spread.toFixed(2));
-      if (spread > 1.5) {
+      if (spread > 1.5 && !highWaitExpired) {
         result.action = 'auto_start_spread_skip';
         await logBotTick(kv, result);
         return result;
       }
+      if (spread > 1.5 && highWaitExpired) result.spreadWaitCapped = true;
     }
 
     // Règle 1 : aucune position → ouvre en gardant les proportions WETH/USDC déjà présentes dans
     // le wallet (pas de swap forcé), largeur = percentile24h brut. Sauf si une réouverture a été
     // retardée par le spread check (Règles 1/2/3) : on reprend alors exactement ses paramètres au
     // lieu de repartir de zéro.
-    const pending = await kv.get('p2_pending_reopen').catch(() => null);
     if (pending) {
       result.autoStart = await autoStart({
         base, price,
