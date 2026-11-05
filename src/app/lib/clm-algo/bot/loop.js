@@ -489,6 +489,71 @@ async function convertAeroToUsdc(aeroAmountRaw) {
 //      d'USDC (prélevé sur le gain AERO ci-dessus) pour compléter jusqu'à 5$ — pas un pourcentage
 //      fixe, juste ce qu'il faut. Remplace l'ancien taux fixe de 7%.
 //   4. Sur ce qui reste de l'USDC obtenu : 75% restent dans le wallet, 25% vers DESTINATION_WALLET.
+// Virement USDC vers DESTINATION_WALLET. Ne renvoie JAMAIS une tx déjà partie : seuls les échecs où
+// rien n'a été diffusé (ou revert on-chain confirmé) sont retentés sur le RPC suivant.
+// Retourne { txHash } ou { error, retryable } — retryable = rien n'est parti, un nouvel essai est sûr.
+async function sendExternalUsdc(amountUsd, source, wait = true) {
+  const dest = process.env.DESTINATION_WALLET;
+  if (!dest) return { error: 'no_dest_wallet' };
+  const amount = ethers.parseUnits(String(amountUsd), 6);
+  const BAL_IFACE = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
+
+  // Attend que le solde USDC soit visible (05/11 : juste après le swap, les nœuds en retard
+  // refusaient l'estimation de gas du virement pour solde insuffisant, sur tous les RPC d'affilée).
+  const owner = new ethers.Wallet(process.env.PRIVATE_KEY.trim()).address;
+  let seen = false;
+  for (let i = 0; i < (wait ? 10 : 1) && !seen; i++) {
+    try {
+      const [bal] = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], await ethCall(USDC_ADDRESS, BAL_IFACE.encodeFunctionData('balanceOf', [owner])));
+      seen = bal >= amount;
+    } catch (_) {}
+    if (!seen && wait) await new Promise(r => setTimeout(r, 3000));
+  }
+  // wait=false (rattrapage) : le solde a pu être réinvesti entre-temps → on abandonne, sans réessai.
+  if (!seen) return { error: 'transfer_failed: solde USDC insuffisant ou illisible', retryable: wait };
+
+  let lastErr = '';
+  for (const url of RPC_URLS) {
+    let tx;
+    try {
+      const provider = new ethers.JsonRpcProvider(url);
+      const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
+      tx = await sendTxResilient(wallet, {
+        to:   USDC_ADDRESS,
+        data: (new ethers.Interface(['function transfer(address,uint256) returns (bool)'])).encodeFunctionData('transfer', [dest, amount]),
+      });
+    } catch (e) {
+      if (isAmbiguousSend(e)) return { error: `transfer_ambiguous:${e.hashes?.[0] ?? ''}` };
+      lastErr = e?.shortMessage ?? e?.message ?? String(e);
+      continue; // rien n'est parti : essai sûr sur le RPC suivant
+    }
+    // Virement parti : on attend sa confirmation sans jamais le renvoyer (sinon virement en double).
+    try {
+      await confirmSentTx(tx);
+    } catch (e) {
+      if (isOnchainRevert(e)) { lastErr = e?.shortMessage ?? e?.message ?? String(e); continue; } // revert on-chain : aucun USDC envoyé
+      return { error: `transfer_unconfirmed:${tx.hash}` };
+    }
+    try {
+      const sqlDb = neon(process.env.DATABASE_URL);
+      await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
+                  VALUES (${amountUsd}, ${source}, ${tx.hash}, ${2})`;
+    } catch (_) {}
+    return { txHash: tx.hash };
+  }
+  return { error: `transfer_failed: ${lastErr.slice(0, 200)}`, retryable: true };
+}
+
+// Retente un virement externe resté en attente (échec sûr du 6h). Une seule fois par tick, et la
+// clé n'est supprimée qu'après un succès OU une situation incertaine (jamais de renvoi à l'aveugle).
+async function retryPendingExternal() {
+  const pending = await kv.get('p2_pending_external').catch(() => null);
+  if (!pending?.amount) return null;
+  const r = await sendExternalUsdc(pending.amount, pending.source ?? 'daily_6am_25pct', false);
+  if (r.txHash || (r.error && !r.retryable)) await kv.del('p2_pending_external').catch(() => {});
+  return r;
+}
+
 async function dailyAeroDistribution(base, price) {
   const out = {};
 
@@ -554,45 +619,13 @@ async function dailyAeroDistribution(base, price) {
   out.toExternal = toExternal;
 
   if (toExternal > 0.01) {
-    const dest = process.env.DESTINATION_WALLET;
-    if (!dest) {
-      out.externalError = 'no_dest_wallet';
-    } else {
-      let txHash = null;
-      const amount = ethers.parseUnits(String(toExternal), 6);
-      for (const url of RPC_URLS) {
-        let tx;
-        try {
-          const provider = new ethers.JsonRpcProvider(url);
-          const wallet   = new ethers.Wallet(process.env.PRIVATE_KEY.trim(), provider);
-          tx = await sendTxResilient(wallet, {
-            to:   USDC_ADDRESS,
-            data: (new ethers.Interface(['function transfer(address,uint256) returns (bool)'])).encodeFunctionData('transfer', [dest, amount]),
-          });
-        } catch (e) {
-          if (isAmbiguousSend(e)) { out.externalError = `transfer_ambiguous:${e.hashes?.[0] ?? ''}`; break; }
-          continue; // rien n'est parti : essai sûr sur le RPC suivant
-        }
-        // Virement parti : on attend sa confirmation sans jamais le renvoyer (sinon virement en double).
-        try {
-          await confirmSentTx(tx);
-          txHash = tx.hash;
-        } catch (e) {
-          if (isOnchainRevert(e)) continue; // revert on-chain : aucun USDC envoyé, nouvel essai sûr
-          out.externalError = `transfer_unconfirmed:${tx.hash}`;
-        }
-        break;
-      }
-      if (txHash) {
-        out.externalTxHash = txHash;
-        try {
-          const sqlDb = neon(process.env.DATABASE_URL);
-          await sqlDb`INSERT INTO dest_transfers (amount_usdc, source, tx_hash, pool_num)
-                      VALUES (${toExternal}, ${'daily_6am_25pct'}, ${txHash}, ${2})`;
-        } catch (_) {}
-      } else if (!out.externalError) {
-        out.externalError = 'transfer_failed';
-      }
+    const r = await sendExternalUsdc(toExternal, 'daily_6am_25pct');
+    if (r.txHash) out.externalTxHash = r.txHash;
+    if (r.error) {
+      out.externalError = r.error;
+      // Échec sûr (rien n'est parti) : on mémorise le montant, les ticks suivants le retentent
+      // (05/11 : virement raté juste après le swap, la journée était marquée faite → perdu de vue).
+      if (r.retryable) await kv.set('p2_pending_external', { amount: toExternal, source: 'daily_6am_25pct', ts: Date.now() }, { ex: 3 * 86400 }).catch(() => {});
     }
   }
 
@@ -996,6 +1029,12 @@ export async function botLoop({ base, price }) {
       if (batchOk) await writeDailyAeroBatchDone(2).catch(() => {});
     }
   }
+
+  // Virement externe resté en attente après un échec sûr (voir sendExternalUsdc) : on retente.
+  try {
+    const pendingExt = await retryPendingExternal();
+    if (pendingExt) result.pendingExternal = pendingExt;
+  } catch (_) {}
 
   // Range réel (fallback si absent de lpState, ex. juste après un retry-stake)
   if (hasLP && (rMin == null || isNaN(rMin))) {
