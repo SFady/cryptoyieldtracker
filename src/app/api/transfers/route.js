@@ -33,7 +33,7 @@ export async function GET() {
       SELECT created_at, amount_usdc, source, tx_hash, pool_num
       FROM dest_transfers
       WHERE COALESCE(pool_num, 2) = 2
-        AND created_at > '2026-09-16 15:06:00+02'
+        AND created_at >= '2026-11-03 00:00:00+01'
       ORDER BY created_at DESC
       LIMIT 100
     `;
