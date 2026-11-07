@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, getRecentRangePct } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 import { safeSend, isAmbiguousSend } from '../../safeSend.js';
@@ -751,7 +751,7 @@ async function clearAlgoState() {
  * la réouverture est sautée (capital laissé dans le wallet), la Règle 1 la reprendra au tick
  * suivant une fois le marché calmé.
  */
-async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true, skipAero = false, sourceOverride = null) {
+async function runCollect(base, price, targetRatio = 0.5, closeReason = null, rangeMultiplier = 1, keepCurrentRatio = false, explicitRangePct = null, aeroLowSplit = true, skipAero = false, sourceOverride = null, blockReopen = false) {
   const out = {};
 
   let feesCollected = 0;
@@ -802,6 +802,29 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
 
   // Réinitialiser l'état algo
   await clearAlgoState();
+
+  // Blocage (2e sortie basse consécutive en 24h) : on ne rouvre pas, le capital reste en USDC/WETH
+  // dans le wallet. La Règle 1 rouvrira une fois le prix calmé (voir LOW_BLOCK dans cronKv.js).
+  if (blockReopen) {
+    const blockState = { since: Date.now(), reason: 'two_consecutive_low_exits', swapped: null };
+    await kv.set(LOW_BLOCK.KEY, blockState, { ex: 48 * 3600 }).catch(() => {});
+    await kv.del('p2_pending_reopen').catch(() => {});
+    out.reopenBlocked = true;
+    // Après une sortie basse la position est presque entièrement en WETH : on la vend en USDC pour ne
+    // plus subir la baisse (le backtest suppose ce passage en USDC). Un seul essai, JAMAIS retenté
+    // automatiquement (règle « aucune tx en double ») ; la page pools signale un échec éventuel.
+    try {
+      const sr = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', headers: authHeaders(), signal: AbortSignal.timeout(60000) });
+      const sd = await sr.json();
+      out.blockSwap = sd;
+      blockState.swapped = !!(sd.ok && !sd.error);
+    } catch (e) {
+      out.blockSwap = { error: e.message };
+      blockState.swapped = false;
+    }
+    await kv.set(LOW_BLOCK.KEY, blockState, { ex: 48 * 3600 }).catch(() => {});
+    return out;
+  }
 
   // Ratio effectif : soit le ratio cible fourni (swap forcé, Règles 2/3), soit (keepCurrentRatio,
   // Règle 1) les proportions WETH/USDC réellement présentes dans le wallet après la fermeture —
@@ -976,6 +999,18 @@ function positionAgeHours(lpState) {
   return Number.isFinite(t) ? (Date.now() - t) / 3.6e6 : null;
 }
 
+// Sorties basses consécutives encore dans la fenêtre de LOW_BLOCK.WINDOW_H (horodatages en ms).
+async function readLowStreak() {
+  const arr = await kv.get(LOW_BLOCK.STREAK_KEY).catch(() => null);
+  const now = Date.now();
+  return Array.isArray(arr) ? arr.filter(t => Number.isFinite(t) && now - t < LOW_BLOCK.WINDOW_H * 3600000) : [];
+}
+
+// La position a-t-elle vraiment été fermée par runCollect ? (sinon on ne compte pas la sortie)
+function collectClosedOk(c) {
+  return !!c && !c.closeLPError && !c.closeLP?.error && !c.reopenSkippedCloseFailed;
+}
+
 // Largeur de réouverture d'un rééquilibrage (Règles 2/3) : 2 x percentile (plancher 1,5% avant
 // doublement), quelle que soit la durée du cycle précédent. La Règle 5 resserre ensuite à 4h.
 function rebalanceWidth(p24h) {
@@ -1099,7 +1134,17 @@ export async function botLoop({ base, price }) {
         result.action          = 'low_trigger';
         result.percentileRange = p24h2 !== null ? parseFloat(p24h2.toFixed(2)) : null;
         result.newRangePct     = parseFloat(width2.toFixed(2));
-        result.collect = await runCollect(base, price, 0.75, 'low_trigger', 1, false, width2, true);
+        // Blocage (07/11) : si une sortie basse a déjà eu lieu dans les dernières 24h sans sortie haute
+        // entre-temps, cette 2e sortie basse consécutive ferme SANS rouvrir (backtest : chute réduite
+        // d'environ 6 $ sur le 5/11). Reprise gérée par la Règle 1 une fois le prix calmé.
+        const prevLow  = await readLowStreak();
+        const blockNow = prevLow.length >= 1;
+        result.lowStreakPrev = prevLow.length;
+        result.collect = await runCollect(base, price, 0.75, 'low_trigger', 1, false, width2, true, false, null, blockNow);
+        if (collectClosedOk(result.collect)) {
+          if (blockNow) { await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {}); result.lowBlocked = true; }
+          else          { await kv.set(LOW_BLOCK.STREAK_KEY, [...prevLow, Date.now()], { ex: LOW_BLOCK.WINDOW_H * 3600 }).catch(() => {}); }
+        }
         await logBotTick(kv, result);
         return result;
       }
@@ -1115,6 +1160,8 @@ export async function botLoop({ base, price }) {
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
       result.collect = await runCollect(base, price, 0.25, 'high_trigger', 1, false, width3, false);
+      // Une sortie haute casse la série de sorties basses consécutives.
+      if (collectClosedOk(result.collect)) await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {});
       await logBotTick(kv, result);
       return result;
     }
@@ -1193,6 +1240,42 @@ export async function botLoop({ base, price }) {
         } catch (_) {}
       }
     } catch (_) {}
+
+    // Blocage après 2 sorties basses consécutives (07/11) : on ne rouvre qu'après LOW_BLOCK.MIN_H
+    // d'attente ET un prix calmé (écart haut-bas des 60 dernières minutes < LOW_BLOCK.CALM_PCT).
+    // Garde-fou : reprise forcée au bout de LOW_BLOCK.MAX_H même sans calme, pour ne pas rester
+    // inactif indéfiniment. Reprise à 50 % de WETH, range = 2 x percentile (swap fait par createPosition).
+    const lowBlock = await kv.get(LOW_BLOCK.KEY).catch(() => null);
+    if (lowBlock) {
+      const waitedH  = (Date.now() - (lowBlock.since ?? 0)) / 3.6e6;
+      const rangePct = await getRecentRangePct(LOW_BLOCK.CALM_MIN);
+      const calm     = rangePct !== null && rangePct < LOW_BLOCK.CALM_PCT;
+      const forced   = waitedH >= LOW_BLOCK.MAX_H;
+      result.lowBlock = {
+        waitedH:  parseFloat(waitedH.toFixed(2)),
+        rangePct: rangePct !== null ? parseFloat(rangePct.toFixed(2)) : null,
+        calm, forced,
+      };
+      if (waitedH < LOW_BLOCK.MIN_H || (!calm && !forced)) {
+        result.action = 'low_block_wait';
+        await logBotTick(kv, result);
+        return result;
+      }
+      const pctDataB = await getPercentileRange();
+      const p24hB    = pctDataB && pctDataB.cnt >= 10 && pctDataB.p05 > 0
+        ? (pctDataB.p95 - pctDataB.p05) / pctDataB.p05 * 100
+        : null;
+      const widthB = rebalanceWidth(p24hB);
+      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, explicitRangePct: widthB });
+      if (!result.autoStart.skipped && !result.autoStart.error) {
+        await saveRangeAndLowTrigger(result, price);
+        await kv.del(LOW_BLOCK.KEY).catch(() => {});
+        await kv.del('p2_pending_reopen').catch(() => {});
+      }
+      result.action = result.autoStart.skipped ? 'auto_start_skipped' : 'low_block_resumed';
+      await logBotTick(kv, result);
+      return result;
+    }
 
     // Réouverture retardée par le spread check (Règles 2/3) : lue ici car elle sert aussi au plafond.
     const pending = await kv.get('p2_pending_reopen').catch(() => null);

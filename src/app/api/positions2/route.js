@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range } from "../../lib/cronKv";
+import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, LOW_BLOCK, getRecentRangePct } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM, GAUGE_ADDRESS_2 } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -288,6 +288,23 @@ async function buildPosition(tokenId, ethCall, openData) {
   };
 }
 
+// Blocage après 2 sorties basses consécutives (07/11) : état lu en direct (jamais mis en cache)
+// pour l'affichage de la page pools.
+async function readLowBlockInfo() {
+  try {
+    const block     = await kv.get(LOW_BLOCK.KEY).catch(() => null);
+    const streakArr = await kv.get(LOW_BLOCK.STREAK_KEY).catch(() => null);
+    const now       = Date.now();
+    const streak    = Array.isArray(streakArr) ? streakArr.filter(t => Number.isFinite(t) && now - t < LOW_BLOCK.WINDOW_H * 3600000) : [];
+    const lowBlock  = block
+      ? { since: block.since ?? null, swapped: block.swapped ?? null, rangePct: await getRecentRangePct(LOW_BLOCK.CALM_MIN), minH: LOW_BLOCK.MIN_H, calmPct: LOW_BLOCK.CALM_PCT, maxH: LOW_BLOCK.MAX_H }
+      : null;
+    return { lowBlock, lowStreakAt: streak.length ? Math.max(...streak) : null, lowStreakWindowH: LOW_BLOCK.WINDOW_H };
+  } catch (_) {
+    return { lowBlock: null, lowStreakAt: null, lowStreakWindowH: LOW_BLOCK.WINDOW_H };
+  }
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET() {
@@ -312,7 +329,8 @@ export async function GET() {
     const wethRatio    = computeWethRatio(cached.positions, cached.wethWalletUSD, cached.usdcWallet);
     const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
     const botPaused        = !!(await kv.get('p2_bot_paused').catch(() => null));
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused });
+    const lowInfo = await readLowBlockInfo();
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused, ...lowInfo });
   }
 
   try {
@@ -606,7 +624,7 @@ export async function GET() {
     const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
-    return Response.json(data);
+    return Response.json({ ...data, ...(await readLowBlockInfo()) });
 
   } catch (err) {
     if (global._cytPos2Cache.data) return Response.json(global._cytPos2Cache.data);

@@ -34,8 +34,11 @@ export default function ProfilePage() {
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
   const [aeroClockResetAt2, setAeroClockResetAt2] = useState(null);
+  const [lowBlock2, setLowBlock2] = useState(null);
+  const [lowStreakAt2, setLowStreakAt2] = useState(null);
+  const [lowStreakWindowH2, setLowStreakWindowH2] = useState(24);
 
-  const [pos3, setPos3]           = useState(null);
+  const [pos3, setPos3]          = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
   const [wethWallet3, setWethWallet3] = useState(null);
   const [wethWalletUSD3, setWethWalletUSD3] = useState(null);
@@ -55,7 +58,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setLowBlock2(d.lowBlock ?? null); setLowStreakAt2(d.lowStreakAt ?? null); setLowStreakWindowH2(d.lowStreakWindowH ?? 24); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -118,6 +121,46 @@ export default function ProfilePage() {
                 </span>
               )}
             </div>
+            {lowBlock2 && (() => {
+              const waitedMin = lowBlock2.since ? Math.max(0, Math.round((Date.now() - lowBlock2.since) / 60000)) : null;
+              const fmtDur    = (m) => m === null ? "—" : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+              const since     = lowBlock2.since ? new Date(lowBlock2.since).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+              const rangeTxt  = lowBlock2.rangePct != null ? `${lowBlock2.rangePct.toFixed(2)} %` : "—";
+              const calmOk    = lowBlock2.rangePct != null && lowBlock2.rangePct < lowBlock2.calmPct;
+              const waitOk    = waitedMin !== null && waitedMin >= lowBlock2.minH * 60;
+              return (
+                <div style={{
+                  fontSize: "0.7rem", fontFamily: "monospace", lineHeight: 1.6,
+                  padding: "8px 12px", marginBottom: 10, borderRadius: 8,
+                  background: "rgba(201,112,112,0.10)", border: "1px solid rgba(201,112,112,0.4)", color: "#e8a0a0",
+                }}>
+                  <div style={{ fontWeight: 700, color: "#ff8a8a" }}>⛔ Réouverture bloquée — 2 sorties basses consécutives en {lowStreakWindowH2} h</div>
+                  <div>
+                    Bloquée depuis {since} ({fmtDur(waitedMin)}) ·{" "}
+                    {lowBlock2.swapped === false
+                      ? <span style={{ color: "#ff8a8a", fontWeight: 700 }}>⚠ swap WETH→USDC échoué : le capital reste en WETH (exposé à la baisse)</span>
+                      : lowBlock2.swapped === true ? "capital passé en USDC dans le wallet" : "capital en attente dans le wallet"}
+                  </div>
+                  <div>
+                    Reprise quand : attente ≥ {lowBlock2.minH} h {waitOk ? "✓" : "✗"} · écart haut-bas 1 h &lt; {lowBlock2.calmPct} %
+                    {" "}(actuel : {rangeTxt}) {calmOk ? "✓" : "✗"} — reprise forcée après {lowBlock2.maxH} h
+                  </div>
+                </div>
+              );
+            })()}
+            {!lowBlock2 && lowStreakAt2 && (() => {
+              const ageMin = Math.max(0, Math.round((Date.now() - lowStreakAt2) / 60000));
+              const left   = Math.max(0, lowStreakWindowH2 * 60 - ageMin);
+              return (
+                <div style={{
+                  fontSize: "0.68rem", fontFamily: "monospace",
+                  padding: "6px 12px", marginBottom: 10, borderRadius: 8,
+                  background: "rgba(240,180,41,0.08)", border: "1px solid rgba(240,180,41,0.35)", color: "#f0b429",
+                }}>
+                  ⚠ 1 sortie basse il y a {Math.floor(ageMin / 60)} h {String(ageMin % 60).padStart(2, "0")} min — une 2ᵉ consécutive dans les {Math.floor(left / 60)} h {String(left % 60).padStart(2, "0")} min bloquera la réouverture (une sortie haute remet le compteur à zéro)
+                </div>
+              );
+            })()}
             {loading2 && <Spinner label="Découverte des positions…" />}
             {error2   && <ErrorBox msg={error2} />}
 

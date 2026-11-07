@@ -28,6 +28,38 @@ export async function getLastNPrices(n) {
   } catch (_) { return []; }
 }
 
+// Blocage après 2 sorties basses consécutives en 24h (07/11). Source unique des paramètres, partagée
+// par le bot (loop.js) et l'affichage de la page pools (positions2).
+export const LOW_BLOCK = {
+  KEY:        "p2_low_block",   // état « réouverture bloquée » { since }
+  STREAK_KEY: "p2_low_streak",  // horodatages des sorties basses consécutives (remis à zéro par une sortie haute)
+  WINDOW_H:   24,               // fenêtre de comptage des sorties basses consécutives
+  MIN_H:      2,                // attente minimale avant toute reprise
+  CALM_PCT:   1,                // reprise quand l'écart haut-bas des 60 dernières minutes est < 1 %
+  CALM_MIN:   60,               // minutes prises pour mesurer ce calme
+  MAX_H:      12,               // garde-fou : reprise forcée au bout de 12h même sans calme
+};
+
+// Écart haut-bas (en % du milieu) des prix CRON sur les `minutes` dernières minutes ; null s'il y a
+// trop peu de points pour conclure (moins de 10).
+export async function getRecentRangePct(minutes = LOW_BLOCK.CALM_MIN) {
+  try {
+    const since   = Date.now() - minutes * 60000;
+    const entries = await kv.zrange(KEY, 0, minutes * 2 + 10, { rev: true });
+    const prices  = [];
+    for (const m of entries) {
+      const s = String(m); const colon = s.indexOf(':');
+      const ts = colon !== -1 ? Number(s.slice(0, colon)) : null;
+      const p  = Number(colon !== -1 ? s.slice(colon + 1) : s);
+      if (ts !== null && ts < since) continue;
+      if (p > 0) prices.push(p);
+    }
+    if (prices.length < 10) return null;
+    const mn = Math.min(...prices), mx = Math.max(...prices);
+    return (mx - mn) / ((mx + mn) / 2) * 100;
+  } catch (_) { return null; }
+}
+
 // 3 derniers prix CRON (scores les plus hauts = timestamps les plus récents)
 export async function getLastTwoPrices() {
   try {
