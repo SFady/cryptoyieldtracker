@@ -966,9 +966,9 @@ async function autoStart({ base, price, targetRatio = 0.5, rangeMultiplier = 4, 
 }
 
 // Cycle court (29/10) : analyse de 215 cycles — un cycle de moins de ~4h ne rembourse pas son coût
-// de rééquilibrage (swap + gas + perte à la sortie), même avec l'AERO. Si la position qui se ferme
-// a vécu moins de MIN_CYCLE_HOURS, la suivante est ouverte 2x plus large (plancher 1,5% appliqué
-// avant le doublement) ; la Règle 5 (resserrage) attend aussi cet âge pour ne pas défaire le x2.
+// de rééquilibrage (swap + gas + perte à la sortie), même avec l'AERO. Depuis le 07/11, toute
+// réouverture après une sortie (basse ou haute) est ouverte 2x plus large (plancher 1,5% appliqué
+// avant le doublement) ; la Règle 5 (resserrage) attend MIN_CYCLE_HOURS pour ne pas défaire le x2.
 const MIN_CYCLE_HOURS = 4;
 
 function positionAgeHours(lpState) {
@@ -976,11 +976,10 @@ function positionAgeHours(lpState) {
   return Number.isFinite(t) ? (Date.now() - t) / 3.6e6 : null;
 }
 
-// Largeur de réouverture d'un rééquilibrage : percentile (plancher 1,5%), x2 si cycle trop court.
-function rebalanceWidth(p24h, lpState) {
-  const base = Math.max(p24h, 1.5);
-  const age  = positionAgeHours(lpState);
-  return age !== null && age < MIN_CYCLE_HOURS ? base * 2 : base;
+// Largeur de réouverture d'un rééquilibrage (Règles 2/3) : 2 x percentile (plancher 1,5% avant
+// doublement), quelle que soit la durée du cycle précédent. La Règle 5 resserre ensuite à 4h.
+function rebalanceWidth(p24h) {
+  return Math.max(p24h, 1.5) * 2;
 }
 
 /**
