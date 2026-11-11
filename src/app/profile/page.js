@@ -123,18 +123,19 @@ export default function ProfilePage() {
                 </span>
               )}
               {(() => {
-                // Valeur initiale de la pool − (valeur initiale × prix actuel du WETH / prix initial du WETH).
+                // Valeur actuelle de la pool (total en haut à droite) − (coef × valeur initiale de la pool),
+                // avec coef = prix actuel du WETH / prix initial du WETH.
                 const cur = parseFloat(pos2?.[0]?.wethPrice ?? "0");
-                if (!(initialPoolValue2 > 0) || !(initialWethPrice2 > 0) || !(cur > 0)) return null;
+                if (total2 === null || !(initialPoolValue2 > 0) || !(initialWethPrice2 > 0) || !(cur > 0)) return null;
                 const coef = cur / initialWethPrice2;
-                const diff = initialPoolValue2 - initialPoolValue2 * coef;
+                const diff = total2 - coef * initialPoolValue2;
                 return (
-                  <span title={`${initialPoolValue2} − ${initialPoolValue2} × (WETH ${cur.toFixed(2)} / ${initialWethPrice2}) — coef ${coef.toFixed(3)}`} style={{
+                  <span title={`Total ${total2.toFixed(2)} − ${coef.toFixed(3)} × ${initialPoolValue2} (WETH ${cur.toFixed(2)} / ${initialWethPrice2})`} style={{
                     fontSize: "0.65rem", fontFamily: "monospace",
                     padding: "2px 8px", borderRadius: 4,
                     background: "rgba(98,126,234,0.08)", border: "1px solid rgba(98,126,234,0.3)", color: "#8fa4f0",
                   }}>
-                    {diff < 0 ? "-" : ""}${Math.abs(diff).toFixed(2)}
+                    {diff >= 0 ? "+" : "-"}${Math.abs(diff).toFixed(2)}
                   </span>
                 );
               })()}
