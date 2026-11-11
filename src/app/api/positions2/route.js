@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
 import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, LOW_BLOCK, getRecentRangePct } from "../../lib/cronKv";
-import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM, GAUGE_ADDRESS_2 } from "../../lib/config";
+import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM, GAUGE_ADDRESS_2, INITIAL_POOL2_VALUE, INITIAL_POOL2_WETH_PRICE } from "../../lib/config";
 
 export const runtime     = "nodejs";
 export const maxDuration = 30;
@@ -330,7 +330,7 @@ export async function GET() {
     const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
     const botPaused        = !!(await kv.get('p2_bot_paused').catch(() => null));
     const lowInfo = await readLowBlockInfo();
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused, ...lowInfo });
+    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, initialPoolValue: INITIAL_POOL2_VALUE, initialWethPrice: INITIAL_POOL2_WETH_PRICE, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused, ...lowInfo });
   }
 
   try {
@@ -621,7 +621,7 @@ export async function GET() {
     // au lieu de l'ouverture de position si ce retrait est plus récent (voir profile/page.js).
     const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
     const botPaused        = !!(await kv.get('p2_bot_paused').catch(() => null));
-    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused };
+    const data = { positions, usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, percentileRangePct, transferHistory, lastCronAt, edgeStreak, walletShort, hedgeFees, openingTotal, initialPoolValue: INITIAL_POOL2_VALUE, initialWethPrice: INITIAL_POOL2_WETH_PRICE, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused };
     global._cytPos2Cache = { data };
     await writePositionsCache(2, data);
     return Response.json({ ...data, ...(await readLowBlockInfo()) });

@@ -22,6 +22,14 @@ export const GAUGE_ADDRESS_2 = process.env.GAUGE_ADDRESS_2 ?? "0x46a9dCa72D78366
 // Repli sur celles de la pool2 par défaut, pour que getPoolAddress(3)/getGaugeAddress(3) renvoient
 // toujours une adresse valide tant qu'aucune vraie pool3 n'est configurée (plutôt que de se rabattre
 // silencieusement sur POOL_ADDRESS, la pool 1 legacy, sans rapport).
+// Valeur initiale de la pool 2 (WETH/USDC) en $ : référence fixe pour un gain cumulé depuis le début.
+// Renvoyée par /api/positions2 (initialPoolValue) ; la valeur d'ouverture de chaque position reste inchangée.
+export const INITIAL_POOL2_VALUE = 600;
+
+// Prix initial du WETH (en $) associé à cette valeur initiale de la pool 2 : référence fixe pour
+// comparer le prix actuel. Renvoyé par /api/positions2 (initialWethPrice).
+export const INITIAL_POOL2_WETH_PRICE = 2285;
+
 export const POOL_ADDRESS_3  = process.env.POOL_ADDRESS_3  ?? POOL_ADDRESS_2;
 export const GAUGE_ADDRESS_3 = process.env.GAUGE_ADDRESS_3 ?? GAUGE_ADDRESS_2;
 

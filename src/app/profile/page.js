@@ -34,6 +34,8 @@ export default function ProfilePage() {
   const [openingTotal2, setOpeningTotal2] = useState(null);
   const [openingLp2, setOpeningLp2] = useState(null);
   const [aeroClockResetAt2, setAeroClockResetAt2] = useState(null);
+  const [initialPoolValue2, setInitialPoolValue2] = useState(null);
+  const [initialWethPrice2, setInitialWethPrice2] = useState(null);
   const [lowBlock2, setLowBlock2] = useState(null);
   const [lowStreakAt2, setLowStreakAt2] = useState(null);
   const [lowStreakWindowH2, setLowStreakWindowH2] = useState(24);
@@ -58,7 +60,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setLowBlock2(d.lowBlock ?? null); setLowStreakAt2(d.lowStreakAt ?? null); setLowStreakWindowH2(d.lowStreakWindowH ?? 24); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setInitialPoolValue2(d.initialPoolValue ?? null); setInitialWethPrice2(d.initialWethPrice ?? null); setLowBlock2(d.lowBlock ?? null); setLowStreakAt2(d.lowStreakAt ?? null); setLowStreakWindowH2(d.lowStreakWindowH ?? 24); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -120,6 +122,21 @@ export default function ProfilePage() {
                   {pos2[0].isStaked ? "✓ Staké" : "⚠ Non-staké"}
                 </span>
               )}
+              {(() => {
+                // Valeur initiale de la pool × (prix actuel du WETH / prix initial du WETH).
+                const cur = parseFloat(pos2?.[0]?.wethPrice ?? "0");
+                if (!(initialPoolValue2 > 0) || !(initialWethPrice2 > 0) || !(cur > 0)) return null;
+                const coef = cur / initialWethPrice2;
+                return (
+                  <span title={`${initialPoolValue2} $ × (WETH ${cur.toFixed(2)} / ${initialWethPrice2})`} style={{
+                    fontSize: "0.65rem", fontFamily: "monospace",
+                    padding: "2px 8px", borderRadius: 4,
+                    background: "rgba(98,126,234,0.08)", border: "1px solid rgba(98,126,234,0.3)", color: "#8fa4f0",
+                  }}>
+                    Valeur initiale × coef {coef.toFixed(3)} : ${(initialPoolValue2 * coef).toFixed(2)}
+                  </span>
+                );
+              })()}
             </div>
             {lowBlock2 && (() => {
               const waitedMin = lowBlock2.since ? Math.max(0, Math.round((Date.now() - lowBlock2.since) / 60000)) : null;
