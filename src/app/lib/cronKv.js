@@ -41,6 +41,18 @@ export const LOW_BLOCK = {
   NO_NEW_LOW_MIN: 120,          // reprise quand le plus bas depuis le blocage date de plus de 120 min (12/11)
 };
 
+// Échelle de largeur après une reprise de blocage (12/11) : la position rouvre x3 la largeur normale,
+// passe à x2 après T1_H heures, puis à x1 après T2_H heures (depuis la reprise). Tant que l'échelle
+// est active, la Règle 5 (resserrage en moitié haute) attend SHRINK_MIN_AGE_H heures de position.
+export const LOW_LADDER = {
+  KEY:   "p2_low_ladder",       // { since: ms, stage: 0|1|2 } — supprimé à la prochaine sortie ou au 1er resserrage de la Règle 5
+  MUL0:  3,
+  MUL1:  2,
+  T1_H:  6,
+  T2_H:  24,
+  SHRINK_MIN_AGE_H: 24,
+};
+
 // Plus bas prix CRON depuis `sinceMs` et son horodatage ({ price, ts }) ; null s'il y a trop peu de
 // points pour conclure (moins de 10) ou en cas d'erreur (le bot reste alors bloqué jusqu'à MAX_H).
 export async function getLowSince(sinceMs) {

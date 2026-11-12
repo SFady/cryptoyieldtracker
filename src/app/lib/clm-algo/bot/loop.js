@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, getRecentRangePct, getLowSince } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, LOW_LADDER, getRecentRangePct, getLowSince } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 import { safeSend, isAmbiguousSend } from '../../safeSend.js';
@@ -1143,6 +1143,7 @@ export async function botLoop({ base, price }) {
         result.lowStreakPrev = prevLow.length;
         result.collect = await runCollect(base, price, 0.75, 'low_trigger', 1, false, width2, true, false, null, blockNow);
         if (collectClosedOk(result.collect)) {
+          await kv.del(LOW_LADDER.KEY).catch(() => {});
           if (blockNow) { await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {}); result.lowBlocked = true; }
           else          { await kv.set(LOW_BLOCK.STREAK_KEY, [...prevLow, Date.now()], { ex: LOW_BLOCK.WINDOW_H * 3600 }).catch(() => {}); }
         }
@@ -1156,13 +1157,17 @@ export async function botLoop({ base, price }) {
       const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
-      const width3 = rebalanceWidth(p24h3, lpState);
+      // 12/11 : sortie haute = réouverture x1 systématique (backtest : x2 faisait perdre ~7 $ en moyenne).
+      const width3 = Math.max(p24h3, 1.5);
       result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
       result.collect = await runCollect(base, price, 0.25, 'high_trigger', 1, false, width3, false);
       // Une sortie haute casse la série de sorties basses consécutives.
-      if (collectClosedOk(result.collect)) await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {});
+      if (collectClosedOk(result.collect)) {
+        await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {});
+        await kv.del(LOW_LADDER.KEY).catch(() => {});
+      }
       await logBotTick(kv, result);
       return result;
     }
@@ -1188,13 +1193,42 @@ export async function botLoop({ base, price }) {
       const age5 = positionAgeHours(lpState);
       // Shrink seulement si le prix est dans la moitié haute du range (prix linéaire entre rMin et rMax).
       const upperHalf5 = rMax > rMin && price > 0 && (price - rMin) / (rMax - rMin) > 0.5;
-      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1 && (age5 === null || age5 >= MIN_CYCLE_HOURS) && upperHalf5) {
+
+      // Échelle après reprise de blocage (12/11) : x3 → x2 à T1_H → x1 à T2_H (depuis la reprise).
+      // Resserrement SANS swap (garde les proportions), comme la Règle 5, sans condition de moitié haute.
+      const ladder = await kv.get(LOW_LADDER.KEY).catch(() => null);
+      if (ladder && p24h5 !== null) {
+        const ladAgeH = (Date.now() - (ladder.since ?? 0)) / 3.6e6;
+        const stage   = ladder.stage ?? 0;
+        const next    = (stage < 2 && ladAgeH >= LOW_LADDER.T2_H) ? 2 : (stage < 1 && ladAgeH >= LOW_LADDER.T1_H ? 1 : 0);
+        if (next > 0) {
+          const widthL = Math.max(p24h5, 1.5) * (next === 2 ? 1 : LOW_LADDER.MUL1);
+          const newLadder = { since: ladder.since, stage: next };
+          if (rangePctActuel5 > 1.6 && rangePctActuel5 - widthL > 1) {
+            result.action          = 'ladder_shrink';
+            result.ladderStage     = next;
+            result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
+            result.percentileRange = parseFloat(p24h5.toFixed(2));
+            result.newRangePct     = parseFloat(widthL.toFixed(2));
+            result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, widthL, true, false, 'width_shrink_25pct');
+            if (collectClosedOk(result.collect)) await kv.set(LOW_LADDER.KEY, newLadder, { ex: 72 * 3600 }).catch(() => {});
+            await logBotTick(kv, result);
+            return result;
+          }
+          // Range déjà assez étroit : on passe simplement à l'étape suivante.
+          await kv.set(LOW_LADDER.KEY, newLadder, { ex: 72 * 3600 }).catch(() => {});
+        }
+      }
+      // Tant que l'échelle est active, le resserrage de la Règle 5 attend SHRINK_MIN_AGE_H de position.
+      const minAge5 = ladder ? LOW_LADDER.SHRINK_MIN_AGE_H : MIN_CYCLE_HOURS;
+      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1 && (age5 === null || age5 >= minAge5) && upperHalf5) {
         const width5 = Math.max(p24h5, 1.5);
         result.action          = 'width_shrink_rebalance';
         result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
         result.percentileRange = parseFloat(p24h5.toFixed(2));
         result.newRangePct     = parseFloat(width5.toFixed(2));
         result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, width5, true, false, 'width_shrink_25pct');
+        if (collectClosedOk(result.collect)) await kv.del(LOW_LADDER.KEY).catch(() => {});
         await logBotTick(kv, result);
         return result;
       }
@@ -1274,9 +1308,11 @@ export async function botLoop({ base, price }) {
       const p24hB    = pctDataB && pctDataB.cnt >= 10 && pctDataB.p05 > 0
         ? (pctDataB.p95 - pctDataB.p05) / pctDataB.p05 * 100
         : null;
-      const widthB = rebalanceWidth(p24hB);
+      // 12/11 : reprise en x3 (échelle x3 → x2 → x1, voir LOW_LADDER et Règle 5).
+      const widthB = Math.max(p24hB, 1.5) * LOW_LADDER.MUL0;
       result.autoStart = await autoStart({ base, price, targetRatio: 0.5, explicitRangePct: widthB });
       if (!result.autoStart.skipped && !result.autoStart.error) {
+        await kv.set(LOW_LADDER.KEY, { since: Date.now(), stage: 0 }, { ex: 72 * 3600 }).catch(() => {});
         await saveRangeAndLowTrigger(result, price);
         await kv.del(LOW_BLOCK.KEY).catch(() => {});
         await kv.del('p2_pending_reopen').catch(() => {});
@@ -1324,6 +1360,7 @@ export async function botLoop({ base, price }) {
       if (!result.autoStart.skipped && !result.autoStart.error) {
         await saveRangeAndLowTrigger(result, price);
         await kv.del('p2_pending_reopen').catch(() => {});
+        await kv.del(LOW_LADDER.KEY).catch(() => {});
       }
     } else {
       // Garder les proportions WETH/USDC déjà présentes dans le wallet (aucune LP à fermer ici,
@@ -1350,6 +1387,7 @@ export async function botLoop({ base, price }) {
       result.autoStart = await autoStart({ base, price, targetRatio: keptRatio1, explicitRangePct: width1 });
       if (!result.autoStart.skipped && !result.autoStart.error) {
         await saveRangeAndLowTrigger(result, price);
+        await kv.del(LOW_LADDER.KEY).catch(() => {});
       }
     }
     result.action    = result.autoStart.skipped ? 'auto_start_skipped' : 'auto_started';
