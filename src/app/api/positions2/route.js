@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, LOW_BLOCK, getRecentRangePct, getLowSince } from "../../lib/cronKv";
+import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, LOW_BLOCK, getRecentRangePct, getLowSince, getLastNPrices } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM, GAUGE_ADDRESS_2, INITIAL_POOL2_VALUE, INITIAL_POOL2_WETH_PRICE, INITIAL_POOL2_WETH_SHARE } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -332,7 +332,14 @@ export async function GET() {
     const aeroClockResetAt = parseInt(await kv.get('p2_aero_clock_reset_at').catch(() => null)) || null;
     const botPaused        = !!(await kv.get('p2_bot_paused').catch(() => null));
     const lowInfo = await readLowBlockInfo();
-    return Response.json({ ...cached, edgeStreak, hedgeFees, openingTotal, initialPoolValue: INITIAL_POOL2_VALUE, initialWethPrice: INITIAL_POOL2_WETH_PRICE, initialWethShare: INITIAL_POOL2_WETH_SHARE, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused, ...lowInfo });
+    // Sans position : prix de l'ETH = dernier prix du cron (plus frais que le cache, et présent même si
+    // le cache date d'avant l'ajout du champ ethPrice).
+    let ethPriceC = cached.ethPrice ?? null;
+    if ((cached.positions?.length ?? 0) === 0) {
+      const lp = await getLastNPrices(1);
+      if (lp[0] > 0) ethPriceC = lp[0].toFixed(2);
+    }
+    return Response.json({ ...cached, ethPrice: ethPriceC, edgeStreak, hedgeFees, openingTotal, initialPoolValue: INITIAL_POOL2_VALUE, initialWethPrice: INITIAL_POOL2_WETH_PRICE, initialWethShare: INITIAL_POOL2_WETH_SHARE, openingLp, oorCount, oorLow, entryPrice, lowZoneHits, highZoneHits, wethRatio, aeroClockResetAt, botPaused, ...lowInfo });
   }
 
   try {
