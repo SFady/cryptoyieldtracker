@@ -147,7 +147,8 @@ export default function ProfilePage() {
               const fmtDur    = (m) => m === null ? "—" : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
               const since     = lowBlock2.since ? new Date(lowBlock2.since).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
               const rangeTxt  = lowBlock2.rangePct != null ? `${lowBlock2.rangePct.toFixed(2)} %` : "—";
-              const calmOk    = lowBlock2.rangePct != null && lowBlock2.rangePct < lowBlock2.calmPct;
+              const sinceLowMin = lowBlock2.minSinceLow ?? null;
+              const calmOk    = sinceLowMin !== null && sinceLowMin >= lowBlock2.noNewLowMin;
               const waitOk    = waitedMin !== null && waitedMin >= lowBlock2.minH * 60;
               return (
                 <div style={{
@@ -155,7 +156,7 @@ export default function ProfilePage() {
                   padding: "8px 12px", marginBottom: 10, borderRadius: 8,
                   background: "rgba(201,112,112,0.10)", border: "1px solid rgba(201,112,112,0.4)", color: "#e8a0a0",
                 }}>
-                  <div style={{ fontWeight: 700, color: "#ff8a8a" }}>⛔ Réouverture bloquée — 2 sorties basses consécutives en {lowStreakWindowH2} h</div>
+                  <div style={{ fontWeight: 700, color: "#ff8a8a" }}>⛔ Réouverture bloquée — sortie basse</div>
                   <div>
                     Bloquée depuis {since} ({fmtDur(waitedMin)}) ·{" "}
                     {lowBlock2.swapped === false
@@ -163,8 +164,8 @@ export default function ProfilePage() {
                       : lowBlock2.swapped === true ? "capital passé en USDC dans le wallet" : "capital en attente dans le wallet"}
                   </div>
                   <div>
-                    Reprise quand : attente ≥ {lowBlock2.minH} h {waitOk ? "✓" : "✗"} · écart haut-bas 1 h &lt; {lowBlock2.calmPct} %
-                    {" "}(actuel : {rangeTxt}) {calmOk ? "✓" : "✗"} — reprise forcée après {lowBlock2.maxH} h
+                    Reprise quand : attente ≥ {lowBlock2.minH} h {waitOk ? "✓" : "✗"} · sans nouveau plus bas depuis {lowBlock2.noNewLowMin} min
+                    {" "}(actuel : {sinceLowMin !== null ? fmtDur(sinceLowMin) : "—"}{lowBlock2.lowPrice != null ? `, plus bas ${lowBlock2.lowPrice.toFixed(2)}` : ""}) {calmOk ? "✓" : "✗"} — reprise forcée après {lowBlock2.maxH} h
                   </div>
                 </div>
               );

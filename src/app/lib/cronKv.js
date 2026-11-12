@@ -38,7 +38,27 @@ export const LOW_BLOCK = {
   CALM_PCT:   1,                // reprise quand l'écart haut-bas des 60 dernières minutes est < 1 %
   CALM_MIN:   60,               // minutes prises pour mesurer ce calme
   MAX_H:      12,               // garde-fou : reprise forcée au bout de 12h même sans calme
+  NO_NEW_LOW_MIN: 120,          // reprise quand le plus bas depuis le blocage date de plus de 120 min (12/11)
 };
+
+// Plus bas prix CRON depuis `sinceMs` et son horodatage ({ price, ts }) ; null s'il y a trop peu de
+// points pour conclure (moins de 10) ou en cas d'erreur (le bot reste alors bloqué jusqu'à MAX_H).
+export async function getLowSince(sinceMs) {
+  try {
+    const entries = await kv.zrange(KEY, sinceMs, "+inf", { byScore: true });
+    let low = null, n = 0;
+    for (const m of entries) {
+      const s = String(m); const colon = s.indexOf(':');
+      if (colon === -1) continue;
+      const ts = Number(s.slice(0, colon));
+      const p  = Number(s.slice(colon + 1));
+      if (!(p > 0) || !(ts >= sinceMs)) continue;
+      n++;
+      if (!low || p < low.price) low = { price: p, ts };
+    }
+    return n >= 10 ? low : null;
+  } catch (_) { return null; }
+}
 
 // Écart haut-bas (en % du milieu) des prix CRON sur les `minutes` dernières minutes ; null s'il y a
 // trop peu de points pour conclure (moins de 10).

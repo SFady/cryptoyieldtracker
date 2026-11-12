@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, getRecentRangePct } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, getRecentRangePct, getLowSince } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 import { safeSend, isAmbiguousSend } from '../../safeSend.js';
@@ -1137,8 +1137,9 @@ export async function botLoop({ base, price }) {
         // Blocage (07/11) : si une sortie basse a déjà eu lieu dans les dernières 24h sans sortie haute
         // entre-temps, cette 2e sortie basse consécutive ferme SANS rouvrir (backtest : chute réduite
         // d'environ 6 $ sur le 5/11). Reprise gérée par la Règle 1 une fois le prix calmé.
+        // 12/11 : blocage dès la 1re sortie basse (reprise : 120 min sans nouveau plus bas, voir Règle 1).
         const prevLow  = await readLowStreak();
-        const blockNow = prevLow.length >= 1;
+        const blockNow = true;
         result.lowStreakPrev = prevLow.length;
         result.collect = await runCollect(base, price, 0.75, 'low_trigger', 1, false, width2, true, false, null, blockNow);
         if (collectClosedOk(result.collect)) {
@@ -1243,19 +1244,25 @@ export async function botLoop({ base, price }) {
       }
     } catch (_) {}
 
-    // Blocage après 2 sorties basses consécutives (07/11) : on ne rouvre qu'après LOW_BLOCK.MIN_H
-    // d'attente ET un prix calmé (écart haut-bas des 60 dernières minutes < LOW_BLOCK.CALM_PCT).
+    // Blocage après une sortie basse (07/11 ; dès la 1re depuis le 12/11) : on ne rouvre qu'après
+    // LOW_BLOCK.MIN_H d'attente ET LOW_BLOCK.NO_NEW_LOW_MIN minutes sans nouveau plus bas.
     // Garde-fou : reprise forcée au bout de LOW_BLOCK.MAX_H même sans calme, pour ne pas rester
     // inactif indéfiniment. Reprise à 50 % de WETH, range = 2 x percentile (swap fait par createPosition).
     const lowBlock = await kv.get(LOW_BLOCK.KEY).catch(() => null);
     if (lowBlock) {
       const waitedH  = (Date.now() - (lowBlock.since ?? 0)) / 3.6e6;
       const rangePct = await getRecentRangePct(LOW_BLOCK.CALM_MIN);
-      const calm     = rangePct !== null && rangePct < LOW_BLOCK.CALM_PCT;
+      // 12/11 : « calme » = pas de nouveau plus bas depuis LOW_BLOCK.NO_NEW_LOW_MIN minutes
+      // (plus bas des prix CRON depuis le début du blocage ; null → pas calme, reprise forcée à MAX_H).
+      const lowSince = await getLowSince(lowBlock.since ?? 0);
+      const minSinceLow = lowSince ? (Date.now() - lowSince.ts) / 60000 : null;
+      const calm     = minSinceLow !== null && minSinceLow >= LOW_BLOCK.NO_NEW_LOW_MIN;
       const forced   = waitedH >= LOW_BLOCK.MAX_H;
       result.lowBlock = {
         waitedH:  parseFloat(waitedH.toFixed(2)),
         rangePct: rangePct !== null ? parseFloat(rangePct.toFixed(2)) : null,
+        lowPrice: lowSince ? lowSince.price : null,
+        minSinceLow: minSinceLow !== null ? Math.round(minSinceLow) : null,
         calm, forced,
       };
       if (waitedH < LOW_BLOCK.MIN_H || (!calm && !forced)) {

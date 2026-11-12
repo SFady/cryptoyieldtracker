@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { neon }   from "@neondatabase/serverless";
 import { kv } from "@vercel/kv";
-import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, LOW_BLOCK, getRecentRangePct } from "../../lib/cronKv";
+import { getPercentileRange, getLastCronAt, readPositionsCache, writePositionsCache, writeP2Range, LOW_BLOCK, getRecentRangePct, getLowSince } from "../../lib/cronKv";
 import { POOL_ADDRESS_2 as POOL, NFPM_ADDRESS as NFPM, GAUGE_ADDRESS_2, INITIAL_POOL2_VALUE, INITIAL_POOL2_WETH_PRICE, INITIAL_POOL2_WETH_SHARE } from "../../lib/config";
 
 export const runtime     = "nodejs";
@@ -296,8 +296,10 @@ async function readLowBlockInfo() {
     const streakArr = await kv.get(LOW_BLOCK.STREAK_KEY).catch(() => null);
     const now       = Date.now();
     const streak    = Array.isArray(streakArr) ? streakArr.filter(t => Number.isFinite(t) && now - t < LOW_BLOCK.WINDOW_H * 3600000) : [];
+    const lowSince  = block ? await getLowSince(block.since ?? 0) : null;
     const lowBlock  = block
-      ? { since: block.since ?? null, swapped: block.swapped ?? null, rangePct: await getRecentRangePct(LOW_BLOCK.CALM_MIN), minH: LOW_BLOCK.MIN_H, calmPct: LOW_BLOCK.CALM_PCT, maxH: LOW_BLOCK.MAX_H }
+      ? { since: block.since ?? null, swapped: block.swapped ?? null, rangePct: await getRecentRangePct(LOW_BLOCK.CALM_MIN), minH: LOW_BLOCK.MIN_H, calmPct: LOW_BLOCK.CALM_PCT, maxH: LOW_BLOCK.MAX_H,
+          noNewLowMin: LOW_BLOCK.NO_NEW_LOW_MIN, lowPrice: lowSince ? lowSince.price : null, minSinceLow: lowSince ? Math.round((Date.now() - lowSince.ts) / 60000) : null }
       : null;
     return { lowBlock, lowStreakAt: streak.length ? Math.max(...streak) : null, lowStreakWindowH: LOW_BLOCK.WINDOW_H };
   } catch (_) {
