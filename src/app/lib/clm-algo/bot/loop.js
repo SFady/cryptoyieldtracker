@@ -1185,9 +1185,7 @@ export async function botLoop({ base, price }) {
       // dans les faits), donc un seuil strict à 1,5% ne protégeait pas contre la boucle inutile
       // shrink → 1,51% → re-déclenche → shrink → 1,51% → ... (11/10).
       const age5 = positionAgeHours(lpState);
-      // Shrink seulement si le prix est dans la moitié haute du range (prix linéaire entre rMin et rMax).
-      const upperHalf5 = rMax > rMin && price > 0 && (price - rMin) / (rMax - rMin) > 0.5;
-      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1 && (age5 === null || age5 >= MIN_CYCLE_HOURS) && upperHalf5) {
+      if (p24h5 !== null && rangePctActuel5 > 1.6 && rangePctActuel5 - p24h5 > 1 && (age5 === null || age5 >= MIN_CYCLE_HOURS)) {
         const width5 = Math.max(p24h5, 1.5);
         result.action          = 'width_shrink_rebalance';
         result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
