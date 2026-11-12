@@ -433,10 +433,18 @@ export async function GET() {
           if (aeroPriceNum > 0) aeroWalletUSD = (aeroAmt * aeroPriceNum).toFixed(2);
         }
       } catch (_) {}
-      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, walletShort };
+      // Prix de l'ETH (pool) pour l'afficher même sans position (12/11).
+      let ethPrice = null;
+      try {
+        const slot0Hex = await ethCall(POOL, "0x3850c7bd");
+        const [sqrtPX96] = ethers.AbiCoder.defaultAbiCoder().decode(["uint160"], slot0Hex);
+        const pr = Number((sqrtPX96 * sqrtPX96 * 10n ** 12n) / (1n << 192n));
+        if (pr > 0) ethPrice = pr.toFixed(2);
+      } catch (_) {}
+      const data = { positions: [], usdcWallet, wethWallet, wethWalletUSD, ethWallet, ethWalletUSD, aeroWallet, aeroWalletUSD, walletShort, ethPrice };
       global._cytPos2Cache = { data };
       await writePositionsCache(2, data);
-      return Response.json(data);
+      return Response.json({ ...data, ...(await readLowBlockInfo()) });
     }
 
     // Rewards AERO en attente pour les positions stakées
