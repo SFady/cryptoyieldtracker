@@ -30,6 +30,10 @@ export const INITIAL_POOL2_VALUE = 600;
 // comparer le prix actuel. Renvoyé par /api/positions2 (initialWethPrice).
 export const INITIAL_POOL2_WETH_PRICE = 2285;
 
+// Part de WETH dans la valeur initiale de la pool 2 (0.5 = départ à 50/50) : sert au repère « hold de la
+// même répartition » (part WETH × coef prix + part USDC). Renvoyé par /api/positions2 (initialWethShare).
+export const INITIAL_POOL2_WETH_SHARE = 0.5;
+
 export const POOL_ADDRESS_3  = process.env.POOL_ADDRESS_3  ?? POOL_ADDRESS_2;
 export const GAUGE_ADDRESS_3 = process.env.GAUGE_ADDRESS_3 ?? GAUGE_ADDRESS_2;
 
