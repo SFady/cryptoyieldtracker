@@ -1058,7 +1058,8 @@ export async function botLoop({ base, price }) {
   // (aucune position en DB) et on convertit/distribue quand même l'AERO déjà présent dans le wallet.
   {
     const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
-    if (parisHour === 6 && !(await wasDailyAeroBatchDone(2).catch(() => false))) {
+    // Sans position : rattrapage dès que possible après 6h si la distribution du jour n'a pas été faite.
+    if ((parisHour === 6 || (!hasLP && parisHour >= 6)) && !(await wasDailyAeroBatchDone(2).catch(() => false))) {
       result.dailyAeroBatch = await dailyAeroDistribution(base, price);
       // Ne marque "fait" que si ça a vraiment réussi, ou s'il n'y avait rien à distribuer —
       // sur un échec de swap (skipped: 'swap_failed'), on NE marque PAS, pour retenter au
