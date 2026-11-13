@@ -1207,6 +1207,10 @@ export async function botLoop({ base, price }) {
         if (next > 0) {
           const widthL = Math.max(p24h5, 1.5) * (next === 2 ? 1 : LOW_LADDER.MUL1);
           const newLadder = { since: ladder.since, stage: next };
+          // Étape x1 atteinte = échelle terminée : on supprime la clé, le shrink de la Règle 5 repasse à 4 h.
+          const saveLadder = () => next === 2
+            ? kv.del(LOW_LADDER.KEY).catch(() => {})
+            : kv.set(LOW_LADDER.KEY, newLadder, { ex: 72 * 3600 }).catch(() => {});
           if (rangePctActuel5 > 1.6 && rangePctActuel5 - widthL > 1) {
             result.action          = 'ladder_shrink';
             result.ladderStage     = next;
@@ -1214,12 +1218,12 @@ export async function botLoop({ base, price }) {
             result.percentileRange = parseFloat(p24h5.toFixed(2));
             result.newRangePct     = parseFloat(widthL.toFixed(2));
             result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, widthL, true, false, 'width_shrink_25pct');
-            if (collectClosedOk(result.collect)) await kv.set(LOW_LADDER.KEY, newLadder, { ex: 72 * 3600 }).catch(() => {});
+            if (collectClosedOk(result.collect)) await saveLadder();
             await logBotTick(kv, result);
             return result;
           }
           // Range déjà assez étroit : on passe simplement à l'étape suivante.
-          await kv.set(LOW_LADDER.KEY, newLadder, { ex: 72 * 3600 }).catch(() => {});
+          await saveLadder();
         }
       }
       // Tant que l'échelle est active, le resserrage de la Règle 5 attend SHRINK_MIN_AGE_H de position.
