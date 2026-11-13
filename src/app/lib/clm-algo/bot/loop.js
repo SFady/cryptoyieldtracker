@@ -1204,7 +1204,9 @@ export async function botLoop({ base, price }) {
         const ladAgeH = (Date.now() - (ladder.since ?? 0)) / 3.6e6;
         const stage   = ladder.stage ?? 0;
         const next    = (stage < 2 && ladAgeH >= LOW_LADDER.T2_H) ? 2 : (stage < 1 && ladAgeH >= LOW_LADDER.T1_H ? 1 : 0);
-        if (next > 0) {
+        // Passage en x1 (étape 2) seulement si le prix est dans la moitié haute du range ; sinon on attend
+        // (l'étape n'est pas validée, elle sera retentée aux ticks suivants).
+        if (next > 0 && (next !== 2 || upperHalf5)) {
           const widthL = Math.max(p24h5, 1.5) * (next === 2 ? 1 : LOW_LADDER.MUL1);
           const newLadder = { since: ladder.since, stage: next };
           // Étape x1 atteinte = échelle terminée : on supprime la clé, le shrink de la Règle 5 repasse à 4 h.
