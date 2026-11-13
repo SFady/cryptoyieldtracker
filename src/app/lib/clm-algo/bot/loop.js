@@ -1054,7 +1054,9 @@ export async function botLoop({ base, price }) {
   // DESTINATION_WALLET, 75% restent en USDC dans le wallet. Gating par date Paris
   // (wasDailyAeroBatchDone), pas un intervalle glissant — ne se déclenche qu'une fois par jour, à
   // heure fixe.
-  if (hasLP) {
+  // 13/11 : tourne aussi sans position (blocage après sortie basse) — claimAero répond alors « skipped »
+  // (aucune position en DB) et on convertit/distribue quand même l'AERO déjà présent dans le wallet.
+  {
     const parisHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()), 10);
     if (parisHour === 6 && !(await wasDailyAeroBatchDone(2).catch(() => false))) {
       result.dailyAeroBatch = await dailyAeroDistribution(base, price);
