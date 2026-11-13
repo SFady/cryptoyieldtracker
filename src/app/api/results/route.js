@@ -8,16 +8,30 @@ export async function GET() {
   try {
     let rows;
     try {
-      rows = await sql`
-        SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, weth_price, range_min, range_max, range_pct, created_at, closed_at
-        FROM lp_events
-        WHERE action1 = 'CREATE_OK'
-          AND COALESCE(pool_num, 2) = 2
-          AND created_at >= '2026-11-03 00:00:00+01'
-          AND (closed_at IS NULL OR closed_at > '2026-11-03 00:00:00+01')
-        ORDER BY id DESC
-        LIMIT 200
-      `;
+      // weth_price_close (13/11) : colonne créée à la 1re fermeture suivante ; absente avant → repli.
+      try {
+        rows = await sql`
+          SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, weth_price, weth_price_close, range_min, range_max, range_pct, created_at, closed_at
+          FROM lp_events
+          WHERE action1 = 'CREATE_OK'
+            AND COALESCE(pool_num, 2) = 2
+            AND created_at >= '2026-11-03 00:00:00+01'
+            AND (closed_at IS NULL OR closed_at > '2026-11-03 00:00:00+01')
+          ORDER BY id DESC
+          LIMIT 200
+        `;
+      } catch (_) {
+        rows = await sql`
+          SELECT id, token_id, pool_num, total_at_open, usdc_on_close, close_reason, fees_usdc, weth_price, NULL AS weth_price_close, range_min, range_max, range_pct, created_at, closed_at
+          FROM lp_events
+          WHERE action1 = 'CREATE_OK'
+            AND COALESCE(pool_num, 2) = 2
+            AND created_at >= '2026-11-03 00:00:00+01'
+            AND (closed_at IS NULL OR closed_at > '2026-11-03 00:00:00+01')
+          ORDER BY id DESC
+          LIMIT 200
+        `;
+      }
     } catch (_) {
       // close_reason/fees_usdc pas encore migrées en prod
       rows = await sql`
@@ -61,6 +75,19 @@ export async function GET() {
       }
     } catch (_) {}
 
+    // Prix de sortie des anciens cycles (colonne weth_price_close absente) : approximé par le prix
+    // d'ouverture de la position suivante si elle a rouvert moins de 5 min après (shrinks, sorties
+    // hautes). Après un blocage (réouverture des heures plus tard), pas d'approximation → null.
+    const byOpen = [...rows].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const closePriceApprox = (r) => {
+      if (!r.closed_at) return null;
+      const c = new Date(r.closed_at).getTime();
+      const next = byOpen.find(x => (x.pool_num ?? 2) === (r.pool_num ?? 2) && new Date(x.created_at).getTime() > new Date(r.created_at).getTime());
+      if (!next || next.weth_price === null) return null;
+      const gap = new Date(next.created_at).getTime() - c;
+      return gap >= -60000 && gap <= 5 * 60000 ? parseFloat(next.weth_price) : null;
+    };
+
     const results = rows.map(r => {
       const before = r.total_at_open !== null ? parseFloat(r.total_at_open) : null;
       let after    = r.usdc_on_close !== null ? parseFloat(r.usdc_on_close) : null;
@@ -103,6 +130,8 @@ export async function GET() {
         delta,
         closeReason: r.close_reason,
         wethPriceAtOpen: r.weth_price !== null ? parseFloat(r.weth_price) : null,
+        wethPriceAtClose: r.weth_price_close !== null && r.weth_price_close !== undefined ? parseFloat(r.weth_price_close) : closePriceApprox(r),
+        wethPriceAtCloseApprox: (r.weth_price_close === null || r.weth_price_close === undefined) && closePriceApprox(r) !== null,
         rangeMin: r.range_min !== null ? parseFloat(r.range_min) : null,
         rangeMax: r.range_max !== null ? parseFloat(r.range_max) : null,
         rangePct: r.range_pct !== null ? parseFloat(r.range_pct) : null,

@@ -746,6 +746,13 @@ export async function POST(req) {
                           closed_at     = NOW()
                       WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
           }
+          // 13/11 : prix du WETH (pool) à la fermeture, affiché sur la page results. Isolé dans son
+          // propre try : une erreur ici ne doit jamais compromettre la clôture du cycle.
+          try {
+            await sql`ALTER TABLE lp_events ADD COLUMN IF NOT EXISTS weth_price_close NUMERIC(12,2)`;
+            await sql`UPDATE lp_events SET weth_price_close = ${parseFloat(wethPriceUsdc.toFixed(2))}
+                      WHERE token_id = ${tokenId} AND action1 = 'CREATE_OK'`;
+          } catch (_) {}
         }
         if (!skipActiveToken) {
           const prevState = await readLpState(poolNum) ?? {};

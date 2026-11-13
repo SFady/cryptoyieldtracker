@@ -78,6 +78,7 @@ export default function ResultsPage() {
                   <th style={{ padding: "8px 10px" }}>Avant</th>
                   <th style={{ padding: "8px 10px" }}>Après</th>
                   <th style={{ padding: "8px 10px" }}>Prix WETH ouv.</th>
+                  <th style={{ padding: "8px 10px" }}>Prix WETH sortie</th>
                   <th style={{ padding: "8px 10px" }}>Fees</th>
                   <th style={{ padding: "8px 10px" }}>Gain</th>
                 </tr>
@@ -108,6 +109,9 @@ export default function ResultsPage() {
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.before !== null ? `$${r.before.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.after !== null ? `$${r.after.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", color: "#6699ff" }}>{r.wethPriceAtOpen !== null ? `$${r.wethPriceAtOpen.toFixed(2)}` : "—"}</td>
+                    <td style={{ padding: "8px 10px", color: "#6699ff" }} title={r.wethPriceAtCloseApprox ? "Approximation : prix d'ouverture de la position suivante" : undefined}>
+                      {r.wethPriceAtClose !== null && r.wethPriceAtClose !== undefined ? `${r.wethPriceAtCloseApprox ? "≈" : ""}$${r.wethPriceAtClose.toFixed(2)}` : "—"}
+                    </td>
                     <td style={{ padding: "8px 10px", color: "#aaaacc" }}>{r.aeroUsdc !== null ? `$${r.aeroUsdc.toFixed(2)}` : "—"}</td>
                     <td style={{ padding: "8px 10px", fontWeight: 700, whiteSpace: "nowrap", color: r.delta === null ? "#6666aa" : r.delta >= 0 ? "#00e5a0" : "#ff6b6b" }}>
                       {r.delta === null ? "en cours" : `${r.delta >= 0 ? "+" : ""}${r.delta.toFixed(2)} $`}
