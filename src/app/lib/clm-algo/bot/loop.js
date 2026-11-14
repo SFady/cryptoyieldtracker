@@ -1204,11 +1204,13 @@ export async function botLoop({ base, price }) {
         const ladAgeH = (Date.now() - (ladder.since ?? 0)) / 3.6e6;
         const stage   = ladder.stage ?? 0;
         const next    = (stage < 2 && ladAgeH >= LOW_LADDER.T2_H) ? 2 : (stage < 1 && ladAgeH >= LOW_LADDER.T1_H ? 1 : 0);
+        let curStage = stage, curRef = ladder.refP24h ?? null, ladderEnded = false;
         // Passage en x1 (étape 2) seulement si le prix est dans la moitié haute du range ; sinon on attend
         // (l'étape n'est pas validée, elle sera retentée aux ticks suivants).
         if (next > 0 && (next !== 2 || upperHalf5)) {
           const widthL = Math.max(p24h5, 1.5) * (next === 2 ? 1 : LOW_LADDER.MUL1);
-          const newLadder = { since: ladder.since, stage: next };
+          const newLadder = { since: ladder.since, stage: next, refP24h: p24h5 };
+          curStage = next; curRef = p24h5; ladderEnded = next === 2;
           // Étape x1 atteinte = échelle terminée : on supprime la clé, le shrink de la Règle 5 repasse à 4 h.
           const saveLadder = () => next === 2
             ? kv.del(LOW_LADDER.KEY).catch(() => {})
@@ -1226,6 +1228,29 @@ export async function botLoop({ base, price }) {
           }
           // Range déjà assez étroit : on passe simplement à l'étape suivante.
           await saveLadder();
+        }
+        // Pendant le x3 / x2 : si le p24h a baissé d'au moins ROLL_PT point(s) depuis la référence
+        // (ouverture de l'échelle ou dernier resserrage), on resserre au multiple en cours, sans swap
+        // (mêmes proportions WETH/USDC). Pas de ré-élargissement si le p24h remonte.
+        if (!ladderEnded) {
+          const ladderKeep = { since: ladder.since, stage: curStage, refP24h: p24h5 };
+          if (curRef === null) {
+            await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
+          } else if (p24h5 <= curRef - LOW_LADDER.ROLL_PT) {
+            const widthR = Math.max(p24h5, 1.5) * (curStage === 0 ? LOW_LADDER.MUL0 : LOW_LADDER.MUL1);
+            if (rangePctActuel5 > 1.6 && rangePctActuel5 > widthR) {
+              result.action          = 'ladder_rolldown';
+              result.ladderStage     = curStage;
+              result.rangePctActuel  = parseFloat(rangePctActuel5.toFixed(2));
+              result.percentileRange = parseFloat(p24h5.toFixed(2));
+              result.newRangePct     = parseFloat(widthR.toFixed(2));
+              result.collect = await runCollect(base, price, 0.5, 'width_shrink_rebalance', 1, true, widthR, true, false, 'width_shrink_25pct');
+              if (collectClosedOk(result.collect)) await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
+              await logBotTick(kv, result);
+              return result;
+            }
+            await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
+          }
         }
       }
       // Tant que l'échelle est active, le resserrage de la Règle 5 attend SHRINK_MIN_AGE_H de position.
@@ -1321,7 +1346,7 @@ export async function botLoop({ base, price }) {
       const widthB = Math.max(p24hB, 1.5) * LOW_LADDER.MUL0;
       result.autoStart = await autoStart({ base, price, targetRatio: 0.5, explicitRangePct: widthB });
       if (!result.autoStart.skipped && !result.autoStart.error) {
-        await kv.set(LOW_LADDER.KEY, { since: Date.now(), stage: 0 }, { ex: 72 * 3600 }).catch(() => {});
+        await kv.set(LOW_LADDER.KEY, { since: Date.now(), stage: 0, refP24h: p24hB }, { ex: 72 * 3600 }).catch(() => {});
         await saveRangeAndLowTrigger(result, price);
         await kv.del(LOW_BLOCK.KEY).catch(() => {});
         await kv.del('p2_pending_reopen').catch(() => {});
