@@ -51,6 +51,7 @@ export const LOW_LADDER = {
   T1_H:  6,
   T2_H:  24,
   SHRINK_MIN_AGE_H: 24,
+  ROLL_PT: 1,                   // pendant x3/x2 : resserrage si le p24h baisse de 1 point vs la référence (sans swap)
 };
 
 // Plus bas prix CRON depuis `sinceMs` et son horodatage ({ price, ts }) ; null s'il y a trop peu de
