@@ -1243,11 +1243,12 @@ export async function botLoop({ base, price }) {
         // (mêmes proportions WETH/USDC). Pas de ré-élargissement si le p24h remonte.
         if (!ladderEnded) {
           const ladderKeep = { since: ladder.since, stage: curStage, refP24h: p24h5 };
-          // Échelle sans p24h de référence (créée avant cette règle) : on le déduit du range actuel
-          // (range actuel = multiple × p24h au dernier palier), puis on le mémorise.
-          const refDerived = curRef === null;
-          if (refDerived && Number.isFinite(rangePctActuel5)) {
+          // Référence = range actuel / multiple en cours, recalculée à chaque tick : après chaque
+          // resserrage d'échelle, range = multiple × p24h, donc c'est le p24h du dernier palier.
+          // Plus fiable que la valeur stockée dans Redis (ancienne échelle, valeur incohérente).
+          if (Number.isFinite(rangePctActuel5)) {
             curRef = rangePctActuel5 / (curStage === 0 ? LOW_LADDER.MUL0 : LOW_LADDER.MUL1);
+            if (result.ladderDiag && typeof result.ladderDiag === 'object') result.ladderDiag.refUsed = parseFloat(curRef.toFixed(2));
           }
           if (curRef === null) {
             await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
@@ -1265,8 +1266,6 @@ export async function botLoop({ base, price }) {
               return result;
             }
             await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
-          } else if (refDerived) {
-            await kv.set(LOW_LADDER.KEY, { since: ladder.since, stage: curStage, refP24h: curRef }, { ex: 72 * 3600 }).catch(() => {});
           }
         }
       }
