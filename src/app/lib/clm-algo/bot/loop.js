@@ -1234,6 +1234,12 @@ export async function botLoop({ base, price }) {
         // (mêmes proportions WETH/USDC). Pas de ré-élargissement si le p24h remonte.
         if (!ladderEnded) {
           const ladderKeep = { since: ladder.since, stage: curStage, refP24h: p24h5 };
+          // Échelle sans p24h de référence (créée avant cette règle) : on le déduit du range actuel
+          // (range actuel = multiple × p24h au dernier palier), puis on le mémorise.
+          const refDerived = curRef === null;
+          if (refDerived && Number.isFinite(rangePctActuel5)) {
+            curRef = rangePctActuel5 / (curStage === 0 ? LOW_LADDER.MUL0 : LOW_LADDER.MUL1);
+          }
           if (curRef === null) {
             await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
           } else if (p24h5 <= curRef - LOW_LADDER.ROLL_PT) {
@@ -1250,6 +1256,8 @@ export async function botLoop({ base, price }) {
               return result;
             }
             await kv.set(LOW_LADDER.KEY, ladderKeep, { ex: 72 * 3600 }).catch(() => {});
+          } else if (refDerived) {
+            await kv.set(LOW_LADDER.KEY, { since: ladder.since, stage: curStage, refP24h: curRef }, { ex: 72 * 3600 }).catch(() => {});
           }
         }
       }
