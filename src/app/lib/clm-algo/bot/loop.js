@@ -1200,6 +1200,15 @@ export async function botLoop({ base, price }) {
       // Échelle après reprise de blocage (12/11) : x3 → x2 à T1_H → x1 à T2_H (depuis la reprise).
       // Resserrement SANS swap (garde les proportions), comme la Règle 5, sans condition de moitié haute.
       const ladder = await kv.get(LOW_LADDER.KEY).catch(() => null);
+      // Diagnostic (visible dans botMetrics / debug-kv) : état de l'échelle à chaque tick.
+      result.ladderDiag = !ladder ? 'absent' : {
+        stage: ladder.stage ?? 0,
+        ref: ladder.refP24h ?? null,
+        ageH: parseFloat(((Date.now() - (ladder.since ?? 0)) / 3.6e6).toFixed(1)),
+        p24h: p24h5 !== null ? parseFloat(p24h5.toFixed(2)) : null,
+        range: parseFloat(rangePctActuel5.toFixed(2)),
+        upperHalf: upperHalf5,
+      };
       if (ladder && p24h5 !== null) {
         const ladAgeH = (Date.now() - (ladder.since ?? 0)) / 3.6e6;
         const stage   = ladder.stage ?? 0;
