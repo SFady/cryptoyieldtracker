@@ -1233,7 +1233,7 @@ export async function botLoop({ base, price }) {
         // Blocage (07/11) : si une sortie basse a déjà eu lieu dans les dernières 24h sans sortie haute
         // entre-temps, cette 2e sortie basse consécutive ferme SANS rouvrir (backtest : chute réduite
         // d'environ 6 $ sur le 5/11). Reprise gérée par la Règle 1 une fois le prix calmé.
-        // 12/11 : blocage dès la 1re sortie basse (reprise : 120 min sans nouveau plus bas, voir Règle 1).
+        // 12/11 : blocage dès la 1re sortie basse (reprise : 1 h d'attente et 60 min sans nouveau plus bas, voir Règle 1).
         const prevLow  = await readLowStreak();
         const blockNow = true;
         result.lowStreakPrev = prevLow.length;

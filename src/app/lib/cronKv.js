@@ -34,11 +34,11 @@ export const LOW_BLOCK = {
   KEY:        "p2_low_block",   // état « réouverture bloquée » { since }
   STREAK_KEY: "p2_low_streak",  // horodatages des sorties basses consécutives (remis à zéro par une sortie haute)
   WINDOW_H:   24,               // fenêtre de comptage des sorties basses consécutives
-  MIN_H:      2,                // attente minimale avant toute reprise
+  MIN_H:      1,                // attente minimale avant toute reprise (14/11 : 2 h → 1 h)
   CALM_PCT:   1,                // reprise quand l'écart haut-bas des 60 dernières minutes est < 1 %
   CALM_MIN:   60,               // minutes prises pour mesurer ce calme
   MAX_H:      12,               // garde-fou : reprise forcée au bout de 12h même sans calme
-  NO_NEW_LOW_MIN: 120,          // reprise quand le plus bas depuis le blocage date de plus de 120 min (12/11)
+  NO_NEW_LOW_MIN: 60,           // reprise quand le plus bas depuis le blocage date de plus de 60 min (12/11 : 120 min ; 14/11 : 60 min)
 };
 
 // Échelle de largeur après une reprise de blocage (12/11) : la position rouvre x3 la largeur normale,
