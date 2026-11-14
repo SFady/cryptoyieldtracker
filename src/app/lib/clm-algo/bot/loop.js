@@ -208,6 +208,22 @@ async function metarouterSwapExactIn({ commandByte, pools, tokenIn, amountInRaw,
   return sendTxResilient(wallet, { to: METAROUTER, data, gasLimit: est * 2n });
 }
 
+// eth_call avec expéditeur (simulation d'une fonction qui dépend de msg.sender).
+async function ethCallFrom(to, data, from) {
+  for (const url of RPC_URLS) {
+    try {
+      const res  = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ from, to, data }, 'latest'] }),
+        signal: AbortSignal.timeout(6000),
+      });
+      const json = await res.json();
+      if (json.result && json.result !== '0x') return json.result;
+    } catch (_) {}
+  }
+  throw new Error(`eth_call(${to}) échoué sur tous les RPCs`);
+}
+
 async function ethCall(to, data) {
   for (const url of RPC_URLS) {
     try {
@@ -552,6 +568,77 @@ async function retryPendingExternal() {
   const r = await sendExternalUsdc(pending.amount, pending.source ?? 'daily_6am_25pct', false);
   if (r.txHash || (r.error && !r.retryable)) await kv.del('p2_pending_external').catch(() => {});
   return r;
+}
+
+// ── Claim Autopilot (14/11) ──────────────────────────────────────────────────────────────────────
+// Rewards USDC de l'Autopilot (sAERO). Même appel que l'interface Aero : claim(address token,
+// address to) sur le contrat ci-dessous, retrouvé dans une vraie transaction du wallet (07/11,
+// 0xd635…8806 : token = USDC, to = wallet). L'appel en lecture (eth_call) renvoie le montant claimable
+// en USDC (6 décimales) — il sert de simulation gratuite avant tout envoi.
+const AUTOPILOT_CLAIM        = '0xafa7ca53e0a63d94218728842ed286308435dd86';
+const AUTOPILOT_CLAIM_IFACE  = new ethers.Interface(['function claim(address token, address to) returns (uint256)']);
+const AUTOPILOT_MIN_USDC_RAW = 500000n; // 0,50 $ : on ne claim que si le montant dépasse ce seuil
+
+// Jeudi matin (Paris, 6h–12h), une seule tentative aboutie par jour. Ne renvoie jamais une tx déjà
+// partie : seules les erreurs où rien n'a été diffusé (lecture, estimation de gas) sont retentées au tick suivant.
+async function autopilotClaimThursday() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Paris', weekday: 'short', hour: '2-digit', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).map(p => [p.type, p.value]));
+  if (parts.weekday !== 'Thu') return null;
+  const hour = parseInt(parts.hour, 10);
+  if (hour < 6 || hour >= 12) return null;
+  const today = `${parts.year}-${parts.month}-${parts.day}`;
+  const DONE_KEY = 'p2_autopilot_claim_done';
+  if ((await kv.get(DONE_KEY).catch(() => null)) === today) return null;
+  const markDone = () => kv.set(DONE_KEY, today, { ex: 3 * 86400 }).catch(() => {});
+
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) return { error: 'no_private_key' };
+  const owner = new ethers.Wallet(privateKey.trim()).address;
+  const data  = AUTOPILOT_CLAIM_IFACE.encodeFunctionData('claim', [USDC_ADDRESS, owner]);
+
+  // 1. Montant claimable (lecture seule) — échec = rien n'est parti, on retentera au prochain tick.
+  let claimable;
+  try {
+    const hex = await ethCallFrom(AUTOPILOT_CLAIM, data, owner);
+    [claimable] = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], hex);
+  } catch (e) { return { error: `read_failed: ${e?.message ?? e}`.slice(0, 200) }; }
+  const claimableUsd = parseFloat(ethers.formatUnits(claimable, 6));
+  if (claimable <= AUTOPILOT_MIN_USDC_RAW) {
+    await markDone();
+    return { skipped: 'below_threshold', claimableUsd };
+  }
+
+  // 2. Envoi (gas limit = estimation ×2 comme les autres appels Aero), jamais renvoyé.
+  let lastErr = '';
+  for (const url of RPC_URLS) {
+    let tx;
+    try {
+      const provider = new ethers.JsonRpcProvider(url);
+      const wallet   = new ethers.Wallet(privateKey.trim(), provider);
+      const est      = await provider.estimateGas({ to: AUTOPILOT_CLAIM, from: owner, data });
+      tx = await sendTxResilient(wallet, { to: AUTOPILOT_CLAIM, data, gasLimit: est * 2n });
+    } catch (e) {
+      if (isAmbiguousSend(e)) {
+        await markDone();
+        await sendErrorEmail('[CryptoYieldTracker] Claim Autopilot — envoi ambigu', `claimableUsd: ${claimableUsd}\nhash: ${e.hashes?.[0] ?? 'n/a'}`);
+        return { error: `claim_ambiguous:${e.hashes?.[0] ?? ''}`, claimableUsd };
+      }
+      lastErr = e?.shortMessage ?? e?.message ?? String(e);
+      continue; // rien n'est parti : essai sûr sur le RPC suivant
+    }
+    try {
+      await confirmSentTx(tx);
+    } catch (e) {
+      if (isOnchainRevert(e)) { lastErr = e?.shortMessage ?? e?.message ?? String(e); continue; } // revert : rien reçu, essai sûr
+      await markDone();
+      return { error: `claim_unconfirmed:${tx.hash}`, claimableUsd };
+    }
+    await markDone();
+    return { ok: true, claimableUsd, txHash: tx.hash };
+  }
+  return { error: `claim_failed: ${lastErr.slice(0, 200)}`, claimableUsd };
 }
 
 async function dailyAeroDistribution(base, price) {
@@ -1068,6 +1155,12 @@ export async function botLoop({ base, price }) {
       if (batchOk) await writeDailyAeroBatchDone(2).catch(() => {});
     }
   }
+
+  // Claim des rewards USDC de l'Autopilot : jeudi matin uniquement, si le montant dépasse 0,50 $.
+  try {
+    const apClaim = await autopilotClaimThursday();
+    if (apClaim) result.autopilotClaim = apClaim;
+  } catch (e) { result.autopilotClaim = { error: String(e?.message ?? e).slice(0, 200) }; }
 
   // Virement externe resté en attente après un échec sûr (voir sendExternalUsdc) : on retente.
   try {
