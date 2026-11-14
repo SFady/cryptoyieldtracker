@@ -48,10 +48,9 @@ export const LOW_LADDER = {
   KEY:   "p2_low_ladder",       // { since: ms, stage: 0|1|2 } — supprimé à la prochaine sortie ou au 1er resserrage de la Règle 5
   MUL0:  3,
   MUL1:  2,
-  T1_H:  24,                    // x3 pendant 24 h
-  T2_H:  48,                    // puis x2 pendant 24 h (jusqu'à 48 h depuis la reprise), puis x1
+  T1_H:  6,
+  T2_H:  24,
   SHRINK_MIN_AGE_H: 24,
-  ROLL_PT: 1,                   // pendant x3/x2 : resserrage si le p24h baisse de 1 point vs la référence (sans swap)
 };
 
 // Plus bas prix CRON depuis `sinceMs` et son horodatage ({ price, ts }) ; null s'il y a trop peu de
