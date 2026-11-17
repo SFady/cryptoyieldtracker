@@ -1254,7 +1254,11 @@ export async function botLoop({ base, price }) {
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
       // 12/11 : sortie haute = réouverture x1 systématique (backtest : x2 faisait perdre ~7 $ en moyenne).
-      const width3 = Math.max(p24h3, 1.5);
+      // 17/11 : si une échelle x3/x2 est en cours, la sortie haute la CONSERVE : réouverture au multiple
+      // de l'étape en cours (même horloge `since`), l'échelle continue ensuite normalement.
+      const ladder3 = await kv.get(LOW_LADDER.KEY).catch(() => null);
+      const mult3   = ladder3 ? ((ladder3.stage ?? 0) === 0 ? LOW_LADDER.MUL0 : LOW_LADDER.MUL1) : 1;
+      const width3 = Math.max(p24h3, 1.5) * mult3;
       result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
       result.newRangePct     = parseFloat(width3.toFixed(2));
@@ -1262,7 +1266,7 @@ export async function botLoop({ base, price }) {
       // Une sortie haute casse la série de sorties basses consécutives.
       if (collectClosedOk(result.collect)) {
         await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {});
-        await kv.del(LOW_LADDER.KEY).catch(() => {});
+        if (ladder3) await kv.set(LOW_LADDER.KEY, { since: ladder3.since, stage: ladder3.stage ?? 0, refP24h: p24h3 }, { ex: 72 * 3600 }).catch(() => {});
       }
       await logBotTick(kv, result);
       return result;
