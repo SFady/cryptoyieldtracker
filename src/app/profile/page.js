@@ -41,6 +41,7 @@ export default function ProfilePage() {
   const [lowBlock2, setLowBlock2] = useState(null);
   const [lowStreakAt2, setLowStreakAt2] = useState(null);
   const [lowStreakWindowH2, setLowStreakWindowH2] = useState(24);
+  const [highBlock2, setHighBlock2] = useState(null);
 
   const [pos3, setPos3]          = useState(null);
   const [usdcWallet3, setUsdcWallet3] = useState(null);
@@ -62,7 +63,7 @@ export default function ProfilePage() {
     if (SHOW_POOL2) {
       fetch("/api/positions2")
         .then((r) => r.json())
-        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setEthPrice2(d.ethPrice ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setInitialPoolValue2(d.initialPoolValue ?? null); setInitialWethPrice2(d.initialWethPrice ?? null); setInitialWethShare2(d.initialWethShare ?? null); setLowBlock2(d.lowBlock ?? null); setLowStreakAt2(d.lowStreakAt ?? null); setLowStreakWindowH2(d.lowStreakWindowH ?? 24); })
+        .then((d) => { if (d.error) throw new Error(d.error); setWalletShort2(d.walletShort ?? ""); setPos2(d.positions ?? []); setUsdcWallet2(d.usdcWallet ?? null); setEthPrice2(d.ethPrice ?? null); setWethWallet2(d.wethWallet ?? null); setWethWalletUSD2(d.wethWalletUSD ?? null); setEthWallet2(d.ethWallet ?? null); setEthWalletUSD2(d.ethWalletUSD ?? null); setAeroWallet2(d.aeroWallet ?? null); setAeroWalletUSD2(d.aeroWalletUSD ?? null); setPercentileRange2(d.percentileRangePct ?? null); setLastCronAt2(d.lastCronAt ?? null); setEdgeStreak2(d.edgeStreak ?? { zone: null, count: 0 }); setOorCount2(d.oorCount ?? 0); setOorLow2(d.oorLow ?? false); setWethRatio2(d.wethRatio ?? null); setOpeningTotal2(d.openingTotal ?? null); setOpeningLp2(d.openingLp ?? null); setAeroClockResetAt2(d.aeroClockResetAt ?? null); setInitialPoolValue2(d.initialPoolValue ?? null); setInitialWethPrice2(d.initialWethPrice ?? null); setInitialWethShare2(d.initialWethShare ?? null); setLowBlock2(d.lowBlock ?? null); setLowStreakAt2(d.lowStreakAt ?? null); setLowStreakWindowH2(d.lowStreakWindowH ?? 24); setHighBlock2(d.highBlock ?? null); })
         .catch((e) => setError2(e.message))
         .finally(() => setLoading2(false));
     }
@@ -167,6 +168,33 @@ export default function ProfilePage() {
                   <div>
                     Reprise quand : attente ≥ {lowBlock2.minH} h {waitOk ? "✓" : "✗"} · sans nouveau plus bas depuis {lowBlock2.noNewLowMin} min
                     {" "}(actuel : {sinceLowMin !== null ? fmtDur(sinceLowMin) : "—"}{lowBlock2.lowPrice != null ? `, plus bas ${lowBlock2.lowPrice.toFixed(2)}` : ""}) {calmOk ? "✓" : "✗"} — reprise forcée après {lowBlock2.maxH} h
+                  </div>
+                </div>
+              );
+            })()}
+            {highBlock2 && (() => {
+              const waitedMin = highBlock2.since ? Math.max(0, Math.round((Date.now() - highBlock2.since) / 60000)) : null;
+              const fmtDur    = (m) => m === null ? "—" : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+              const since     = highBlock2.since ? new Date(highBlock2.since).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+              const sinceHighMin = highBlock2.minSinceHigh ?? null;
+              const calmOk    = sinceHighMin !== null && sinceHighMin >= highBlock2.noNewHighMin;
+              const waitOk    = waitedMin !== null && waitedMin >= highBlock2.minH * 60;
+              return (
+                <div style={{
+                  fontSize: "0.7rem", fontFamily: "monospace", lineHeight: 1.6,
+                  padding: "8px 12px", marginBottom: 10, borderRadius: 8,
+                  background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.4)", color: "#8fe8c0",
+                }}>
+                  <div style={{ fontWeight: 700, color: "#4ae8a8" }}>⛔ Réouverture bloquée — sortie haute</div>
+                  <div>
+                    Bloquée depuis {since} ({fmtDur(waitedMin)}){ethPrice2 ? ` · ETH $${parseFloat(ethPrice2).toFixed(2)}` : ""} ·{" "}
+                    {highBlock2.swapped === false
+                      ? <span style={{ color: "#ff8a8a", fontWeight: 700 }}>⚠ swap USDC→WETH échoué : le capital reste en USDC (expose à rater la hausse)</span>
+                      : highBlock2.swapped === true ? "capital passé en WETH dans le wallet (pour ne pas rater la suite de la hausse)" : "capital en attente dans le wallet"}
+                  </div>
+                  <div>
+                    Reprise quand : attente ≥ {highBlock2.minH} h {waitOk ? "✓" : "✗"} · sans nouveau plus haut depuis {highBlock2.noNewHighMin} min
+                    {" "}(actuel : {sinceHighMin !== null ? fmtDur(sinceHighMin) : "—"}{highBlock2.highPrice != null ? `, plus haut ${highBlock2.highPrice.toFixed(2)}` : ""}) {calmOk ? "✓" : "✗"} — reprise forcée après {highBlock2.maxH} h
                   </div>
                 </div>
               );

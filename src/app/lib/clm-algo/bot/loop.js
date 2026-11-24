@@ -2,7 +2,7 @@ import { ethers }           from 'ethers';
 import { kv }               from '@vercel/kv';
 import { neon }             from '@neondatabase/serverless';
 import { ALGO_CONFIG, REDIS_KEYS } from '../config.js';
-import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, LOW_LADDER, getRecentRangePct, getLowSince } from '../../cronKv.js';
+import { readLpState, writeLpState, readP2Range, writeP2Range, getPercentileRange, getLastNPrices, wasDailyAeroBatchDone, writeDailyAeroBatchDone, LOW_BLOCK, LOW_LADDER, getRecentRangePct, getLowSince, HIGH_BLOCK, getHighSince } from '../../cronKv.js';
 import { NFPM_ADDRESS, POOL_ADDRESS_2, GAUGE_ADDRESS_2 } from '../../config.js';
 import { logBotTick }       from './metrics.js';
 import { safeSend, isAmbiguousSend } from '../../safeSend.js';
@@ -890,18 +890,21 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
   // Réinitialiser l'état algo
   await clearAlgoState();
 
-  // Blocage (2e sortie basse consécutive en 24h) : on ne rouvre pas, le capital reste en USDC/WETH
-  // dans le wallet. La Règle 1 rouvrira une fois le prix calmé (voir LOW_BLOCK dans cronKv.js).
+  // Blocage à la sortie basse ou haute : on ne rouvre pas, le capital est basculé à 100% du côté qui
+  // profite de la tendance en cours (USDC en bas pour ne plus subir la baisse ; WETH en haut pour ne
+  // pas rater la suite de la hausse — voir discussion du 24/11). La Règle 1 rouvrira une fois le prix
+  // calmé ou au bout du garde-fou MAX_H (voir LOW_BLOCK/HIGH_BLOCK dans cronKv.js).
   if (blockReopen) {
-    const blockState = { since: Date.now(), reason: 'two_consecutive_low_exits', swapped: null };
-    await kv.set(LOW_BLOCK.KEY, blockState, { ex: 48 * 3600 }).catch(() => {});
+    const isHigh = blockReopen === 'high';
+    const BLOCK  = isHigh ? HIGH_BLOCK : LOW_BLOCK;
+    const blockState = { since: Date.now(), reason: isHigh ? 'high_exit' : 'two_consecutive_low_exits', swapped: null };
+    await kv.set(BLOCK.KEY, blockState, { ex: 48 * 3600 }).catch(() => {});
     await kv.del('p2_pending_reopen').catch(() => {});
     out.reopenBlocked = true;
-    // Après une sortie basse la position est presque entièrement en WETH : on la vend en USDC pour ne
-    // plus subir la baisse (le backtest suppose ce passage en USDC). Un seul essai, JAMAIS retenté
-    // automatiquement (règle « aucune tx en double ») ; la page pools signale un échec éventuel.
+    // Un seul essai, JAMAIS retenté automatiquement (règle « aucune tx en double ») ; la page pools
+    // signale un échec éventuel.
     try {
-      const sr = await fetch(`${base}/api/swap-weth-usdc`, { method: 'POST', headers: authHeaders(), signal: AbortSignal.timeout(60000) });
+      const sr = await fetch(`${base}/api/${isHigh ? 'swap-usdc-weth' : 'swap-weth-usdc'}`, { method: 'POST', headers: authHeaders(), signal: AbortSignal.timeout(60000) });
       const sd = await sr.json();
       out.blockSwap = sd;
       blockState.swapped = !!(sd.ok && !sd.error);
@@ -909,7 +912,7 @@ async function runCollect(base, price, targetRatio = 0.5, closeReason = null, ra
       out.blockSwap = { error: e.message };
       blockState.swapped = false;
     }
-    await kv.set(LOW_BLOCK.KEY, blockState, { ex: 48 * 3600 }).catch(() => {});
+    await kv.set(BLOCK.KEY, blockState, { ex: 48 * 3600 }).catch(() => {});
     return out;
   }
 
@@ -1248,25 +1251,24 @@ export async function botLoop({ base, price }) {
       }
 
       // Règle 3 : trigger haut (position quasi entièrement en USDC) — collecte AERO (40%
-      // envoyé/60% gardé), ferme et rouvre à 25% WETH (swap forcé), largeur = percentile24h brut.
+      // envoyé/60% gardé), ferme et BLOQUE la réouverture (24/11, miroir de la Règle 2 côté bas :
+      // whipsaws mesurés en données réelles — ex. 4 sorties hautes en cascade le 22/11 en moins de
+      // 4h, positions tenant 3,2h en moyenne après une sortie haute). Pendant le blocage, le capital
+      // passe en WETH (pas USDC) pour ne pas rater la suite d'une hausse en cours — voir HIGH_BLOCK
+      // dans cronKv.js. Pas de largeur à calculer ici : la Règle 1 rouvrira à largeur normale (×1,
+      // jamais élargie côté haut — backtest du 12/11 : ×2 perdait ~7$ en moyenne).
       const pctData3 = await getPercentileRange();
       const p24h3    = pctData3 && pctData3.cnt >= 10 && pctData3.p05 > 0
         ? (pctData3.p95 - pctData3.p05) / pctData3.p05 * 100
         : null;
-      // 12/11 : sortie haute = réouverture x1 systématique (backtest : x2 faisait perdre ~7 $ en moyenne).
-      // 17/11 : si une échelle x3/x2 est en cours, la sortie haute la CONSERVE : réouverture au multiple
-      // de l'étape en cours (même horloge `since`), l'échelle continue ensuite normalement.
-      const ladder3 = await kv.get(LOW_LADDER.KEY).catch(() => null);
-      const mult3   = ladder3 ? ((ladder3.stage ?? 0) === 0 ? LOW_LADDER.MUL0 : LOW_LADDER.MUL1) : 1;
-      const width3 = Math.max(p24h3, 1.5) * mult3;
       result.action          = 'high_trigger';
       result.percentileRange = p24h3 !== null ? parseFloat(p24h3.toFixed(2)) : null;
-      result.newRangePct     = parseFloat(width3.toFixed(2));
-      result.collect = await runCollect(base, price, 0.25, 'high_trigger', 1, false, width3, false);
-      // Une sortie haute casse la série de sorties basses consécutives.
+      result.collect = await runCollect(base, price, 0.25, 'high_trigger', 1, false, null, false, false, null, 'high');
+      // Une sortie haute casse la série de sorties basses consécutives, et abandonne toute échelle
+      // x3/x2 en cours (la prochaine réouverture vient d'un blocage haut tout neuf, pas de la Règle 2).
       if (collectClosedOk(result.collect)) {
         await kv.del(LOW_BLOCK.STREAK_KEY).catch(() => {});
-        if (ladder3) await kv.set(LOW_LADDER.KEY, { since: ladder3.since, stage: ladder3.stage ?? 0, refP24h: p24h3 }, { ex: 72 * 3600 }).catch(() => {});
+        await kv.del(LOW_LADDER.KEY).catch(() => {});
       }
       await logBotTick(kv, result);
       return result;
@@ -1465,6 +1467,44 @@ export async function botLoop({ base, price }) {
         await kv.del('p2_pending_reopen').catch(() => {});
       }
       result.action = result.autoStart.skipped ? 'auto_start_skipped' : 'low_block_resumed';
+      await logBotTick(kv, result);
+      return result;
+    }
+
+    // Blocage après une sortie haute (24/11) : miroir du blocage bas ci-dessus, avec un garde-fou
+    // plus court (HIGH_BLOCK.MAX_H, 6h au lieu de 12h) — rater la suite d'une vraie hausse coûte plus
+    // cher que rater un creux, donc on force la reprise plus vite si le calme ne vient pas. Reprise à
+    // 50% WETH, largeur normale ×1 (jamais élargie côté haut, voir Règle 3).
+    const highBlock = await kv.get(HIGH_BLOCK.KEY).catch(() => null);
+    if (highBlock) {
+      const waitedH  = (Date.now() - (highBlock.since ?? 0)) / 3.6e6;
+      const highSince = await getHighSince(highBlock.since ?? 0);
+      const minSinceHigh = highSince ? (Date.now() - highSince.ts) / 60000 : null;
+      const calm     = minSinceHigh !== null && minSinceHigh >= HIGH_BLOCK.NO_NEW_HIGH_MIN;
+      const forced   = waitedH >= HIGH_BLOCK.MAX_H;
+      result.highBlock = {
+        waitedH:  parseFloat(waitedH.toFixed(2)),
+        highPrice: highSince ? highSince.price : null,
+        minSinceHigh: minSinceHigh !== null ? Math.round(minSinceHigh) : null,
+        calm, forced,
+      };
+      if (waitedH < HIGH_BLOCK.MIN_H || (!calm && !forced)) {
+        result.action = 'high_block_wait';
+        await logBotTick(kv, result);
+        return result;
+      }
+      const pctDataH = await getPercentileRange();
+      const p24hH    = pctDataH && pctDataH.cnt >= 10 && pctDataH.p05 > 0
+        ? (pctDataH.p95 - pctDataH.p05) / pctDataH.p05 * 100
+        : null;
+      const widthH = Math.max(p24hH, 1.5); // ×1 — jamais élargie côté haut
+      result.autoStart = await autoStart({ base, price, targetRatio: 0.5, explicitRangePct: widthH });
+      if (!result.autoStart.skipped && !result.autoStart.error) {
+        await saveRangeAndLowTrigger(result, price);
+        await kv.del(HIGH_BLOCK.KEY).catch(() => {});
+        await kv.del('p2_pending_reopen').catch(() => {});
+      }
+      result.action = result.autoStart.skipped ? 'auto_start_skipped' : 'high_block_resumed';
       await logBotTick(kv, result);
       return result;
     }

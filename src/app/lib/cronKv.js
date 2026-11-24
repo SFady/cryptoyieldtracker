@@ -73,6 +73,36 @@ export async function getLowSince(sinceMs) {
   } catch (_) { return null; }
 }
 
+// Blocage après une sortie haute (24/11) : miroir de LOW_BLOCK, mais MAX_H plus court — rater une
+// vraie hausse soutenue coûte plus cher que rater un creux (voir discussion), donc on force la
+// reprise plus vite si le calme ne vient pas. Pendant le blocage, le capital passe en WETH (pas
+// USDC) : contrairement au côté bas, l'idée est de NE PAS rater la suite d'une hausse en cours.
+export const HIGH_BLOCK = {
+  KEY:             "p2_high_block",   // état « réouverture bloquée » { since, swapped }
+  MIN_H:           1,                 // attente minimale avant toute reprise
+  CALM_MIN:        60,                // minutes prises pour mesurer le calme (affichage uniquement)
+  MAX_H:           6,                 // garde-fou : reprise forcée au bout de 6h même sans calme
+  NO_NEW_HIGH_MIN: 60,                // reprise quand le plus haut depuis le blocage date de plus de 60 min
+};
+
+// Plus haut prix CRON depuis `sinceMs` et son horodatage ({ price, ts }) — miroir de getLowSince.
+export async function getHighSince(sinceMs) {
+  try {
+    const entries = await kv.zrange(KEY, sinceMs, "+inf", { byScore: true });
+    let high = null, n = 0;
+    for (const m of entries) {
+      const s = String(m); const colon = s.indexOf(':');
+      if (colon === -1) continue;
+      const ts = Number(s.slice(0, colon));
+      const p  = Number(s.slice(colon + 1));
+      if (!(p > 0) || !(ts >= sinceMs)) continue;
+      n++;
+      if (!high || p > high.price) high = { price: p, ts };
+    }
+    return n >= 10 ? high : null;
+  } catch (_) { return null; }
+}
+
 // Écart haut-bas (en % du milieu) des prix CRON sur les `minutes` dernières minutes ; null s'il y a
 // trop peu de points pour conclure (moins de 10).
 export async function getRecentRangePct(minutes = LOW_BLOCK.CALM_MIN) {
